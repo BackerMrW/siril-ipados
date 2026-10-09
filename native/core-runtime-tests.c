@@ -21,6 +21,40 @@ static int fixture(const char *path, const void *pixels, int image_type, int pix
     fits_close_file(file, &status);
     return status;
 }
+static int star_fixture(const char *path, int dx, int dy) {
+    const int side = 256;
+    float *pixels = calloc(side * side, sizeof(float));
+    if (!pixels) return 1;
+    unsigned state = 987321;
+    double sx[30], sy[30], amplitude[30];
+    for (int i = 0; i < 30; i++) {
+        state = state * 1664525u + 1013904223u;
+        sx[i] = 25 + (i % 6) * 40 + (state % 13);
+        state = state * 1664525u + 1013904223u;
+        sy[i] = 25 + (i / 6) * 44 + (state % 13);
+        amplitude[i] = 0.15 + (i % 7) * 0.025;
+    }
+    sx[0] = 30; sy[0] = 31; amplitude[0] = 0.7;
+    for (int y = 0; y < side; y++) for (int x = 0; x < side; x++) {
+        double value = 0.02 + 0.0001 * sin(x * 1.3 + y * 0.7);
+        for (int i = 0; i < 30; i++) {
+            double xx = x - sx[i] - dx, yy = y - sy[i] - dy;
+            value += amplitude[i] * exp(-(xx * xx + yy * yy) / (2 * 1.8 * 1.8));
+        }
+        pixels[y * side + x] = value;
+    }
+    fitsfile *file = NULL;
+    int status = 0;
+    long axes[] = {side, side};
+    double exposure = 120;
+    fits_create_file(&file, path, &status);
+    fits_create_img(file, FLOAT_IMG, 2, axes, &status);
+    fits_update_key(file, TDOUBLE, "EXPTIME", &exposure, NULL, &status);
+    fits_write_img(file, TFLOAT, 1, side * side, pixels, &status);
+    fits_close_file(file, &status);
+    free(pixels);
+    return status;
+}
 int main(int argc, char **argv) {
     CHECK(argc == 2);
     char light[4096], dark[4096], output[4096], missing[4096];
@@ -92,6 +126,32 @@ int main(int argc, char **argv) {
     siril_copy_processing_log(logs, sizeof logs);
     CHECK(logs[0]);
     puts("PASS: original Siril command engine converted three FITS, calibrated with a master dark, median-stacked exact expected pixels, stopped on errors, and rejected desktop exit/detached scripts");
+    // Global star registration must actually align translated star fields.
+    char stars[4096], registered[4096];
+    snprintf(stars, sizeof stars, "%s/stars", argv[1]);
+    snprintf(registered, sizeof registered, "%s/registered", argv[1]);
+    CHECK(mkdir(stars, 0700) == 0 && mkdir(registered, 0700) == 0);
+    const int dx[] = {0, 8, -5}, dy[] = {0, -5, 7};
+    for (int i = 0; i < 3; i++) {
+        snprintf(path, sizeof path, "%s/frame%d.fits", stars, i);
+        CHECK(star_fixture(path, dx[i], dy[i]) == 0);
+    }
+    CHECK(siril_run_commands(stars,
+        "convert stars -out=../registered\ncd ../registered\nsetref stars 1\n"
+        "register stars -transf=shift\nstack r_stars median -nonorm -out=aligned.fits\n", error, sizeof error));
+    snprintf(path, sizeof path, "%s/aligned.fits", registered);
+    float aligned[256 * 256];
+    status = 0;
+    fits_open_file(&file, path, READONLY, &status);
+    CHECK(status == 0);
+    fits_read_img(file, TFLOAT, 1, 256 * 256, NULL, aligned, &any_null, &status);
+    fits_close_file(file, &status);
+    CHECK(status == 0);
+    // Without registration the median suppresses this displaced bright star.
+    CHECK(aligned[31 * 256 + 30] > 0.65f);
+    CHECK(aligned[31 * 256 + 30] > aligned[26 * 256 + 38] + 0.5f);
+    CHECK(strstr(siril_command_catalog(), "calibrate\t") && strstr(siril_command_catalog(), "register\t"));
+    puts("PASS: upstream global star registration aligned translated synthetic star fields and preserved the reference star in the median stack");
     siril_image_free(calibration);
     // ASIAIR camera FITS commonly use unsigned 16-bit samples. Verify Siril's
     // full-range normalization and float export rather than only float inputs.

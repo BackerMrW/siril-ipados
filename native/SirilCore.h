@@ -38,6 +38,8 @@ int siril_run_commands(const char *directory, const char *script, char *error, s
 /* Independent of the engine lock, so UI can read logs and cancel a running job. */
 void siril_copy_processing_log(char *buffer, size_t capacity);
 void siril_cancel_processing(void);
+/* Runtime catalog from the configured upstream command table: name<TAB>usage. */
+const char *siril_command_catalog(void);
 #ifdef __cplusplus
 }
 #endif

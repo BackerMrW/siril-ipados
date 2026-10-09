@@ -18,6 +18,7 @@
 #include "io/sequence.h"
 #include "io/conversion.h"
 #include <gsl/gsl_errno.h>
+#include <fftw3.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -57,6 +58,9 @@ static void initialize(void) {
         gsl_set_error_handler_off();
         siril_initialize_rng();
         initialize_default_settings();
+#if defined(HAVE_FFTW3F_THREADS) || defined(HAVE_FFTW3F_OMP)
+        fftwf_init_threads();
+#endif
         com.pref.memory_ratio = 0.5;
         gfit = g_new0(fits, 1);
         initialize_sequence(&com.seq, TRUE);
@@ -197,7 +201,7 @@ int siril_run_commands(const char *directory, const char *script, char *error, s
     gchar *directory_error = NULL;
     if (siril_change_dir(directory, &directory_error)) {
         if (error && capacity) snprintf(error, capacity, "Working directory: %s", directory_error ? directory_error : directory);
-        g_free(directory_error);
+        /* siril_change_dir returns a borrowed pointer to the upstream log. */
         goto done;
     }
     gchar **lines = g_strsplit(script, "\n", -1);

@@ -34,7 +34,7 @@ except subprocess.TimeoutExpired:
     print("bootstatus timed out; testing the Booted device directly", flush=True)
 directory = tempfile.mkdtemp(prefix="siril-numeric-")
 command = ["xcrun", "simctl", "spawn", udid, str(root / "siril-ios-build/src/siril-ipados-runtime-tests"), directory]
-result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=90)
+result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=180)
 (root / "diagnostics/core-runtime-tests.log").write_text(result.stdout)
 print(result.stdout, flush=True)
 result.check_returncode()
