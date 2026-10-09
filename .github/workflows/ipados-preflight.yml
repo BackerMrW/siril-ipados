@@ -319,8 +319,23 @@ jobs:
             -Dpcre2:jit=disabled -Dpcre2:grep=false -Dpcre2:test=false \
             -Dlibffi:ffi-build-versioned=false \
             2>&1 | tee diagnostics/glib-configure.log
-          meson compile -C glib-ios-build -j 3 glib-2.0 gobject-2.0 gio-2.0 gmodule-2.0 \
-            2>&1 | tee diagnostics/glib-build.log
+          # Static GLib archives do not automatically build all subproject archives.
+          # Build every declared static library before installing development files.
+          python3 - <<'PY_STATIC_LIBRARIES' 2>&1 | tee diagnostics/glib-build.log
+          import json, pathlib, subprocess
+          build = pathlib.Path('glib-ios-build').resolve()
+          targets = json.loads(subprocess.check_output(['meson', 'introspect', '--targets', str(build)], text=True))
+          archives = []
+          for target in targets:
+              if target['type'] == 'static library':
+                  for filename in target['filename']:
+                      output = pathlib.Path(filename)
+                      if not output.is_absolute(): output = build / output
+                      archives.append(str(output.relative_to(build)))
+          if not archives: raise RuntimeError('No static library targets were declared')
+          pathlib.Path('diagnostics/glib-static-targets.json').write_text(json.dumps(archives, indent=2))
+          subprocess.run(['ninja', '-C', str(build), '-j', '3', *archives], check=True)
+          PY_STATIC_LIBRARIES
           meson install -C glib-ios-build --no-rebuild --tags devel,runtime \
             2>&1 | tee diagnostics/glib-install.log
           for library in libglib-2.0.a libgobject-2.0.a libgio-2.0.a libgmodule-2.0.a; do
