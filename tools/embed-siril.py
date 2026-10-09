@@ -61,6 +61,28 @@ const char *siril_command_catalog(void) {
 # iPadOS gives Apps a per-process memory budget, unlike desktop macOS.
 utilities = source / "src/core/OS_utils.c"
 text = utilities.read_text()
+needle = "#ifdef OS_OSX\nstatic gint64 find_space(const gchar *name) {"
+assert text.count(needle) == 1
+text = text.replace(needle, """#ifdef OS_IOS
+static gint64 find_space(const gchar *name) {
+    /* iPad sandbox volumes may omit the desktop format-description key.
+     * Query the available capacity itself instead of requiring APFS metadata. */
+    @autoreleasepool {
+        NSString *path = [NSString stringWithUTF8String:name];
+        NSURL *url = [NSURL fileURLWithPath:path];
+        NSNumber *capacity = nil;
+        if ([url getResourceValue:&capacity forKey:NSURLVolumeAvailableCapacityForImportantUsageKey error:nil]
+                && capacity && [capacity longLongValue] > 0) return [capacity longLongValue];
+        capacity = nil;
+        if ([url getResourceValue:&capacity forKey:NSURLVolumeAvailableCapacityKey error:nil] && capacity)
+            return [capacity longLongValue];
+        NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfFileSystemForPath:path error:nil];
+        NSNumber *freeSpace = attributes[NSFileSystemFreeSize];
+        return freeSpace ? [freeSpace longLongValue] : -1;
+    }
+}
+#elif defined(OS_OSX)
+static gint64 find_space(const gchar *name) {""")
 needle = "guint64 get_available_memory() {\n#if defined(__linux__) || defined(__CYGWIN__)"
 assert text.count(needle) == 1
 text = text.replace(needle, """#ifdef OS_IOS
