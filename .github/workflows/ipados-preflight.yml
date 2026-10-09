@@ -312,6 +312,8 @@ jobs:
         # Do not let host macOS pkg-config/CMake metadata satisfy iPadOS dependencies.
         export PKG_CONFIG_PATH=""
         export PKG_CONFIG_LIBDIR="$GITHUB_WORKSPACE/ipados-stage/lib/pkgconfig:$GITHUB_WORKSPACE/ipados-stage/share/pkgconfig"
+        python3 tools/embed-siril.py
+        git -C siril-src diff --check
         set +e
         meson setup siril-ios-build siril-src --cross-file ipados-cross.ini --native-file macos-tools.ini \
           --wrap-mode=nodownload -Dembedded=true -Dgtk=false \

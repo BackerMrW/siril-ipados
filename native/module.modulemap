@@ -1,0 +1,14 @@
+module SirilCore {
+    header "SirilCore.h"
+    export *
+    link "c++"
+    link "z"
+    link "iconv"
+    link "resolv"
+    link framework "Foundation"
+    link framework "Security"
+    link framework "CoreFoundation"
+    link framework "CoreGraphics"
+    link framework "CoreText"
+    link framework "ImageIO"
+}

@@ -66,7 +66,7 @@ def build_archives(build, name):
     data = json.loads(subprocess.check_output(["meson", "introspect", "--targets", str(build)], env=ENV, text=True))
     outputs = []
     for target in data:
-        if target["type"] == "static library":
+        if target["type"] == "static library" and target.get("installed", False):
             for filename in target["filename"]:
                 path = Path(filename)
                 if not path.is_absolute():
