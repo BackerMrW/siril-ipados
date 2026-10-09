@@ -115,12 +115,14 @@ struct ContentView: View {
     @State private var image: UIImage?
     @State private var previewTask: Task<Void, Never>?
     @State private var importRole: FrameRole = .lights
+    @State private var showHistory = false
+    @State private var columns: NavigationSplitViewVisibility = .all
     @State private var showProcessing = false
     @State private var previewURL: URL?
     @State private var selected: Set<UUID> = []
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columns) {
             List {
               Picker("导入类型", selection: $importRole) {
                   ForEach(FrameRole.allCases.filter { $0 != .results }) { role in Text(role.title).tag(role) }
@@ -146,6 +148,19 @@ struct ContentView: View {
                     }
                 }.buttonStyle(.borderless).disabled(busy)
                 }
+                .contextMenu {
+                    Menu("更改类型") {
+                        ForEach(FrameRole.allCases) { role in
+                            Button(role.title) {
+                                if let index = files.firstIndex(where: { $0.id == file.id }) {
+                                    files[index].role = role
+                                    Task { do { try await engine.saveLibrary(files) } catch { errors = error.localizedDescription } }
+                                }
+                            }
+                        }
+                    }
+                    Button("只选择这张") { selected = [file.id] }
+                }.disabled(busy)
                   }
                 }
               }
@@ -154,6 +169,7 @@ struct ContentView: View {
             .toolbar {
                 Button("导入 FITS", systemImage: "plus") { showImporter = true }.disabled(busy)
                 Button("处理", systemImage: "slider.horizontal.3") { showProcessing = true }.disabled(busy)
+                Button("记录", systemImage: "clock.arrow.circlepath") { showHistory = true }.disabled(busy)
                 Menu("选择", systemImage: "checklist") {
                     Button("选中拍摄帧") { selected = Set(files.filter { $0.role != .results }.map(\.id)) }
                     Button("取消全选") { selected.removeAll() }
@@ -168,27 +184,27 @@ struct ContentView: View {
                 }.padding()
             }
         } detail: {
-            if let image {
-                VStack {
+            VStack {
+                if let image {
                     Image(uiImage: image).resizable().scaledToFit().padding().background(.black)
                     if let previewURL { ShareLink("导出 FITS", item: previewURL).padding() }
+                } else {
+                    ContentUnavailableView("导入天文图像", systemImage: "sparkles",
+                                           description: Text("可同时导入多张文件，在图库中勾选本次处理的图像。"))
                 }
-            } else {
-                ContentUnavailableView("导入天文图像", systemImage: "sparkles",
-                                       description: Text("点“导入 FITS”，可同时选择多张文件。"))
+            }
+            .navigationTitle("图像预览")
+            .toolbar {
+                Button("导入", systemImage: "plus") { showImporter = true }.disabled(busy)
+                Button("处理", systemImage: "slider.horizontal.3") { showProcessing = true }.disabled(busy)
+                Button("记录", systemImage: "clock.arrow.circlepath") { showHistory = true }.disabled(busy)
             }
         }
+        .sheet(isPresented: $showHistory) {
+            JobHistoryView(engine: engine, onPreview: importResult)
+        }
         .sheet(isPresented: $showProcessing) {
-            ProcessingView(engine: engine, files: files.filter { selected.contains($0.id) }) { result in
-                Task {
-                    do {
-                        let record = try await engine.importFile(result, role: .results)
-                        files.append(record)
-                        try await engine.saveLibrary(files)
-                        await loadPreview(record)
-                    } catch { errors = error.localizedDescription }
-                }
-            }
+            ProcessingView(engine: engine, files: files.filter { selected.contains($0.id) }, onPreview: importResult)
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             switch result {
@@ -206,6 +222,18 @@ struct ContentView: View {
                 files = await engine.loadLibrary()
                 selected = Set(files.filter { $0.role != .results }.map(\.id))
             }
+        }
+    }
+
+    @MainActor private func importResult(_ result: URL) {
+        Task {
+            do {
+                let record = try await engine.importFile(result, role: .results)
+                files.append(record)
+                selected = [record.id]
+                try await engine.saveLibrary(files)
+                await loadPreview(record)
+            } catch { errors = error.localizedDescription }
         }
     }
 
@@ -243,8 +271,21 @@ struct ContentView: View {
             try await engine.saveLibrary([record, processed])
             let restored = await engine.loadLibrary()
             guard restored.count == 2 && restored[1].role == .results else { throw EngineError.failed("Library restore failed") }
+            let history = await engine.jobHistory()
+            guard let savedJob = history.first(where: { $0.folder == job.folder }), savedJob.info.state == "已完成",
+                  savedJob.info.inputCount == batch.count, !savedJob.results.isEmpty else {
+                throw EngineError.failed("Processing history restore failed")
+            }
+            var toolOptions = ImageToolOptions()
+            toolOptions.stretch = .mtf
+            let toolScript = try ImageToolScript.make(files: [processed], options: toolOptions)
+            let toolJob = try await engine.prepareJob(files: [processed], script: toolScript)
+            let toolOutputs = try await engine.run(toolJob)
+            guard toolOutputs.contains(where: { $0.lastPathComponent == "result.fits" }) else {
+                throw EngineError.failed("Native image tools result missing")
+            }
             guard String(cString: siril_command_catalog()).contains("register\t") else { throw EngineError.failed("Command catalog missing") }
-            try "PASS: Swift actor imported FITS, generated master bias/dark/flat, calibrated and stacked lights with original Siril commands, restored its library, and rendered the result through automatic MTF in SwiftUI.\n"
+            try "PASS: Swift actor imported FITS, generated master bias/dark/flat, calibrated and stacked lights with original Siril commands, restored its library and job history, executed the native manual MTF tool, and rendered the result through automatic MTF in SwiftUI.\n"
                 .write(to: report, atomically: true, encoding: .utf8)
         } catch {
             try? ("FAIL: " + error.localizedDescription + "\n" + String(SirilEngine.processingLog().suffix(16000)))

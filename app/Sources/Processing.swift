@@ -114,10 +114,12 @@ extension SirilEngine {
             }
         }
         try script.write(to: folder.appendingPathComponent("processing.ssf"), atomically: true, encoding: .utf8)
+        try writeJobState(folder, state: "准备完成", count: files.count)
         return ProcessingJob(folder: folder, script: script)
     }
 
     func run(_ job: ProcessingJob) throws -> [URL] {
+        try writeJobState(job.folder, state: "运行中")
         var error = [CChar](repeating: 0, count: 4096)
         let capacity = error.count
         let success = job.folder.path.withCString { directory in
@@ -125,6 +127,7 @@ extension SirilEngine {
         }
         // Keep the full available diagnostic log alongside partial results.
         try? Self.processingLog().write(to: job.folder.appendingPathComponent("processing.log"), atomically: true, encoding: .utf8)
+        try? writeJobState(job.folder, state: success != 0 ? "已完成" : "已停止或失败", message: success != 0 ? "" : String(cString: error))
         guard success != 0 else { throw EngineError.failed(String(cString: error)) }
         return try resultFiles(in: job.folder)
     }
@@ -162,9 +165,7 @@ struct ProcessingView: View {
     @State private var importingScript = false
     @State private var logTask: Task<Void, Never>?
     @State private var showCommands = false
-    @State private var subtractBackground = false
-    @State private var denoise = false
-    @State private var stretch = true
+    @State private var tools = ImageToolOptions()
 
     var body: some View {
         NavigationStack {
@@ -188,21 +189,12 @@ struct ProcessingView: View {
                 Section("单张后期处理") {
                     Text("在图库中只勾选一张亮场或处理结果，然后生成后期脚本。输出另存为新的 FITS。")
                         .font(.caption).foregroundStyle(.secondary)
-                    Toggle("一阶背景提取", isOn: $subtractBackground)
-                    Toggle("Siril 降噪", isOn: $denoise)
-                    Toggle("应用自动拉伸（写入输出像素）", isOn: $stretch)
+                    ImageToolControls(options: $tools)
                     Button("生成单张处理脚本") {
-                        guard files.count == 1, let file = files.first else {
-                            status = "请返回图库，只勾选一张要处理的图像"
-                            return
-                        }
-                        var lines = ["set32bits", "cd \(file.role.rawValue)", "load frame_00001.fits"]
-                        if subtractBackground { lines.append("subsky 1 -samples=20") }
-                        if denoise { lines.append("denoise") }
-                        if stretch { lines.append("autostretch -linked") }
-                        lines.append("save ../process/result.fits")
-                        script = lines.joined(separator: "\n") + "\n"
-                        status = "可编辑后运行；更多算法可从原生命令浏览器添加"
+                        do {
+                            script = try ImageToolScript.make(files: files, options: tools)
+                            status = "可编辑后运行；输出保留在新的任务目录"
+                        } catch { status = error.localizedDescription }
                     }
                 }.disabled(busy)
                 Section("Siril 原生脚本 / 命令") {
