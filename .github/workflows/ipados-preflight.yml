@@ -1,4 +1,4 @@
-name: Siril iPadOS environment check
+name: Siril iPadOS dependency build and core check
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ permissions:
 jobs:
   preflight:
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - name: Check Apple SDK and compile an arm64 iPadOS test library
         shell: bash
@@ -186,10 +186,103 @@ jobs:
           cp meson.build ../diagnostics/siril-meson.build.txt
           cp meson_options.txt ../diagnostics/siril-meson-options.txt
           printf '%s\n' 'Environment check only. Siril core has NOT been compiled or linked. compiler-probe.a is NOT a Siril library.' > ../diagnostics/STATUS.txt
+      - name: Install host build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v cmake >/dev/null; then brew install cmake; fi
+          if ! command -v pkg-config >/dev/null; then brew install pkgconf; fi
+          python3 -m venv "$RUNNER_TEMP/siril-build-tools"
+          "$RUNNER_TEMP/siril-build-tools/bin/python" -m pip install meson ninja
+          echo "$RUNNER_TEMP/siril-build-tools/bin" >> "$GITHUB_PATH"
+      - name: Cross-compile CFITSIO for iPadOS arm64
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_path="$(xcrun --sdk iphoneos --show-sdk-path)"
+          stage_dir="$GITHUB_WORKSPACE/ipados-stage"
+          git init cfitsio-src
+          git -C cfitsio-src remote add origin https://github.com/HEASARC/cfitsio.git
+          git -C cfitsio-src fetch --depth 1 origin 1d2f37b1bc8e6d5e8cf8cd497314680322063468
+          git -C cfitsio-src checkout --detach FETCH_HEAD
+          git -C cfitsio-src rev-parse HEAD > diagnostics/cfitsio-commit.txt
+          cmake -S cfitsio-src -B cfitsio-build \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT="$sdk_path" \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$stage_dir" \
+            -DCMAKE_FIND_ROOT_PATH="$sdk_path" \
+            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+            -DBUILD_SHARED_LIBS=OFF -DUSE_CURL=OFF -DUSE_PTHREADS=ON \
+            -DTESTS=OFF -DUTILS=OFF -DITERPROGS=OFF \
+            -DUSE_SSE2=OFF -DUSE_SSSE3=OFF -DUSE_BZIP2=OFF \
+            -DHAVE_SHMEM_SERVICES=OFF 2>&1 | tee diagnostics/cfitsio-configure.log
+          cmake --build cfitsio-build --parallel 3 2>&1 | tee diagnostics/cfitsio-build.log
+          cmake --install cfitsio-build 2>&1 | tee diagnostics/cfitsio-install.log
+          test -f "$stage_dir/lib/libcfitsio.a"
+          xcrun lipo -info "$stage_dir/lib/libcfitsio.a" > diagnostics/cfitsio-architecture.txt
+          xcrun lipo -verify_arch arm64 "$stage_dir/lib/libcfitsio.a"
+          xcrun otool -l "$stage_dir/lib/libcfitsio.a" > diagnostics/cfitsio-platform.txt
+          printf '#include <fitsio.h>\nint main(void) { float version; fits_get_version(&version); return 0; }\n' > "$RUNNER_TEMP/fits-link-probe.c"
+          xcrun --sdk iphoneos clang -target arm64-apple-ios17.0 -isysroot "$sdk_path" \
+            -I"$stage_dir/include" "$RUNNER_TEMP/fits-link-probe.c" \
+            "$stage_dir/lib/libcfitsio.a" -lz -lm -lpthread \
+            -o diagnostics/fits-link-probe
+          xcrun vtool -show-build diagnostics/fits-link-probe > diagnostics/fits-link-probe-platform.txt
+          printf '%s\n' 'CFITSIO built and link-checked for iPadOS arm64. No on-device execution yet. Siril core not yet built.' > diagnostics/STATUS.txt
+      - name: Attempt real Siril iPadOS core configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, pathlib, subprocess
+          sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
+          def tool(name):
+              return subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--find', name], text=True).strip()
+          prefix = str(pathlib.Path('ipados-stage').resolve())
+          args = ['-target', 'arm64-apple-ios17.0', '-isysroot', sdk]
+          pathlib.Path('ipados-cross.ini').write_text(
+              '[binaries]\n' +
+              '\n'.join(f'{key} = {tool(name)!r}' for key, name in [('c','clang'),('cpp','clang++'),('ar','ar'),('strip','strip')]) +
+              "\npkg-config = 'pkg-config'\n" +
+              "[host_machine]\nsystem = 'darwin'\ncpu_family = 'aarch64'\ncpu = 'arm64'\nendian = 'little'\n" +
+              '[properties]\nneeds_exe_wrapper = true\nsiril_apple_mobile = true\n' +
+              f'pkg_config_libdir = {[prefix + "/lib/pkgconfig", prefix + "/share/pkgconfig"]!r}\n' +
+              '[built-in options]\n' +
+              '\n'.join(f'{key} = {args!r}' for key in ['c_args','cpp_args','c_link_args','cpp_link_args']) + '\n')
+          PY
+          cp ipados-cross.ini diagnostics/
+          # Do not let host macOS pkg-config/CMake metadata satisfy iPadOS dependencies.
+          export PKG_CONFIG_PATH=""
+          export PKG_CONFIG_LIBDIR="$GITHUB_WORKSPACE/ipados-stage/lib/pkgconfig:$GITHUB_WORKSPACE/ipados-stage/share/pkgconfig"
+          set +e
+          meson setup siril-ios-build siril-src --cross-file ipados-cross.ini \
+            --wrap-mode=nofallback -Dembedded=true -Dgtk=false \
+            -Dopenmp=false -Darch_native=false -Dcriterion=false \
+            -Dexiv2=false -Dlibraw=false -Dlibtiff=false -Dlibjpeg=false \
+            -Dlibpng=false -Dlibheif=false -DlibXISF=false -Dlibjxl=false \
+            -Dlibgit2=false -Dffms2=false -Dffmpeg=false -Dlibcurl=false -Dsqlite=false \
+            2>&1 | tee diagnostics/siril-configure.log
+          configure_status=${PIPESTATUS[0]}
+          set -e
+          if test -d siril-ios-build/meson-logs; then cp -R siril-ios-build/meson-logs diagnostics/; fi
+          printf '%s\n' "$configure_status" > diagnostics/siril-configure-exit-code.txt
+          if test "$configure_status" -ne 0; then
+            printf '%s\n' 'CFITSIO built. Siril configuration blocked; see siril-configure.log. Remaining iPadOS libraries are not installed yet.' >> diagnostics/STATUS.txt
+            exit "$configure_status"
+          fi
+          meson compile -C siril-ios-build 2>&1 | tee diagnostics/siril-core-build.log
+          printf '%s\n' 'Siril compilation command completed; App integration and device execution remain unverified.' >> diagnostics/STATUS.txt
       - name: Upload diagnostic files
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: siril-ipados-preflight
-          path: diagnostics/
+          name: siril-ipados-build-diagnostics
+          path: |
+            diagnostics/
+            ipados-stage/
           if-no-files-found: warn
