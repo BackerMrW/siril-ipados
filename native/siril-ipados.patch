@@ -1,0 +1,184 @@
+diff --git a/meson.build b/meson.build
+index 417eaf8..5dd2661 100644
+--- a/meson.build
++++ b/meson.build
+@@ -50,6 +50,10 @@ have_fftw3fthreadsnolinkerarg = false
+ #   - true  → builds the GTK4 GUI from src/gui-gtk4 (default).
+ #   - false → headless CLI-only build (no GTK / GtkSourceView / X11 deps).
+ enable_gtk       = get_option('gtk')
++enable_embedded  = get_option('embedded')
++if enable_embedded and enable_gtk
++  error('Embedded builds require -Dgtk=false')
++endif
+ gui_subdir       = 'gui-gtk4'
+ if enable_gtk
+   add_project_arguments('-DUSE_GTK4=1', language: ['c', 'cpp'])
+@@ -109,6 +113,13 @@ endif
+ 
+ host_cpu_family = host_machine.cpu_family()
+ host_os = host_machine.system().to_lower()
++platform_ios = meson.get_external_property('siril_apple_mobile', false)
++if platform_ios and (host_os != 'darwin' or not enable_embedded)
++  error('Apple mobile builds require Darwin cross configuration and -Dembedded=true')
++endif
++if platform_ios and (enable_openmp or get_option('arch_native'))
++  error('Apple mobile baseline requires -Dopenmp=false -Darch_native=false')
++endif
+ message('Host os: ' + host_os)
+ 
+ platform_linux = (
+@@ -192,7 +203,10 @@ elif platform_windows
+   siril_cpp_flag += ['-D_WIN32_WINNT=0x0600', '-DWINVER=0x0600']
+ elif platform_osx
+   # on OSX ObjC and C sources are mixed so adding objc to the linkflags
+-  siril_link_arg += ['-Wl,-framework,Foundation', '-Wl,-framework,AppKit', '-Wl,-framework,Security', '-ObjC']
++  siril_link_arg += ['-Wl,-framework,Foundation', '-Wl,-framework,Security', '-ObjC']
++  if not platform_ios
++    siril_link_arg += '-Wl,-framework,AppKit'
++  endif
+   add_project_arguments('-ObjC', language: [ 'c'])
+   add_project_link_arguments(siril_link_arg, language: [ 'c', 'cpp' ])
+ else
+@@ -540,6 +554,7 @@ conf_data.set('SIRIL_UNSTABLE', stable ? false : 1)
+ conf_data.set('SIRIL_OUTPUT_DEBUG', get_option('buildtype').startswith('debug') ? 1 : false)
+ conf_data.set('ENABLE_RELOCATABLE_RESOURCES', relocatable_bundle ? 1 : false)
+ conf_data.set('OS_OSX', platform_osx ? 1 : false)
++conf_data.set('OS_IOS', platform_ios ? 1 : false)
+ conf_data.set('HAVE_GTK', enable_gtk ? 1 : false, description : 'Build includes GTK GUI support.')
+ conf_data.set('HAVE_X11_DND_FALLBACK', enable_x11_dnd_fallback ? 1 : false, description : 'GTK4 X11 drag-and-drop fallback compiled in (libX11 linked).')
+ 
+diff --git a/meson_options.txt b/meson_options.txt
+index ef72134..834c615 100644
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -1,4 +1,9 @@
+ # Build properties
++option('embedded',
++  type: 'boolean',
++  value: false,
++  description: 'Build core static libraries without desktop GUI, CLI or test executables'
++)
+ option('gtk',
+  type : 'boolean',
+  value : true,
+diff --git a/src/core/OS_utils.c b/src/core/OS_utils.c
+index 1886cea..020a2c0 100644
+--- a/src/core/OS_utils.c
++++ b/src/core/OS_utils.c
+@@ -49,7 +49,11 @@
+ #include <sys/param.h>		// define or not BSD macro
+ #endif
+ #ifdef OS_OSX
++#ifdef OS_IOS
++#include <Foundation/Foundation.h>
++#else
+ #include <AppKit/AppKit.h>
++#endif
+ #include <mach/task.h>
+ #include <mach/mach_init.h>
+ #include <mach/mach_types.h>
+@@ -1161,7 +1165,13 @@ gchar *find_executable_in_path(const char *exe_name, const char *path) {
+  * for org.gnome.desktop.interface, which KDE 6 and most GNOME desktops expose
+  * via the xdg-desktop-portal; returns FALSE/no-op on other desktops). */
+ 
+-#ifdef OS_OSX
++#ifdef OS_IOS
++/* The embedding UIKit app owns appearance and observes trait changes. */
++gboolean siril_system_is_dark_mode(void) { return FALSE; }
++void siril_watch_system_appearance_changes(void (*callback)(gboolean dark)) {
++	(void)callback;
++}
++#elif defined(OS_OSX)
+ 
+ gboolean siril_system_is_dark_mode(void) {
+ 	NSAppearanceName name = [[NSApp effectiveAppearance]
+@@ -1264,7 +1274,7 @@ void siril_watch_system_appearance_changes(void (*callback)(gboolean dark)) {
+ 
+ #endif /* OS_OSX / _WIN32 / Linux */
+ 
+-#ifdef OS_OSX
++#if defined(OS_OSX) && !defined(OS_IOS)
+ /* GTK4's GdkMacosView does not override performKeyEquivalent:, unlike GTK3's
+  * GdkQuartzView which forwarded Cmd+key events directly to GDK.  As a result,
+  * Command+key shortcuts never reach GTK4's shortcut controller.
+@@ -1356,4 +1366,4 @@ gchar *get_siril_version_string() {
+ 	return g_strdup_printf(_("%s %s for %s (%s)"), PACKAGE, VERSION, SIRIL_BUILD_PLATFORM_FAMILY, CPU_ARCH);
+ #endif
+ #endif
+-}
+\ No newline at end of file
++}
+diff --git a/src/core/command.c b/src/core/command.c
+index 9692060..f681d62 100644
+--- a/src/core/command.c
++++ b/src/core/command.c
+@@ -13268,7 +13268,9 @@ int process_pcc(int nb) {
+ }
+ 
+ int process_spcc(int nb) {
++#ifdef HAVE_LIBCURL
+ 	siril_check_spcc_mirrors(TRUE, TRUE);
++#endif
+ 	return do_pcc(nb, TRUE);
+ }
+ 
+diff --git a/src/meson.build b/src/meson.build
+index 59a7f81..a75eb95 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -400,6 +400,7 @@ siril_resources = gnome.compile_resources(
+ 
+ siril_lib = static_library('siril',
+                            siril_resources[0], src_files,
++                           pic: true,
+                            dependencies: core_dep,
+                            include_directories: siril_inc_dir,
+                            c_args : siril_c_flag,
+@@ -407,6 +408,7 @@ siril_lib = static_library('siril',
+ 
+ siril_headless_lib = static_library('siril_headless',
+                                     'core/headless_stubs.c',
++                                    pic: true,
+                                     dependencies: core_dep,
+                                     include_directories: siril_inc_dir,
+                                     c_args : siril_c_flag,
+@@ -439,6 +441,7 @@ endif
+ # (on-demand stubs for remaining direct GUI calls from core code).
+ # gui_iface_impl.c is never linked here.  main-cli.c does not define guiinfo gui.
+ 
++if not enable_embedded
+ siril_cli = executable('siril-cli', 'main-cli.c', win_res,
+                        dependencies: siril_dep,
+                        link_whole: siril_lib,
+@@ -452,3 +455,4 @@ siril_cli = executable('siril-cli', 'main-cli.c', win_res,
+ # Tests
+ 
+ subdir('tests')
++endif
+diff --git a/subprojects/htmesh/SpatialIndex.cpp b/subprojects/htmesh/SpatialIndex.cpp
+index eacffd4..9e3f233 100644
+--- a/subprojects/htmesh/SpatialIndex.cpp
++++ b/subprojects/htmesh/SpatialIndex.cpp
+@@ -22,7 +22,7 @@
+ #include <malloc.h>
+ #else
+ #ifdef __APPLE__
+-#include <sys/malloc.h>
++#include <cstdlib>
+ #else
+ #include <cstdlib>
+ #endif
+diff --git a/subprojects/wcslib/wcsconfig.h b/subprojects/wcslib/wcsconfig.h
+index cfe7389..84e7bba 100644
+--- a/subprojects/wcslib/wcsconfig.h
++++ b/subprojects/wcslib/wcsconfig.h
+@@ -16,7 +16,9 @@
+ #define WCSLIB_VERSION 8.2
+ 
+ /* Define to 1 if sincos() is available. */
++#if !defined(__APPLE__)
+ #define HAVE_SINCOS 1
++#endif
+ 
+ /* 64-bit integer data type. */
+ #define WCSLIB_INT64 long long int
