@@ -6,7 +6,14 @@ targets:
   SirilPad:
     type: application
     platform: iOS
-    sources: [Sources, TestAssets]
+    sources:
+      - path: Sources
+      - path: TestAssets
+      - path: ../LICENSE.md
+        buildPhase: resources
+      - path: ../ThirdPartyLicenses
+        type: folder
+        buildPhase: resources
     dependencies:
       - framework: ../dist/SirilCore.xcframework
         embed: false

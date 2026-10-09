@@ -115,6 +115,7 @@ struct ContentView: View {
     @State private var image: UIImage?
     @State private var previewTask: Task<Void, Never>?
     @State private var importRole: FrameRole = .lights
+    @State private var showAbout = false
     @State private var showHistory = false
     @State private var columns: NavigationSplitViewVisibility = .all
     @State private var showProcessing = false
@@ -179,6 +180,7 @@ struct ContentView: View {
                 VStack(spacing: 5) {
                     Text(String(cString: siril_core_version())).font(.caption)
                     if busy { ProgressView(progress) }
+                    Button("关于与源码") { showAbout = true }.font(.caption)
                     Text("原生 Siril · 本地处理")
                         .font(.caption2).foregroundStyle(.secondary)
                 }.padding()
@@ -200,6 +202,7 @@ struct ContentView: View {
                 Button("记录", systemImage: "clock.arrow.circlepath") { showHistory = true }.disabled(busy)
             }
         }
+        .sheet(isPresented: $showAbout) { AboutView() }
         .sheet(isPresented: $showHistory) {
             JobHistoryView(engine: engine, onPreview: importResult)
         }
@@ -283,6 +286,11 @@ struct ContentView: View {
             let toolOutputs = try await engine.run(toolJob)
             guard toolOutputs.contains(where: { $0.lastPathComponent == "result.fits" }) else {
                 throw EngineError.failed("Native image tools result missing")
+            }
+            guard Bundle.main.url(forResource: "LICENSE", withExtension: "md") != nil,
+                  let licenses = Bundle.main.url(forResource: "ThirdPartyLicenses", withExtension: nil),
+                  FileManager.default.fileExists(atPath: licenses.appendingPathComponent("GSL/COPYING").path) else {
+                throw EngineError.failed("Bundled open-source notices missing")
             }
             guard String(cString: siril_command_catalog()).contains("register\t") else { throw EngineError.failed("Command catalog missing") }
             try "PASS: Swift actor imported FITS, generated master bias/dark/flat, calibrated and stacked lights with original Siril commands, restored its library and job history, executed the native manual MTF tool, and rendered the result through automatic MTF in SwiftUI.\n"
