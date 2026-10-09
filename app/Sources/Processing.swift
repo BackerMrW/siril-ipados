@@ -34,7 +34,7 @@ enum SirilWorkflow {
     static func script(files: [FITSRecord], options: BatchOptions) throws -> String {
         let groups = Dictionary(grouping: files, by: \.role)
         guard let lights = groups[.lights], lights.count >= 2 else {
-            throw EngineError.failed("至少导入两张亮场；每次处理使用图库中的全部文件。")
+            throw EngineError.failed("至少勾选两张亮场；每次处理使用勾选的文件。")
         }
         let first = lights[0]
         guard files.filter({ $0.role != .results }).allSatisfy({ $0.width == first.width && $0.height == first.height && $0.channels == first.channels }) else {
@@ -162,6 +162,9 @@ struct ProcessingView: View {
     @State private var importingScript = false
     @State private var logTask: Task<Void, Never>?
     @State private var showCommands = false
+    @State private var subtractBackground = false
+    @State private var denoise = false
+    @State private var stretch = true
 
     var body: some View {
         NavigationStack {
@@ -180,6 +183,26 @@ struct ProcessingView: View {
                     Button("生成校准 → 配准 → 叠加脚本") {
                         do { script = try SirilWorkflow.script(files: files, options: options); status = "可编辑命令后运行" }
                         catch { status = error.localizedDescription }
+                    }
+                }.disabled(busy)
+                Section("单张后期处理") {
+                    Text("在图库中只勾选一张亮场或处理结果，然后生成后期脚本。输出另存为新的 FITS。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Toggle("一阶背景提取", isOn: $subtractBackground)
+                    Toggle("Siril 降噪", isOn: $denoise)
+                    Toggle("应用自动拉伸（写入输出像素）", isOn: $stretch)
+                    Button("生成单张处理脚本") {
+                        guard files.count == 1, let file = files.first else {
+                            status = "请返回图库，只勾选一张要处理的图像"
+                            return
+                        }
+                        var lines = ["set32bits", "cd \(file.role.rawValue)", "load frame_00001.fits"]
+                        if subtractBackground { lines.append("subsky 1 -samples=20") }
+                        if denoise { lines.append("denoise") }
+                        if stretch { lines.append("autostretch -linked") }
+                        lines.append("save ../process/result.fits")
+                        script = lines.joined(separator: "\n") + "\n"
+                        status = "可编辑后运行；更多算法可从原生命令浏览器添加"
                     }
                 }.disabled(busy)
                 Section("Siril 原生脚本 / 命令") {

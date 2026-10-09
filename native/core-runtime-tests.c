@@ -152,6 +152,21 @@ int main(int argc, char **argv) {
     CHECK(aligned[31 * 256 + 30] > aligned[26 * 256 + 38] + 0.5f);
     CHECK(strstr(siril_command_catalog(), "calibrate\t") && strstr(siril_command_catalog(), "register\t"));
     puts("PASS: upstream global star registration aligned translated synthetic star fields and preserved the reference star in the median stack");
+    snprintf(path, sizeof path, "%s/postprocessed.fits", argv[1]);
+    snprintf(script, sizeof script, "load %s\nautostretch -linked\nsave %s\nclose\n", light, path);
+    CHECK(siril_run_commands(frames, script, error, sizeof error));
+    status = 0;
+    fits_open_file(&file, path, READONLY, &status);
+    CHECK(status == 0);
+    fits_read_img(file, TFLOAT, 1, 4, NULL, actual, &any_null, &status);
+    fits_close_file(file, &status);
+    CHECK(status == 0);
+    CHECK(fabsf(actual[0] - a[0]) > 0.01f);
+    for (int i = 0; i < 4; i++) {
+        CHECK(isfinite(actual[i]) && actual[i] >= 0 && actual[i] <= 1);
+        if (i) CHECK(actual[i] > actual[i - 1]);
+    }
+    puts("PASS: original load/autostretch/save commands applied and exported monotonic finite MTF pixels");
     siril_image_free(calibration);
     // ASIAIR camera FITS commonly use unsigned 16-bit samples. Verify Siril's
     // full-range normalization and float export rather than only float inputs.

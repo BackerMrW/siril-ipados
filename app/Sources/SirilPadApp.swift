@@ -5,7 +5,7 @@ import SirilCore
 
 struct FITSRecord: Identifiable, Sendable, Codable {
     var id = UUID()
-    let url: URL
+    var url: URL
     let width: Int
     let height: Int
     let channels: Int
@@ -70,7 +70,12 @@ actor SirilEngine {
 
     func loadLibrary() -> [FITSRecord] {
         guard let data = try? Data(contentsOf: libraryURL),
-              let records = try? JSONDecoder().decode([FITSRecord].self, from: data) else { return [] }
+              var records = try? JSONDecoder().decode([FITSRecord].self, from: data) else { return [] }
+        // Installation updates can change the sandbox's absolute container path.
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        for index in records.indices {
+            records[index].url = documents.appendingPathComponent("FITS").appendingPathComponent(records[index].url.lastPathComponent)
+        }
         return records.filter { FileManager.default.fileExists(atPath: $0.url.path) }
     }
 
@@ -149,6 +154,10 @@ struct ContentView: View {
             .toolbar {
                 Button("导入 FITS", systemImage: "plus") { showImporter = true }.disabled(busy)
                 Button("处理", systemImage: "slider.horizontal.3") { showProcessing = true }.disabled(busy)
+                Menu("选择", systemImage: "checklist") {
+                    Button("选中拍摄帧") { selected = Set(files.filter { $0.role != .results }.map(\.id)) }
+                    Button("取消全选") { selected.removeAll() }
+                }.disabled(busy)
             }
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 5) {
@@ -214,7 +223,14 @@ struct ContentView: View {
             files.append(record)
             await loadPreview(record)
             guard image != nil else { throw EngineError.failed("Swift image preview failed: " + errors) }
-            let batch = [record, record, record]
+            var batch = [record, record, record]
+            for (name, role) in [("dark", FrameRole.darks), ("flat", .flats), ("bias", .biases)] {
+                guard let fixture = Bundle.main.url(forResource: name, withExtension: "fits") else {
+                    throw EngineError.failed("Bundled calibration fixture missing")
+                }
+                let calibration = try await engine.importFile(fixture, role: role)
+                batch += [calibration, calibration, calibration]
+            }
             let script = try SirilWorkflow.script(files: batch, options: BatchOptions(debayer: false, register: false, rejection: false))
             let job = try await engine.prepareJob(files: batch, script: script)
             let outputs = try await engine.run(job)
@@ -228,7 +244,7 @@ struct ContentView: View {
             let restored = await engine.loadLibrary()
             guard restored.count == 2 && restored[1].role == .results else { throw EngineError.failed("Library restore failed") }
             guard String(cString: siril_command_catalog()).contains("register\t") else { throw EngineError.failed("Command catalog missing") }
-            try "PASS: Swift actor imported FITS, executed generated Siril conversion/stacking commands, restored its library, and rendered the result through automatic MTF in SwiftUI.\n"
+            try "PASS: Swift actor imported FITS, generated master bias/dark/flat, calibrated and stacked lights with original Siril commands, restored its library, and rendered the result through automatic MTF in SwiftUI.\n"
                 .write(to: report, atomically: true, encoding: .utf8)
         } catch {
             try? ("FAIL: " + error.localizedDescription).write(to: report, atomically: true, encoding: .utf8)

@@ -204,6 +204,8 @@ int siril_run_commands(const char *directory, const char *script, char *error, s
         /* siril_change_dir returns a borrowed pointer to the upstream log. */
         goto done;
     }
+    /* Windows-authored UTF-8 .ssf files may include a byte order mark. */
+    if (g_str_has_prefix(script, "\xef\xbb\xbf")) script += 3;
     gchar **lines = g_strsplit(script, "\n", -1);
     ok = 1;
     for (size_t i = 0; lines[i]; i++) {
