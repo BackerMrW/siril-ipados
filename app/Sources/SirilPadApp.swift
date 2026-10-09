@@ -247,7 +247,8 @@ struct ContentView: View {
             try "PASS: Swift actor imported FITS, generated master bias/dark/flat, calibrated and stacked lights with original Siril commands, restored its library, and rendered the result through automatic MTF in SwiftUI.\n"
                 .write(to: report, atomically: true, encoding: .utf8)
         } catch {
-            try? ("FAIL: " + error.localizedDescription).write(to: report, atomically: true, encoding: .utf8)
+            try? ("FAIL: " + error.localizedDescription + "\n" + String(SirilEngine.processingLog().suffix(16000)))
+                .write(to: report, atomically: true, encoding: .utf8)
         }
     }
 

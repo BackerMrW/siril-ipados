@@ -118,9 +118,27 @@ int main(int argc, char **argv) {
     fits_close_file(file, &status);
     CHECK(status == 0);
     for (int i = 0; i < 4; i++) CHECK(fabsf(actual[i] - (a[i] - b[i])) < 1e-6f);
+    // A nonuniform corrected master flat must preserve calibrated photometry.
+    char flat[4096];
+    const float flat_pixels[] = {0.4f, 0.5f, 0.6f, 0.7f};
+    snprintf(flat, sizeof flat, "%s/master-flat.fits", argv[1]);
+    CHECK(fixture(flat, flat_pixels, FLOAT_IMG, TFLOAT) == 0);
+    snprintf(script, sizeof script,
+        "calibrate light -dark=%s -flat=%s -prefix=pf_\n"
+        "stack pf_light median -nonorm -out=flat-calibrated.fits\n", dark, flat);
+    CHECK(siril_run_commands(process, script, error, sizeof error));
+    snprintf(path, sizeof path, "%s/flat-calibrated.fits", process);
+    status = 0;
+    fits_open_file(&file, path, READONLY, &status);
+    CHECK(status == 0);
+    fits_read_img(file, TFLOAT, 1, 4, NULL, actual, &any_null, &status);
+    fits_close_file(file, &status);
+    CHECK(status == 0);
+    for (int i = 0; i < 4; i++) CHECK(fabsf(actual[i] - (a[i] - b[i]) * 0.55f / flat_pixels[i]) < 1e-6f);
     CHECK(!siril_run_commands(frames, "not_a_siril_command\nconvert should_not_exist\n", error, sizeof error));
     CHECK(strstr(error, "Line 1") != NULL);
     CHECK(!siril_run_commands(frames, "'exit'\n", error, sizeof error));
+    CHECK(!siril_run_commands(frames, "''\n", error, sizeof error));
     CHECK(!siril_run_commands(frames, "@detached.ssf\n", error, sizeof error));
     char logs[4096];
     siril_copy_processing_log(logs, sizeof logs);

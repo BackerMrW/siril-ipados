@@ -226,11 +226,12 @@ int siril_run_commands(const char *directory, const char *script, char *error, s
         gchar *parsed = g_strdup(line);
         int count = 0;
         parse_line(parsed, strlen(parsed), &count);
+        gboolean valid_name = count && word[0] && *word[0];
         gboolean unsupported = line[0] == '@' || (count &&
             (!g_ascii_strcasecmp(word[0], "exit") || !g_ascii_strcasecmp(word[0], "livestack") ||
              !g_ascii_strcasecmp(word[0], "stop_ls")));
         g_free(parsed);
-        int result = unsupported ? CMD_NOT_SCRIPTABLE : processcommand(line, TRUE);
+        int result = !valid_name ? CMD_NOT_FOUND : unsupported ? CMD_NOT_SCRIPTABLE : processcommand(line, TRUE);
         if (result || g_atomic_int_get(&cancel_requested)) {
             if (error && capacity) snprintf(error, capacity, "Line %zu: %s (%s)", i + 1,
                 line, g_atomic_int_get(&cancel_requested) ? "cancelled" : cmd_err_to_str(result));
