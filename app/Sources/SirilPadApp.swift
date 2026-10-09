@@ -272,7 +272,7 @@ struct ContentView: View {
             let restored = await engine.loadLibrary()
             guard restored.count == 2 && restored[1].role == .results else { throw EngineError.failed("Library restore failed") }
             let history = await engine.jobHistory()
-            guard let savedJob = history.first(where: { $0.folder == job.folder }), savedJob.info.state == "已完成",
+            guard let savedJob = history.first(where: { $0.id == job.folder.lastPathComponent }), savedJob.info.state == "已完成",
                   savedJob.info.inputCount == batch.count, !savedJob.results.isEmpty else {
                 throw EngineError.failed("Processing history restore failed")
             }
