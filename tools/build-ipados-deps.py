@@ -156,6 +156,9 @@ def ios_frameworks(source):
             "#if defined(MAC_OS_X_VERSION_10_8) && MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_8",
             "#if 1 /* iOS 17 supports the current public CoreText API */")
         coretext.write_text("#include <strings.h>\n" + text)
+        wrap = source / "subprojects/fribidi.wrap"
+        wrap.write_text(wrap.read_text().replace("revision = master",
+                                                "revision = 24f15eee832eafa5d63319b666d50e488668ce31"))
 
 
 def ios_opencv_metadata(source):

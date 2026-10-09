@@ -57,13 +57,21 @@ subprocess.run(["xcodebuild", "-create-xcframework", "-library", str(library),
     "platform": os.environ.get("SIRIL_SDK", "iphoneos"), "architecture": "arm64", "minimum_os": "17.0",
     "verification": "All compiled upstream core symbols device-linked; not executed on device",
     "archives": [str(p.relative_to(root)) for p in archives],
+    "dependencies": {p.stem: json.loads(p.read_text()) for p in (stage / ".build-state").glob("*.json")},
 }, indent=2))
 licenses = out / "Licenses"
 licenses.mkdir(exist_ok=True)
-for name in ("COPYING", "AUTHORS"):
+for name in ("LICENSE.md", "COPYING", "AUTHORS"):
     path = root / "siril-src" / name
     if path.exists():
         shutil.copy2(path, licenses / f"Siril-{name}")
+shutil.copytree(root / "ThirdPartyLicenses", licenses / "ThirdParty", dirs_exist_ok=True)
+for source in (root / "siril-src/subprojects").iterdir():
+    if source.is_dir():
+        for pattern in ("COPYING*", "LICENSE*", "LICENCE*"):
+            for path in source.glob(pattern):
+                if path.is_file():
+                    shutil.copy2(path, licenses / f"{source.name}-{path.name}")
 for source in (root / "deps-work").iterdir():
     if source.is_dir() and not source.name.endswith("-build"):
         for pattern in ("COPYING*", "LICENSE*", "Copyright*", "copyright*"):
