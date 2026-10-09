@@ -37,6 +37,9 @@ enum SirilWorkflow {
             throw EngineError.failed("至少勾选两张亮场；每次处理使用勾选的文件。")
         }
         let first = lights[0]
+        if options.debayer && lights.contains(where: { $0.channels != 1 }) {
+            throw EngineError.failed("CFA 去马赛克只适用于单通道彩色相机原始图像；RGB 图像请关闭此选项。")
+        }
         guard files.filter({ $0.role != .results }).allSatisfy({ $0.width == first.width && $0.height == first.height && $0.channels == first.channels }) else {
             throw EngineError.failed("亮场和校准帧的尺寸、通道数必须相同。")
         }
