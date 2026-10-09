@@ -168,3 +168,17 @@ index eacffd4..9e3f233 100644
  #else
  #include <cstdlib>
  #endif
+diff --git a/subprojects/wcslib/wcsconfig.h b/subprojects/wcslib/wcsconfig.h
+index cfe7389..84e7bba 100644
+--- a/subprojects/wcslib/wcsconfig.h
++++ b/subprojects/wcslib/wcsconfig.h
+@@ -16,7 +16,9 @@
+ #define WCSLIB_VERSION 8.2
+ 
+ /* Define to 1 if sincos() is available. */
++#if !defined(__APPLE__)
+ #define HAVE_SINCOS 1
++#endif
+ 
+ /* 64-bit integer data type. */
+ #define WCSLIB_INT64 long long int
