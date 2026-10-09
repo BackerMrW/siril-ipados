@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #define CHECK(condition) do { if (!(condition)) { fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #condition); return 1; } } while (0)
 static int fixture(const char *path, const void *pixels, int image_type, int pixel_type) {
     fitsfile *file = NULL;
@@ -60,6 +61,37 @@ int main(int argc, char **argv) {
     CHECK(memcmp(preview.rgba, preview.rgba + 4, 3) != 0);
     siril_preview_free(&preview);
     siril_image_free(image);
+    // Exercise real command parsing, threaded conversion, sequence calibration
+    // and stacking, not only the direct image arithmetic wrapper.
+    char frames[4096], process[4096], path[4096], script[8192];
+    snprintf(frames, sizeof frames, "%s/frames", argv[1]);
+    snprintf(process, sizeof process, "%s/process", argv[1]);
+    CHECK(mkdir(frames, 0700) == 0 && mkdir(process, 0700) == 0);
+    for (int i = 0; i < 3; i++) {
+        snprintf(path, sizeof path, "%s/light%d.fits", frames, i);
+        CHECK(fixture(path, a, FLOAT_IMG, TFLOAT) == 0);
+    }
+    snprintf(script, sizeof script,
+        "# Native synchronous Siril batch\nset32bits\nconvert light -out=../process\n"
+        "cd ../process\ncalibrate light -dark=%s -prefix=pp_\n"
+        "stack pp_light median -nonorm -out=calibrated.fits\n", dark);
+    CHECK(siril_run_commands(frames, script, error, sizeof error));
+    snprintf(path, sizeof path, "%s/calibrated.fits", process);
+    status = 0;
+    fits_open_file(&file, path, READONLY, &status);
+    CHECK(status == 0);
+    fits_read_img(file, TFLOAT, 1, 4, NULL, actual, &any_null, &status);
+    fits_close_file(file, &status);
+    CHECK(status == 0);
+    for (int i = 0; i < 4; i++) CHECK(fabsf(actual[i] - (a[i] - b[i])) < 1e-6f);
+    CHECK(!siril_run_commands(frames, "not_a_siril_command\nconvert should_not_exist\n", error, sizeof error));
+    CHECK(strstr(error, "Line 1") != NULL);
+    CHECK(!siril_run_commands(frames, "'exit'\n", error, sizeof error));
+    CHECK(!siril_run_commands(frames, "@detached.ssf\n", error, sizeof error));
+    char logs[4096];
+    siril_copy_processing_log(logs, sizeof logs);
+    CHECK(logs[0]);
+    puts("PASS: original Siril command engine converted three FITS, calibrated with a master dark, median-stacked exact expected pixels, stopped on errors, and rejected desktop exit/detached scripts");
     siril_image_free(calibration);
     // ASIAIR camera FITS commonly use unsigned 16-bit samples. Verify Siril's
     // full-range normalization and float export rather than only float inputs.

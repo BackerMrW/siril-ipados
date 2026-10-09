@@ -8,6 +8,15 @@
 #include "filters/mtf.h"
 #include "algos/siril_random.h"
 #include "git-version.h"
+#include "core/command_line_processor.h"
+#include "core/command.h"
+#include "core/processing_thread.h"
+#include "core/gui_iface.h"
+#include "core/proto.h"
+#include "core/icc_profile.h"
+#include "core/siril_log.h"
+#include "io/sequence.h"
+#include "io/conversion.h"
 #include <gsl/gsl_errno.h>
 #include <stdio.h>
 #include <string.h>
@@ -18,6 +27,27 @@ fits *gfit = NULL;
 struct SirilImage { fits fit; };
 static GMutex engine_mutex;
 static gsize initialized;
+static GMutex log_mutex;
+static GString *processing_log;
+static gint cancel_requested;
+
+static void capture_log(const char *message, const char *color) {
+    (void)color;
+    if (!message) return;
+    g_mutex_lock(&log_mutex);
+    if (!processing_log) processing_log = g_string_new(NULL);
+    g_string_append(processing_log, message);
+    if (processing_log->len > 128 * 1024) {
+        size_t skip = processing_log->len - 96 * 1024;
+        while (skip < processing_log->len && (processing_log->str[skip] & 0xc0) == 0x80) skip++;
+        g_string_erase(processing_log, 0, skip);
+    }
+    g_mutex_unlock(&log_mutex);
+}
+
+static void embedded_quit(void) {
+    capture_log("Desktop exit is unavailable inside an iPad App.\n", NULL);
+}
 
 static void initialize(void) {
     if (g_once_init_enter(&initialized)) {
@@ -27,6 +57,14 @@ static void initialize(void) {
         gsl_set_error_handler_off();
         siril_initialize_rng();
         initialize_default_settings();
+        com.pref.memory_ratio = 0.5;
+        gfit = g_new0(fits, 1);
+        initialize_sequence(&com.seq, TRUE);
+        processing_system_init();
+        g_free(initialize_converters());
+        gui_iface.log_message = capture_log;
+        gui_iface.quit_application = embedded_quit;
+        initialize_profiles_and_transforms();
         g_once_init_leave(&initialized, 1);
     }
 }
@@ -130,6 +168,68 @@ int siril_image_write(const SirilImage *image, const char *path) {
         !g_str_has_suffix(path, ".fts")) return 0;
     g_mutex_lock(&engine_mutex);
     int ok = !g_file_test(path, G_FILE_TEST_EXISTS) && savefits(path, (fits *)&image->fit) == 0;
+    g_mutex_unlock(&engine_mutex);
+    return ok;
+}
+
+void siril_copy_processing_log(char *buffer, size_t capacity) {
+    if (!buffer || !capacity) return;
+    g_mutex_lock(&log_mutex);
+    g_strlcpy(buffer, processing_log ? processing_log->str : "", capacity);
+    g_mutex_unlock(&log_mutex);
+}
+
+void siril_cancel_processing(void) {
+    g_atomic_int_set(&cancel_requested, 1);
+    processing_request_cancel();
+}
+
+int siril_run_commands(const char *directory, const char *script, char *error, size_t capacity) {
+    if (error && capacity) error[0] = 0;
+    if (!directory || !script) return 0;
+    g_mutex_lock(&engine_mutex);
+    initialize();
+    g_atomic_int_set(&cancel_requested, 0);
+    g_mutex_lock(&log_mutex);
+    if (processing_log) g_string_truncate(processing_log, 0);
+    g_mutex_unlock(&log_mutex);
+    int ok = 0;
+    gchar *directory_error = NULL;
+    if (siril_change_dir(directory, &directory_error)) {
+        if (error && capacity) snprintf(error, capacity, "Working directory: %s", directory_error ? directory_error : directory);
+        g_free(directory_error);
+        goto done;
+    }
+    gchar **lines = g_strsplit(script, "\n", -1);
+    ok = 1;
+    for (size_t i = 0; lines[i]; i++) {
+        char *line = g_strstrip(lines[i]);
+        if (!*line || *line == '#') continue;
+        if (g_atomic_int_get(&cancel_requested)) {
+            if (error && capacity) snprintf(error, capacity, "Processing cancelled before line %zu", i + 1);
+            ok = 0;
+            break;
+        }
+        /* Use the upstream parser even for command identification. '@' would
+         * launch a detached script thread; users import the script text instead. */
+        gchar *parsed = g_strdup(line);
+        int count = 0;
+        parse_line(parsed, strlen(parsed), &count);
+        gboolean unsupported = line[0] == '@' || (count &&
+            (!g_ascii_strcasecmp(word[0], "exit") || !g_ascii_strcasecmp(word[0], "livestack") ||
+             !g_ascii_strcasecmp(word[0], "stop_ls")));
+        g_free(parsed);
+        int result = unsupported ? CMD_NOT_SCRIPTABLE : processcommand(line, TRUE);
+        if (result || g_atomic_int_get(&cancel_requested)) {
+            if (error && capacity) snprintf(error, capacity, "Line %zu: %s (%s)", i + 1,
+                line, g_atomic_int_get(&cancel_requested) ? "cancelled" : cmd_err_to_str(result));
+            ok = 0;
+            break;
+        }
+    }
+    g_strfreev(lines);
+done:
+    if (!ok && error && capacity && error[0]) capture_log(error, NULL);
     g_mutex_unlock(&engine_mutex);
     return ok;
 }
