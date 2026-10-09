@@ -207,6 +207,7 @@ jobs:
           git -C cfitsio-src checkout --detach FETCH_HEAD
           git -C cfitsio-src rev-parse HEAD > diagnostics/cfitsio-commit.txt
           cmake -S cfitsio-src -B cfitsio-build \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_OSX_SYSROOT="$sdk_path" \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
