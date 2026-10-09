@@ -6,7 +6,7 @@ targets:
   SirilPad:
     type: application
     platform: iOS
-    sources: [Sources]
+    sources: [Sources, TestAssets]
     dependencies:
       - framework: ../dist/SirilCore.xcframework
         embed: false

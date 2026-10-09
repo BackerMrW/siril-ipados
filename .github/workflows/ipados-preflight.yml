@@ -352,4 +352,3 @@ jobs:
         type: choice
         options: [iphoneos, iphonesimulator]
         default: iphoneos
-

@@ -134,6 +134,32 @@ struct ContentView: View {
         .alert("读取提示", isPresented: Binding(get: { !errors.isEmpty }, set: { if !$0 { errors = "" } })) {
             Button("好") { errors = "" }
         } message: { Text(errors) }
+        .task {
+            if ProcessInfo.processInfo.environment["SIRIL_SELF_TEST"] == "1" {
+                await runSimulatorCheck()
+            }
+        }
+    }
+
+    @MainActor private func runSimulatorCheck() async {
+        let report = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("simulator-app-selftest.txt")
+        do {
+            guard let source = Bundle.main.url(forResource: "light", withExtension: "fits") else {
+                throw EngineError.failed("Bundled FITS fixture missing")
+            }
+            let record = try await engine.importFile(source)
+            guard record.width == 2, record.height == 2, record.channels == 1, record.exposure == 120 else {
+                throw EngineError.failed("Swift bridge metadata mismatch")
+            }
+            files.append(record)
+            await loadPreview(record)
+            guard image != nil else { throw EngineError.failed("Swift image preview failed: " + errors) }
+            try "PASS: Swift actor imported a real FITS through Siril and rendered its automatic MTF preview in SwiftUI.\n"
+                .write(to: report, atomically: true, encoding: .utf8)
+        } catch {
+            try? ("FAIL: " + error.localizedDescription).write(to: report, atomically: true, encoding: .utf8)
+        }
     }
 
     @MainActor private func importFiles(_ urls: [URL]) async {
