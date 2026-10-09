@@ -226,14 +226,14 @@ jobs:
           cmake --install cfitsio-build 2>&1 | tee diagnostics/cfitsio-install.log
           test -f "$stage_dir/lib/libcfitsio.a"
           xcrun lipo -info "$stage_dir/lib/libcfitsio.a" > diagnostics/cfitsio-architecture.txt
-          xcrun lipo -verify_arch arm64 "$stage_dir/lib/libcfitsio.a"
-          xcrun otool -l "$stage_dir/lib/libcfitsio.a" > diagnostics/cfitsio-platform.txt
+          xcrun lipo "$stage_dir/lib/libcfitsio.a" -verify_arch arm64 2>&1 | tee diagnostics/cfitsio-verify-architecture.log
+          xcrun otool -l "$stage_dir/lib/libcfitsio.a" > diagnostics/cfitsio-platform.txt 2>&1
           printf '#include <fitsio.h>\nint main(void) { float version; fits_get_version(&version); return 0; }\n' > "$RUNNER_TEMP/fits-link-probe.c"
           xcrun --sdk iphoneos clang -target arm64-apple-ios17.0 -isysroot "$sdk_path" \
             -I"$stage_dir/include" "$RUNNER_TEMP/fits-link-probe.c" \
             "$stage_dir/lib/libcfitsio.a" -lz -lm -lpthread \
-            -o diagnostics/fits-link-probe
-          xcrun vtool -show-build diagnostics/fits-link-probe > diagnostics/fits-link-probe-platform.txt
+            -o diagnostics/fits-link-probe 2>&1 | tee diagnostics/fits-link-probe-build.log
+          xcrun vtool -show-build diagnostics/fits-link-probe > diagnostics/fits-link-probe-platform.txt 2>&1
           printf '%s\n' 'CFITSIO built and link-checked for iPadOS arm64. No on-device execution yet. Siril core not yet built.' > diagnostics/STATUS.txt
       - name: Attempt real Siril iPadOS core configuration
         shell: bash
