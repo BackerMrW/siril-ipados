@@ -336,7 +336,7 @@ jobs:
           pathlib.Path('diagnostics/glib-static-targets.json').write_text(json.dumps(archives, indent=2))
           subprocess.run(['ninja', '-C', str(build), '-j', '3', *archives], check=True)
           PY_STATIC_LIBRARIES
-          meson install -C glib-ios-build --no-rebuild --tags devel,runtime \
+          meson install -C glib-ios-build --no-rebuild --tags devel \
             2>&1 | tee diagnostics/glib-install.log
           for library in libglib-2.0.a libgobject-2.0.a libgio-2.0.a libgmodule-2.0.a; do
             test -f "$stage_dir/lib/$library"
