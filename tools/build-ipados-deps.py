@@ -156,11 +156,23 @@ def ios_frameworks(source):
         coretext.write_text("#include <strings.h>\n" + text)
 
 
-def cmake(name, url, revision, options):
-    identity = {"revision": revision, "options": options}
+def ios_opencv_metadata(source):
+    # Upstream suppresses pkg-config output for iOS. Siril's Meson build needs
+    # that metadata even though we intentionally build static archives.
+    p = source / "cmake/OpenCVGenPkgconfig.cmake"
+    text = p.read_text()
+    assert "if(MSVC OR IOS OR XROS)" in text
+    p.write_text(text.replace("if(MSVC OR IOS OR XROS)", "if(MSVC OR XROS)"))
+
+
+def cmake(name, url, revision, options, patch=None):
+    identity = {"revision": revision, "options": options,
+                "patch": hashlib.sha256(inspect.getsource(patch).encode()).hexdigest() if patch else None}
     if ready(name, identity):
         return
     source = checkout(name, url, revision)
+    if patch:
+        patch(source)
     build = WORK / f"{name}-build"
     run(["cmake", "-S", source, "-B", build, "-G", "Ninja",
          "-DCMAKE_POLICY_VERSION_MINIMUM=3.5", "-DCMAKE_SYSTEM_NAME=iOS",
@@ -247,7 +259,7 @@ def main():
            "-DWITH_TBB=OFF", "-DWITH_FFMPEG=OFF", "-DWITH_AVFOUNDATION=OFF", "-DWITH_GSTREAMER=OFF",
            "-DWITH_GTK=OFF", "-DWITH_QT=OFF", "-DWITH_JPEG=OFF", "-DWITH_PNG=OFF", "-DWITH_TIFF=OFF",
            "-DWITH_WEBP=OFF", "-DWITH_OPENEXR=OFF", "-DWITH_JASPER=OFF", "-DWITH_OPENJPEG=OFF",
-           "-DWITH_ITT=OFF", "-DWITH_PROTOBUF=OFF", "-DOPENCV_GENERATE_PKGCONFIG=ON", "-DIOS_INSTALL_COMBINED=OFF"])
+           "-DWITH_ITT=OFF", "-DWITH_PROTOBUF=OFF", "-DOPENCV_GENERATE_PKGCONFIG=ON", "-DIOS_INSTALL_COMBINED=OFF"], ios_opencv_metadata)
     run(["pkg-config", "--modversion", "glib-2.0", "gio-2.0", "cairo", "pango", "pangocairo",
          "gdk-pixbuf-2.0", "gsl", "lcms2", "fftw3f", "cfitsio", "opencv4"], "core-dependency-versions")
 

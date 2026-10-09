@@ -11,4 +11,5 @@ module SirilCore {
     link framework "CoreGraphics"
     link framework "CoreText"
     link framework "ImageIO"
+    link framework "Accelerate"
 }

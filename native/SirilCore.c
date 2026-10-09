@@ -5,6 +5,7 @@
 #include "core/settings.h"
 #include "core/arithm.h"
 #include "io/image_format_fits.h"
+#include "filters/mtf.h"
 #include "git-version.h"
 #include <gsl/gsl_errno.h>
 #include <stdio.h>
@@ -63,6 +64,45 @@ int siril_image_info(const SirilImage *image, SirilImageInfo *info) {
     snprintf(info->bayer, sizeof info->bayer, "%.*s", FLEN_VALUE, fit->keywords.bayer_pattern);
     g_mutex_unlock(&engine_mutex);
     return 1;
+}
+int siril_image_preview(SirilImage *image, uint32_t max_dimension, SirilPreview *preview) {
+    if (!image || !preview || !max_dimension || max_dimension > 2048) return 0;
+    memset(preview, 0, sizeof *preview);
+    g_mutex_lock(&engine_mutex);
+    fits *fit = &image->fit;
+    int ok = 0;
+    struct mtf_params params;
+    if (fit->type != DATA_FLOAT || !fit->rx || !fit->ry ||
+        find_linked_midtones_balance_default(fit, &params) != 0) goto done;
+    double scale = fmin(1.0, (double)max_dimension / fmax(fit->rx, fit->ry));
+    uint32_t w = fmax(1, floor(fit->rx * scale));
+    uint32_t h = fmax(1, floor(fit->ry * scale));
+    uint8_t *pixels = g_try_malloc_n((size_t)w * h, 4);
+    if (!pixels) goto done;
+    for (uint32_t y = 0; y < h; y++) {
+        uint32_t sy = (uint64_t)y * fit->ry / h;
+        if (!fit->top_down) sy = fit->ry - 1 - sy;
+        for (uint32_t x = 0; x < w; x++) {
+            size_t source = (size_t)sy * fit->rx + (uint64_t)x * fit->rx / w;
+            size_t target = ((size_t)y * w + x) * 4;
+            for (unsigned c = 0; c < 3; c++) {
+                unsigned channel = fit->naxes[2] == 3 ? c : 0;
+                float value = MTFp(fit->fpdata[channel][source], params);
+                pixels[target + c] = isfinite(value) ? (uint8_t)lroundf(fminf(1, fmaxf(0, value)) * 255) : 0;
+            }
+            pixels[target + 3] = 255;
+        }
+    }
+    preview->width = w; preview->height = h; preview->rgba = pixels;
+    ok = 1;
+done:
+    g_mutex_unlock(&engine_mutex);
+    return ok;
+}
+void siril_preview_free(SirilPreview *preview) {
+    if (!preview) return;
+    g_free(preview->rgba);
+    memset(preview, 0, sizeof *preview);
 }
 static int operate(SirilImage *a, const SirilImage *b, image_operator op) {
     if (!a || !b || a == b) return 0;
