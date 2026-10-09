@@ -9,16 +9,29 @@ import time
 
 root = Path.cwd()
 devices = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "--json"], text=True))
-available = [device for group in devices["devices"].values() for device in group
+sdk_version = subprocess.check_output(["xcrun", "--sdk", "iphonesimulator", "--show-sdk-version"], text=True).strip()
+expected_runtime = "iOS-" + sdk_version.replace(".", "-")
+available = [(runtime, device) for runtime, group in devices["devices"].items() for device in group
              if device["isAvailable"] and device["name"].startswith("iPad")]
 if not available:
     raise RuntimeError("No installed iPad simulator runtime")
-device = available[0]
+available.sort(key=lambda pair: (not pair[0].endswith(expected_runtime), pair[1]["state"] != "Booted"))
+runtime, device = available[0]
 udid = device["udid"]
-print(f"Testing on {device['name']} ({udid})", flush=True)
+print(f"Testing on {device['name']} ({udid}), runtime {runtime}, SDK {sdk_version}", flush=True)
 if device["state"] != "Booted":
-    subprocess.run(["xcrun", "simctl", "boot", udid], check=True)
-subprocess.run(["xcrun", "simctl", "bootstatus", udid, "-b"], check=True)
+    subprocess.run(["xcrun", "simctl", "boot", udid], check=True, timeout=90)
+try:
+    subprocess.run(["xcrun", "simctl", "bootstatus", udid, "-b"], check=True, timeout=180)
+except subprocess.TimeoutExpired:
+    # Some CI images leave bootstatus waiting for unrelated data migration.
+    # A Booted device can still execute the engine and App checks below.
+    state = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "--json"], text=True))
+    booted = any(d["udid"] == udid and d["state"] == "Booted"
+                 for group in state["devices"].values() for d in group)
+    if not booted:
+        raise RuntimeError("iPad simulator did not boot within 180 seconds")
+    print("bootstatus timed out; testing the Booted device directly", flush=True)
 directory = tempfile.mkdtemp(prefix="siril-numeric-")
 command = ["xcrun", "simctl", "spawn", udid, str(root / "siril-ios-build/src/siril-ipados-runtime-tests"), directory]
 result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=90)
@@ -26,10 +39,10 @@ result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOU
 print(result.stdout, flush=True)
 result.check_returncode()
 subprocess.run(["xcrun", "simctl", "install", udid,
-                str(root / "app-build/Build/Products/Release-iphonesimulator/SirilPad.app")], check=True)
+                str(root / "app-build/Build/Products/Release-iphonesimulator/SirilPad.app")], check=True, timeout=90)
 result = subprocess.run(["xcrun", "simctl", "launch", udid, "com.backermrw.sirilpad"],
                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=True,
-                        env=dict(os.environ, SIMCTL_CHILD_SIRIL_SELF_TEST="1"))
+                        env=dict(os.environ, SIMCTL_CHILD_SIRIL_SELF_TEST="1"), timeout=90)
 print(result.stdout, flush=True)
 pid = result.stdout.strip().split(":")[-1].strip()
 container = Path(subprocess.check_output(["xcrun", "simctl", "get_app_container", udid,
