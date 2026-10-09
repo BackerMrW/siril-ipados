@@ -26,63 +26,20 @@ jobs:
       id: apple
     - name: Fetch pinned Siril source and verify initial port patch
       shell: bash
-      run: "set -euo pipefail\ngit init siril-src\ncd siril-src\ngit remote add origin https://gitlab.com/free-astro/siril.git\n\
-        git fetch --depth 1 origin 6c0f8f3207b9cb712f7e04249217123a8ca66915\ngit checkout --detach FETCH_HEAD\ngit rev-parse\
-        \ HEAD > ../diagnostics/siril-commit.txt\ncat > \"$RUNNER_TEMP/siril-ipados.patch\" <<'PORT_PATCH'\ndiff --git a/meson.build\
-        \ b/meson.build\nindex 417eaf8..5dd2661 100644\n--- a/meson.build\n+++ b/meson.build\n@@ -50,6 +50,10 @@ have_fftw3fthreadsnolinkerarg\
-        \ = false\n #   - true  \u2192 builds the GTK4 GUI from src/gui-gtk4 (default).\n #   - false \u2192 headless CLI-only\
-        \ build (no GTK / GtkSourceView / X11 deps).\n enable_gtk       = get_option('gtk')\n+enable_embedded  = get_option('embedded')\n\
-        +if enable_embedded and enable_gtk\n+  error('Embedded builds require -Dgtk=false')\n+endif\n gui_subdir       = 'gui-gtk4'\n\
-        \ if enable_gtk\n   add_project_arguments('-DUSE_GTK4=1', language: ['c', 'cpp'])\n@@ -109,6 +113,13 @@ endif\n \n\
-        \ host_cpu_family = host_machine.cpu_family()\n host_os = host_machine.system().to_lower()\n+platform_ios = meson.get_external_property('siril_apple_mobile',\
-        \ false)\n+if platform_ios and (host_os != 'darwin' or not enable_embedded)\n+  error('Apple mobile builds require\
-        \ Darwin cross configuration and -Dembedded=true')\n+endif\n+if platform_ios and (enable_openmp or get_option('arch_native'))\n\
-        +  error('Apple mobile baseline requires -Dopenmp=false -Darch_native=false')\n+endif\n message('Host os: ' + host_os)\n\
-        \ \n platform_linux = (\n@@ -192,7 +203,10 @@ elif platform_windows\n   siril_cpp_flag += ['-D_WIN32_WINNT=0x0600',\
-        \ '-DWINVER=0x0600']\n elif platform_osx\n   # on OSX ObjC and C sources are mixed so adding objc to the linkflags\n\
-        -  siril_link_arg += ['-Wl,-framework,Foundation', '-Wl,-framework,AppKit', '-Wl,-framework,Security', '-ObjC']\n\
-        +  siril_link_arg += ['-Wl,-framework,Foundation', '-Wl,-framework,Security', '-ObjC']\n+  if not platform_ios\n+\
-        \    siril_link_arg += '-Wl,-framework,AppKit'\n+  endif\n   add_project_arguments('-ObjC', language: [ 'c'])\n  \
-        \ add_project_link_arguments(siril_link_arg, language: [ 'c', 'cpp' ])\n else\n@@ -540,6 +554,7 @@ conf_data.set('SIRIL_UNSTABLE',\
-        \ stable ? false : 1)\n conf_data.set('SIRIL_OUTPUT_DEBUG', get_option('buildtype').startswith('debug') ? 1 : false)\n\
-        \ conf_data.set('ENABLE_RELOCATABLE_RESOURCES', relocatable_bundle ? 1 : false)\n conf_data.set('OS_OSX', platform_osx\
-        \ ? 1 : false)\n+conf_data.set('OS_IOS', platform_ios ? 1 : false)\n conf_data.set('HAVE_GTK', enable_gtk ? 1 : false,\
-        \ description : 'Build includes GTK GUI support.')\n conf_data.set('HAVE_X11_DND_FALLBACK', enable_x11_dnd_fallback\
-        \ ? 1 : false, description : 'GTK4 X11 drag-and-drop fallback compiled in (libX11 linked).')\n \ndiff --git a/meson_options.txt\
-        \ b/meson_options.txt\nindex ef72134..834c615 100644\n--- a/meson_options.txt\n+++ b/meson_options.txt\n@@ -1,4 +1,9\
-        \ @@\n # Build properties\n+option('embedded',\n+  type: 'boolean',\n+  value: false,\n+  description: 'Build core\
-        \ static libraries without desktop GUI, CLI or test executables'\n+)\n option('gtk',\n  type : 'boolean',\n  value\
-        \ : true,\ndiff --git a/src/core/OS_utils.c b/src/core/OS_utils.c\nindex 1886cea..020a2c0 100644\n--- a/src/core/OS_utils.c\n\
-        +++ b/src/core/OS_utils.c\n@@ -49,7 +49,11 @@\n #include <sys/param.h>\t\t// define or not BSD macro\n #endif\n #ifdef\
-        \ OS_OSX\n+#ifdef OS_IOS\n+#include <Foundation/Foundation.h>\n+#else\n #include <AppKit/AppKit.h>\n+#endif\n #include\
-        \ <mach/task.h>\n #include <mach/mach_init.h>\n #include <mach/mach_types.h>\n@@ -1161,7 +1165,13 @@ gchar *find_executable_in_path(const\
-        \ char *exe_name, const char *path) {\n  * for org.gnome.desktop.interface, which KDE 6 and most GNOME desktops expose\n\
-        \  * via the xdg-desktop-portal; returns FALSE/no-op on other desktops). */\n \n-#ifdef OS_OSX\n+#ifdef OS_IOS\n+/*\
-        \ The embedding UIKit app owns appearance and observes trait changes. */\n+gboolean siril_system_is_dark_mode(void)\
-        \ { return FALSE; }\n+void siril_watch_system_appearance_changes(void (*callback)(gboolean dark)) {\n+\t(void)callback;\n\
-        +}\n+#elif defined(OS_OSX)\n \n gboolean siril_system_is_dark_mode(void) {\n \tNSAppearanceName name = [[NSApp effectiveAppearance]\n\
-        @@ -1264,7 +1274,7 @@ void siril_watch_system_appearance_changes(void (*callback)(gboolean dark)) {\n \n #endif /*\
-        \ OS_OSX / _WIN32 / Linux */\n \n-#ifdef OS_OSX\n+#if defined(OS_OSX) && !defined(OS_IOS)\n /* GTK4's GdkMacosView\
-        \ does not override performKeyEquivalent:, unlike GTK3's\n  * GdkQuartzView which forwarded Cmd+key events directly\
-        \ to GDK.  As a result,\n  * Command+key shortcuts never reach GTK4's shortcut controller.\n@@ -1356,4 +1366,4 @@\
-        \ gchar *get_siril_version_string() {\n \treturn g_strdup_printf(_(\"%s %s for %s (%s)\"), PACKAGE, VERSION, SIRIL_BUILD_PLATFORM_FAMILY,\
-        \ CPU_ARCH);\n #endif\n #endif\n-}\n\\ No newline at end of file\n+}\ndiff --git a/src/meson.build b/src/meson.build\n\
-        index 59a7f81..403bd3a 100644\n--- a/src/meson.build\n+++ b/src/meson.build\n@@ -399,6 +399,7 @@ siril_resources =\
-        \ gnome.compile_resources(\n   c_name : 'siril_resource')\n \n siril_lib = static_library('siril',\n+            \
-        \               pic: true,\n                            siril_resources[0], src_files,\n                         \
-        \   dependencies: core_dep,\n                            include_directories: siril_inc_dir,\n@@ -406,6 +407,7 @@\
-        \ siril_lib = static_library('siril',\n                            cpp_args : siril_cpp_flag)\n \n siril_headless_lib\
-        \ = static_library('siril_headless',\n+                                    pic: true,\n                          \
-        \           'core/headless_stubs.c',\n                                     dependencies: core_dep,\n             \
-        \                        include_directories: siril_inc_dir,\n@@ -439,6 +441,7 @@ endif\n # (on-demand stubs for remaining\
-        \ direct GUI calls from core code).\n # gui_iface_impl.c is never linked here.  main-cli.c does not define guiinfo\
-        \ gui.\n \n+if not enable_embedded\n siril_cli = executable('siril-cli', 'main-cli.c', win_res,\n                \
-        \        dependencies: siril_dep,\n                        link_whole: siril_lib,\n@@ -452,3 +455,4 @@ siril_cli =\
-        \ executable('siril-cli', 'main-cli.c', win_res,\n # Tests\n \n subdir('tests')\n+endif\nPORT_PATCH\ngit apply --check\
-        \ \"$RUNNER_TEMP/siril-ipados.patch\"\ngit apply \"$RUNNER_TEMP/siril-ipados.patch\"\ngit diff --check\ngit diff >\
-        \ ../diagnostics/siril-ipados.patch\ncp meson.build ../diagnostics/siril-meson.build.txt\ncp meson_options.txt ../diagnostics/siril-meson-options.txt\n\
-        printf '%s\\n' 'Environment check only. Siril core has NOT been compiled or linked. compiler-probe.a is NOT a Siril\
-        \ library.' > ../diagnostics/STATUS.txt\ngit submodule update --init --depth 1 subprojects/librtprocess subprojects/yyjson\n"
+      run: |
+        set -euo pipefail
+        git init siril-src
+        git -C siril-src remote add origin https://gitlab.com/free-astro/siril.git
+        git -C siril-src fetch --depth 1 origin 6c0f8f3207b9cb712f7e04249217123a8ca66915
+        git -C siril-src checkout --detach FETCH_HEAD
+        git -C siril-src rev-parse HEAD > diagnostics/siril-commit.txt
+        (cd siril-src && git apply --check ../native/siril-ipados.patch && git apply ../native/siril-ipados.patch)
+        git -C siril-src diff --check
+        git -C siril-src diff > diagnostics/siril-ipados.patch
+        cp siril-src/meson.build diagnostics/siril-meson.build.txt
+        cp siril-src/meson_options.txt diagnostics/siril-meson-options.txt
+        printf '%s\n' 'SDK checked. Siril core compilation and linking have not run yet.' > diagnostics/STATUS.txt
+        git -C siril-src submodule update --init --depth 1 subprojects/librtprocess subprojects/yyjson
     - name: Install host build tools
       shell: bash
       run: |
