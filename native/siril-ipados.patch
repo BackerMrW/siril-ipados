@@ -141,3 +141,16 @@ index 59a7f81..a75eb95 100644
  
  subdir('tests')
 +endif
+diff --git a/subprojects/htmesh/SpatialIndex.cpp b/subprojects/htmesh/SpatialIndex.cpp
+index eacffd4..9e3f233 100644
+--- a/subprojects/htmesh/SpatialIndex.cpp
++++ b/subprojects/htmesh/SpatialIndex.cpp
+@@ -22,7 +22,7 @@
+ #include <malloc.h>
+ #else
+ #ifdef __APPLE__
+-#include <sys/malloc.h>
++#include <cstdlib>
+ #else
+ #include <cstdlib>
+ #endif
