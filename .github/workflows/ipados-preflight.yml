@@ -1,395 +1,349 @@
-name: Siril iPadOS GLib build and core check
-
-on:
-  workflow_dispatch:
-
+name: Siril iPadOS core port
 permissions:
   contents: read
-
 jobs:
   preflight:
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 150
     steps:
-      - name: Check Apple SDK and compile an arm64 iPadOS test library
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p diagnostics
-          xcodebuild -version > diagnostics/xcode.txt
-          xcrun --sdk iphoneos --show-sdk-version > diagnostics/ipados-sdk.txt
-          sdk_path="$(xcrun --sdk iphoneos --show-sdk-path)"
-          printf '#import <Foundation/Foundation.h>\nint apple_sdk_probe(void) { return 1; }\n' > "$RUNNER_TEMP/probe.m"
-          xcrun --sdk iphoneos clang -target arm64-apple-ios17.0 -isysroot "$sdk_path" -c "$RUNNER_TEMP/probe.m" -o "$RUNNER_TEMP/probe.o"
-          xcrun --sdk iphoneos ar rcs diagnostics/compiler-probe.a "$RUNNER_TEMP/probe.o"
-          file diagnostics/compiler-probe.a > diagnostics/compiler-probe.txt
-          xcrun nm diagnostics/compiler-probe.a >> diagnostics/compiler-probe.txt
-      - name: Fetch pinned Siril source and verify initial port patch
-        shell: bash
-        run: |
-          set -euo pipefail
-          git init siril-src
-          cd siril-src
-          git remote add origin https://gitlab.com/free-astro/siril.git
-          git fetch --depth 1 origin 6c0f8f3207b9cb712f7e04249217123a8ca66915
-          git checkout --detach FETCH_HEAD
-          git rev-parse HEAD > ../diagnostics/siril-commit.txt
-          cat > "$RUNNER_TEMP/siril-ipados.patch" <<'PORT_PATCH'
-          diff --git a/meson.build b/meson.build
-          index 417eaf8..5dd2661 100644
-          --- a/meson.build
-          +++ b/meson.build
-          @@ -50,6 +50,10 @@ have_fftw3fthreadsnolinkerarg = false
-           #   - true  → builds the GTK4 GUI from src/gui-gtk4 (default).
-           #   - false → headless CLI-only build (no GTK / GtkSourceView / X11 deps).
-           enable_gtk       = get_option('gtk')
-          +enable_embedded  = get_option('embedded')
-          +if enable_embedded and enable_gtk
-          +  error('Embedded builds require -Dgtk=false')
-          +endif
-           gui_subdir       = 'gui-gtk4'
-           if enable_gtk
-             add_project_arguments('-DUSE_GTK4=1', language: ['c', 'cpp'])
-          @@ -109,6 +113,13 @@ endif
-           
-           host_cpu_family = host_machine.cpu_family()
-           host_os = host_machine.system().to_lower()
-          +platform_ios = meson.get_external_property('siril_apple_mobile', false)
-          +if platform_ios and (host_os != 'darwin' or not enable_embedded)
-          +  error('Apple mobile builds require Darwin cross configuration and -Dembedded=true')
-          +endif
-          +if platform_ios and (enable_openmp or get_option('arch_native'))
-          +  error('Apple mobile baseline requires -Dopenmp=false -Darch_native=false')
-          +endif
-           message('Host os: ' + host_os)
-           
-           platform_linux = (
-          @@ -192,7 +203,10 @@ elif platform_windows
-             siril_cpp_flag += ['-D_WIN32_WINNT=0x0600', '-DWINVER=0x0600']
-           elif platform_osx
-             # on OSX ObjC and C sources are mixed so adding objc to the linkflags
-          -  siril_link_arg += ['-Wl,-framework,Foundation', '-Wl,-framework,AppKit', '-Wl,-framework,Security', '-ObjC']
-          +  siril_link_arg += ['-Wl,-framework,Foundation', '-Wl,-framework,Security', '-ObjC']
-          +  if not platform_ios
-          +    siril_link_arg += '-Wl,-framework,AppKit'
-          +  endif
-             add_project_arguments('-ObjC', language: [ 'c'])
-             add_project_link_arguments(siril_link_arg, language: [ 'c', 'cpp' ])
-           else
-          @@ -540,6 +554,7 @@ conf_data.set('SIRIL_UNSTABLE', stable ? false : 1)
-           conf_data.set('SIRIL_OUTPUT_DEBUG', get_option('buildtype').startswith('debug') ? 1 : false)
-           conf_data.set('ENABLE_RELOCATABLE_RESOURCES', relocatable_bundle ? 1 : false)
-           conf_data.set('OS_OSX', platform_osx ? 1 : false)
-          +conf_data.set('OS_IOS', platform_ios ? 1 : false)
-           conf_data.set('HAVE_GTK', enable_gtk ? 1 : false, description : 'Build includes GTK GUI support.')
-           conf_data.set('HAVE_X11_DND_FALLBACK', enable_x11_dnd_fallback ? 1 : false, description : 'GTK4 X11 drag-and-drop fallback compiled in (libX11 linked).')
-           
-          diff --git a/meson_options.txt b/meson_options.txt
-          index ef72134..834c615 100644
-          --- a/meson_options.txt
-          +++ b/meson_options.txt
-          @@ -1,4 +1,9 @@
-           # Build properties
-          +option('embedded',
-          +  type: 'boolean',
-          +  value: false,
-          +  description: 'Build core static libraries without desktop GUI, CLI or test executables'
-          +)
-           option('gtk',
-            type : 'boolean',
-            value : true,
-          diff --git a/src/core/OS_utils.c b/src/core/OS_utils.c
-          index 1886cea..020a2c0 100644
-          --- a/src/core/OS_utils.c
-          +++ b/src/core/OS_utils.c
-          @@ -49,7 +49,11 @@
-           #include <sys/param.h>		// define or not BSD macro
-           #endif
-           #ifdef OS_OSX
-          +#ifdef OS_IOS
-          +#include <Foundation/Foundation.h>
-          +#else
-           #include <AppKit/AppKit.h>
-          +#endif
-           #include <mach/task.h>
-           #include <mach/mach_init.h>
-           #include <mach/mach_types.h>
-          @@ -1161,7 +1165,13 @@ gchar *find_executable_in_path(const char *exe_name, const char *path) {
-            * for org.gnome.desktop.interface, which KDE 6 and most GNOME desktops expose
-            * via the xdg-desktop-portal; returns FALSE/no-op on other desktops). */
-           
-          -#ifdef OS_OSX
-          +#ifdef OS_IOS
-          +/* The embedding UIKit app owns appearance and observes trait changes. */
-          +gboolean siril_system_is_dark_mode(void) { return FALSE; }
-          +void siril_watch_system_appearance_changes(void (*callback)(gboolean dark)) {
-          +	(void)callback;
-          +}
-          +#elif defined(OS_OSX)
-           
-           gboolean siril_system_is_dark_mode(void) {
-           	NSAppearanceName name = [[NSApp effectiveAppearance]
-          @@ -1264,7 +1274,7 @@ void siril_watch_system_appearance_changes(void (*callback)(gboolean dark)) {
-           
-           #endif /* OS_OSX / _WIN32 / Linux */
-           
-          -#ifdef OS_OSX
-          +#if defined(OS_OSX) && !defined(OS_IOS)
-           /* GTK4's GdkMacosView does not override performKeyEquivalent:, unlike GTK3's
-            * GdkQuartzView which forwarded Cmd+key events directly to GDK.  As a result,
-            * Command+key shortcuts never reach GTK4's shortcut controller.
-          @@ -1356,4 +1366,4 @@ gchar *get_siril_version_string() {
-           	return g_strdup_printf(_("%s %s for %s (%s)"), PACKAGE, VERSION, SIRIL_BUILD_PLATFORM_FAMILY, CPU_ARCH);
-           #endif
-           #endif
-          -}
-          \ No newline at end of file
-          +}
-          diff --git a/src/meson.build b/src/meson.build
-          index 59a7f81..403bd3a 100644
-          --- a/src/meson.build
-          +++ b/src/meson.build
-          @@ -399,6 +399,7 @@ siril_resources = gnome.compile_resources(
-             c_name : 'siril_resource')
-           
-           siril_lib = static_library('siril',
-          +                           pic: true,
-                                      siril_resources[0], src_files,
-                                      dependencies: core_dep,
-                                      include_directories: siril_inc_dir,
-          @@ -406,6 +407,7 @@ siril_lib = static_library('siril',
-                                      cpp_args : siril_cpp_flag)
-           
-           siril_headless_lib = static_library('siril_headless',
-          +                                    pic: true,
-                                               'core/headless_stubs.c',
-                                               dependencies: core_dep,
-                                               include_directories: siril_inc_dir,
-          @@ -439,6 +441,7 @@ endif
-           # (on-demand stubs for remaining direct GUI calls from core code).
-           # gui_iface_impl.c is never linked here.  main-cli.c does not define guiinfo gui.
-           
-          +if not enable_embedded
-           siril_cli = executable('siril-cli', 'main-cli.c', win_res,
-                                  dependencies: siril_dep,
-                                  link_whole: siril_lib,
-          @@ -452,3 +455,4 @@ siril_cli = executable('siril-cli', 'main-cli.c', win_res,
-           # Tests
-           
-           subdir('tests')
-          +endif
-          PORT_PATCH
-          git apply --check "$RUNNER_TEMP/siril-ipados.patch"
-          git apply "$RUNNER_TEMP/siril-ipados.patch"
-          git diff --check
-          git diff > ../diagnostics/siril-ipados.patch
-          cp meson.build ../diagnostics/siril-meson.build.txt
-          cp meson_options.txt ../diagnostics/siril-meson-options.txt
-          printf '%s\n' 'Environment check only. Siril core has NOT been compiled or linked. compiler-probe.a is NOT a Siril library.' > ../diagnostics/STATUS.txt
-      - name: Install host build tools
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! command -v cmake >/dev/null; then brew install cmake; fi
-          if ! command -v pkg-config >/dev/null; then brew install pkgconf; fi
-          python3 -m venv "$RUNNER_TEMP/siril-build-tools"
-          "$RUNNER_TEMP/siril-build-tools/bin/python" -m pip install meson ninja
-          echo "$RUNNER_TEMP/siril-build-tools/bin" >> "$GITHUB_PATH"
-      - name: Cross-compile CFITSIO for iPadOS arm64
-        shell: bash
-        run: |
-          set -euo pipefail
-          sdk_path="$(xcrun --sdk iphoneos --show-sdk-path)"
-          stage_dir="$GITHUB_WORKSPACE/ipados-stage"
-          git init cfitsio-src
-          git -C cfitsio-src remote add origin https://github.com/HEASARC/cfitsio.git
-          git -C cfitsio-src fetch --depth 1 origin 1d2f37b1bc8e6d5e8cf8cd497314680322063468
-          git -C cfitsio-src checkout --detach FETCH_HEAD
-          git -C cfitsio-src rev-parse HEAD > diagnostics/cfitsio-commit.txt
-          cmake -S cfitsio-src -B cfitsio-build \
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-            -DCMAKE_SYSTEM_NAME=iOS \
-            -DCMAKE_OSX_SYSROOT="$sdk_path" \
-            -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX="$stage_dir" \
-            -DCMAKE_FIND_ROOT_PATH="$sdk_path" \
-            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
-            -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
-            -DBUILD_SHARED_LIBS=OFF -DUSE_CURL=OFF -DUSE_PTHREADS=ON \
-            -DTESTS=OFF -DUTILS=OFF -DITERPROGS=OFF \
-            -DUSE_SSE2=OFF -DUSE_SSSE3=OFF -DUSE_BZIP2=OFF \
-            -DHAVE_SHMEM_SERVICES=OFF 2>&1 | tee diagnostics/cfitsio-configure.log
-          cmake --build cfitsio-build --parallel 3 2>&1 | tee diagnostics/cfitsio-build.log
-          cmake --install cfitsio-build 2>&1 | tee diagnostics/cfitsio-install.log
-          test -f "$stage_dir/lib/libcfitsio.a"
-          xcrun lipo -info "$stage_dir/lib/libcfitsio.a" > diagnostics/cfitsio-architecture.txt
-          xcrun lipo "$stage_dir/lib/libcfitsio.a" -verify_arch arm64 2>&1 | tee diagnostics/cfitsio-verify-architecture.log
-          xcrun otool -l "$stage_dir/lib/libcfitsio.a" > diagnostics/cfitsio-platform.txt 2>&1
-          printf '#include <fitsio.h>\nint main(void) { float version; fits_get_version(&version); return 0; }\n' > "$RUNNER_TEMP/fits-link-probe.c"
-          xcrun --sdk iphoneos clang -target arm64-apple-ios17.0 -isysroot "$sdk_path" \
-            -I"$stage_dir/include" "$RUNNER_TEMP/fits-link-probe.c" \
-            "$stage_dir/lib/libcfitsio.a" -lz -lm -lpthread \
-            -o diagnostics/fits-link-probe 2>&1 | tee diagnostics/fits-link-probe-build.log
-          xcrun vtool -show-build diagnostics/fits-link-probe > diagnostics/fits-link-probe-platform.txt 2>&1
-          printf '%s\n' 'CFITSIO built and link-checked for iPadOS arm64. No on-device execution yet. Siril core not yet built.' > diagnostics/STATUS.txt
-      - name: Generate shared iPadOS cross-build configuration
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import os, pathlib, subprocess
-          sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
-          def tool(name):
-              return subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--find', name], text=True).strip()
-          prefix = str(pathlib.Path('ipados-stage').resolve())
-          args = ['-target', 'arm64-apple-ios17.0', '-isysroot', sdk]
-          pathlib.Path('ipados-cross.ini').write_text(
-              '[binaries]\n' +
-              '\n'.join(f'{key} = {tool(name)!r}' for key, name in [('c','clang'),('cpp','clang++'),('objc','clang'),('ar','ar'),('strip','strip')]) +
-              "\npkg-config = 'pkg-config'\n" +
-              "[host_machine]\nsystem = 'darwin'\ncpu_family = 'aarch64'\ncpu = 'arm64'\nendian = 'little'\n" +
-              '[properties]\nneeds_exe_wrapper = true\nsiril_apple_mobile = true\n' +
-              f'pkg_config_libdir = {[prefix + "/lib/pkgconfig", prefix + "/share/pkgconfig"]!r}\n' +
-              '[built-in options]\n' +
-              '\n'.join(f'{key} = {args!r}' for key in ['c_args','cpp_args','objc_args','c_link_args','cpp_link_args','objc_link_args']) + '\nprefer_static = true\n')
-          PY
-          cp ipados-cross.ini diagnostics/
-      - name: Build GLib and its base dependencies for iPadOS
-        shell: bash
-        run: |
-          set -euo pipefail
-          stage_dir="$GITHUB_WORKSPACE/ipados-stage"
-          export PKG_CONFIG_PATH=""
-          export PKG_CONFIG_LIBDIR="$stage_dir/lib/pkgconfig:$stage_dir/share/pkgconfig"
-          git init glib-src
-          git -C glib-src remote add origin https://github.com/GNOME/glib.git
-          git -C glib-src fetch --depth 1 origin 41eca60845d3fc309af361f5e7f801ba339099aa
-          git -C glib-src checkout --detach FETCH_HEAD
-          git -C glib-src rev-parse HEAD > diagnostics/glib-commit.txt
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          source = Path('glib-src')
-          wrap = source / 'subprojects/libffi.wrap'
-          text = wrap.read_text()
-          assert 'revision=meson' in text
-          wrap.write_text(text.replace('revision=meson', 'revision=83d0cfd00d7d37af4b4349511d29f1f0512621b3'))
-          # iPadOS does not provide process launching. Preserve the GLib API,
-          # but return an explicit error rather than compile fork/exec calls.
-          header = (source / 'glib/gspawn-private.h').read_text()
-          definitions = []
-          for name in ['g_spawn_sync_impl', 'g_spawn_async_with_pipes_and_fds_impl']:
-              match = re.search(r'gboolean\s+' + name + r'\s*\([^;]+\);', header)
-              assert match, name
-              signature = match.group(0)[:-1]
-              definitions.append(signature + '\n{\n  g_set_error_literal(error, G_SPAWN_ERROR, G_SPAWN_ERROR_FAILED, "Process launching is unavailable in this iPadOS build");\n  return FALSE;\n}\n')
-          preamble = '/* SPDX-License-Identifier: LGPL-2.1-or-later\n * iPadOS backend for GLib; public declarations retain their upstream license.\n */\n#include "config.h"\n#include "glib.h"\n#include "gspawn-private.h"\n#include <sys/wait.h>\nG_DEFINE_QUARK (g-exec-error-quark, g_spawn_error)\nG_DEFINE_QUARK (g-spawn-exit-error-quark, g_spawn_exit_error)\n'
-          tail = '''gboolean g_spawn_check_wait_status_impl(gint status, GError **error) {
-            if (WIFEXITED(status) && WEXITSTATUS(status) == 0) return TRUE;
-            if (WIFEXITED(status)) g_set_error(error, G_SPAWN_EXIT_ERROR, WEXITSTATUS(status), "Child exited with status %d", WEXITSTATUS(status));
-            else g_set_error_literal(error, G_SPAWN_ERROR, G_SPAWN_ERROR_FAILED, "Child did not exit successfully");
-            return FALSE;
-          }
-          void g_spawn_close_pid_impl(GPid pid) { (void)pid; }
-          '''
-          (source / 'glib/gspawn-ios.c').write_text(preamble + '\n'.join(definitions) + tail)
-          meson = source / 'glib/meson.build'
-          text = meson.read_text()
-          old = "  glib_sources += files('glib-unix.c', 'gspawn-posix.c', 'giounix.c')"
-          assert text.count(old) == 1
-          new = "  glib_sources += files('glib-unix.c', 'giounix.c')\n  if host_system == 'ios'\n    glib_sources += files('gspawn-ios.c')\n  else\n    glib_sources += files('gspawn-posix.c')\n  endif"
-          meson.write_text(text.replace(old, new))
-          PY
-          git -C glib-src diff --check
-          git -C glib-src diff > diagnostics/glib-ipados.patch
-          cp glib-src/glib/gspawn-ios.c diagnostics/
-          # Static GLib targets, but allow Apple SDK system dylibs (resolv/iconv/zlib).
-          # Keep target executables out of the build; native macOS tools are separate.
-          trap 'if test -d glib-ios-build/meson-logs; then cp -R glib-ios-build/meson-logs diagnostics/glib-meson-logs; fi' EXIT
-          meson setup glib-ios-build glib-src --cross-file ipados-cross.ini \
-            --prefix "$stage_dir" --libdir lib --buildtype release \
-            --force-fallback-for libffi,libpcre2-8,intl \
-            -Ddefault_library=static -Dprefer_static=false -Dtests=false -Dinstalled_tests=false \
-            -Dintrospection=disabled -Ddocumentation=false -Dman-pages=disabled \
-            -Dnls=disabled -Dlibmount=disabled -Dselinux=disabled \
-            -Dlibelf=disabled -Dsysprof=disabled -Dsystemtap=disabled -Ddtrace=disabled \
-            -Dpcre2:jit=disabled -Dpcre2:grep=false -Dpcre2:test=false \
-            -Dlibffi:ffi-build-versioned=false \
-            2>&1 | tee diagnostics/glib-configure.log
-          # Static GLib archives do not automatically build all subproject archives.
-          # Build every declared static library before installing development files.
-          python3 - <<'PY_STATIC_LIBRARIES' 2>&1 | tee diagnostics/glib-build.log
-          import json, pathlib, subprocess
-          build = pathlib.Path('glib-ios-build').resolve()
-          targets = json.loads(subprocess.check_output(['meson', 'introspect', '--targets', str(build)], text=True))
-          archives = []
-          for target in targets:
-              if target['type'] == 'static library':
-                  for filename in target['filename']:
-                      output = pathlib.Path(filename)
-                      if not output.is_absolute(): output = build / output
-                      archives.append(str(output.relative_to(build)))
-          if not archives: raise RuntimeError('No static library targets were declared')
-          pathlib.Path('diagnostics/glib-static-targets.json').write_text(json.dumps(archives, indent=2))
-          subprocess.run(['ninja', '-C', str(build), '-j', '3', *archives], check=True)
-          PY_STATIC_LIBRARIES
-          meson install -C glib-ios-build --no-rebuild --tags devel \
-            2>&1 | tee diagnostics/glib-install.log
-          for library in libglib-2.0.a libgobject-2.0.a libgio-2.0.a libgmodule-2.0.a; do
-            test -f "$stage_dir/lib/$library"
-            xcrun lipo "$stage_dir/lib/$library" -verify_arch arm64 \
-              2>&1 | tee -a diagnostics/glib-architecture-check.log
-          done
-          python3 - <<'PY'
-          from pathlib import Path
-          import shlex, subprocess
-          source = Path('diagnostics/glib-link-probe.c')
-          source.write_text('#include <gio/gio.h>\nint main(void) { GFile *file = g_file_new_for_path("."); g_object_unref(file); return 0; }\n')
-          sdk = subprocess.check_output(['xcrun','--sdk','iphoneos','--show-sdk-path'], text=True).strip()
-          flags = shlex.split(subprocess.check_output(['pkg-config','--static','--cflags','--libs','gio-2.0','gio-unix-2.0','gobject-2.0'], text=True))
-          Path('diagnostics/glib-link-flags.txt').write_text(shlex.join(flags))
-          command = ['xcrun','--sdk','iphoneos','clang','-target','arm64-apple-ios17.0','-isysroot',sdk,str(source),*flags,'-o','diagnostics/glib-link-probe']
-          result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-          Path('diagnostics/glib-link-probe-build.log').write_text(result.stdout)
-          print(result.stdout)
-          if result.returncode: raise SystemExit(result.returncode)
-          PY
-          xcrun vtool -show-build diagnostics/glib-link-probe > diagnostics/glib-link-probe-platform.txt 2>&1
-          printf '%s\n' 'CFITSIO and GLib cross-built and link-checked. No device execution yet. Siril core configuration is next.' > diagnostics/STATUS.txt
-      - name: Attempt real Siril iPadOS core configuration
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Do not let host macOS pkg-config/CMake metadata satisfy iPadOS dependencies.
-          export PKG_CONFIG_PATH=""
-          export PKG_CONFIG_LIBDIR="$GITHUB_WORKSPACE/ipados-stage/lib/pkgconfig:$GITHUB_WORKSPACE/ipados-stage/share/pkgconfig"
-          set +e
-          meson setup siril-ios-build siril-src --cross-file ipados-cross.ini \
-            --wrap-mode=nofallback -Dembedded=true -Dgtk=false \
-            -Dopenmp=false -Darch_native=false -Dcriterion=false \
-            -Dexiv2=false -Dlibraw=false -Dlibtiff=false -Dlibjpeg=false \
-            -Dlibpng=false -Dlibheif=false -DlibXISF=false -Dlibjxl=false \
-            -Dlibgit2=false -Dffms2=false -Dffmpeg=false -Dlibcurl=false -Dsqlite=false \
-            2>&1 | tee diagnostics/siril-configure.log
-          configure_status=${PIPESTATUS[0]}
-          set -e
-          if test -d siril-ios-build/meson-logs; then cp -R siril-ios-build/meson-logs diagnostics/; fi
-          printf '%s\n' "$configure_status" > diagnostics/siril-configure-exit-code.txt
-          if test "$configure_status" -ne 0; then
-            printf '%s\n' 'CFITSIO and GLib built. Siril configuration blocked; see siril-configure.log. Remaining iPadOS libraries are not installed yet.' >> diagnostics/STATUS.txt
-            exit "$configure_status"
-          fi
-          meson compile -C siril-ios-build 2>&1 | tee diagnostics/siril-core-build.log
-          printf '%s\n' 'Siril compilation command completed; App integration and device execution remain unverified.' >> diagnostics/STATUS.txt
-      - name: Upload diagnostic files
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: siril-ipados-build-diagnostics
-          path: |
-            diagnostics/
-            ipados-stage/
-          if-no-files-found: warn
+    - name: Check out port build scripts
+      uses: actions/checkout@v4
+    - name: Check Apple SDK and compile an arm64 iPadOS test library
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p diagnostics
+        xcodebuild -version > diagnostics/xcode.txt
+        xcrun --sdk iphoneos --show-sdk-version > diagnostics/ipados-sdk.txt
+        sdk_path="$(xcrun --sdk iphoneos --show-sdk-path)"
+        printf '#import <Foundation/Foundation.h>\nint apple_sdk_probe(void) { return 1; }\n' > "$RUNNER_TEMP/probe.m"
+        xcrun --sdk iphoneos clang -target arm64-apple-ios17.0 -isysroot "$sdk_path" -c "$RUNNER_TEMP/probe.m" -o "$RUNNER_TEMP/probe.o"
+        xcrun --sdk iphoneos ar rcs diagnostics/compiler-probe.a "$RUNNER_TEMP/probe.o"
+        file diagnostics/compiler-probe.a > diagnostics/compiler-probe.txt
+        xcrun nm diagnostics/compiler-probe.a >> diagnostics/compiler-probe.txt
+        echo "sdk=$(xcrun --sdk iphoneos --show-sdk-version)" >> "$GITHUB_OUTPUT"
+        echo "xcode=$(xcodebuild -version | head -n 1 | cut -d ' ' -f 2)" >> "$GITHUB_OUTPUT"
+      id: apple
+    - name: Fetch pinned Siril source and verify initial port patch
+      shell: bash
+      run: "set -euo pipefail\ngit init siril-src\ncd siril-src\ngit remote add origin https://gitlab.com/free-astro/siril.git\n\
+        git fetch --depth 1 origin 6c0f8f3207b9cb712f7e04249217123a8ca66915\ngit checkout --detach FETCH_HEAD\ngit rev-parse\
+        \ HEAD > ../diagnostics/siril-commit.txt\ncat > \"$RUNNER_TEMP/siril-ipados.patch\" <<'PORT_PATCH'\ndiff --git a/meson.build\
+        \ b/meson.build\nindex 417eaf8..5dd2661 100644\n--- a/meson.build\n+++ b/meson.build\n@@ -50,6 +50,10 @@ have_fftw3fthreadsnolinkerarg\
+        \ = false\n #   - true  \u2192 builds the GTK4 GUI from src/gui-gtk4 (default).\n #   - false \u2192 headless CLI-only\
+        \ build (no GTK / GtkSourceView / X11 deps).\n enable_gtk       = get_option('gtk')\n+enable_embedded  = get_option('embedded')\n\
+        +if enable_embedded and enable_gtk\n+  error('Embedded builds require -Dgtk=false')\n+endif\n gui_subdir       = 'gui-gtk4'\n\
+        \ if enable_gtk\n   add_project_arguments('-DUSE_GTK4=1', language: ['c', 'cpp'])\n@@ -109,6 +113,13 @@ endif\n \n\
+        \ host_cpu_family = host_machine.cpu_family()\n host_os = host_machine.system().to_lower()\n+platform_ios = meson.get_external_property('siril_apple_mobile',\
+        \ false)\n+if platform_ios and (host_os != 'darwin' or not enable_embedded)\n+  error('Apple mobile builds require\
+        \ Darwin cross configuration and -Dembedded=true')\n+endif\n+if platform_ios and (enable_openmp or get_option('arch_native'))\n\
+        +  error('Apple mobile baseline requires -Dopenmp=false -Darch_native=false')\n+endif\n message('Host os: ' + host_os)\n\
+        \ \n platform_linux = (\n@@ -192,7 +203,10 @@ elif platform_windows\n   siril_cpp_flag += ['-D_WIN32_WINNT=0x0600',\
+        \ '-DWINVER=0x0600']\n elif platform_osx\n   # on OSX ObjC and C sources are mixed so adding objc to the linkflags\n\
+        -  siril_link_arg += ['-Wl,-framework,Foundation', '-Wl,-framework,AppKit', '-Wl,-framework,Security', '-ObjC']\n\
+        +  siril_link_arg += ['-Wl,-framework,Foundation', '-Wl,-framework,Security', '-ObjC']\n+  if not platform_ios\n+\
+        \    siril_link_arg += '-Wl,-framework,AppKit'\n+  endif\n   add_project_arguments('-ObjC', language: [ 'c'])\n  \
+        \ add_project_link_arguments(siril_link_arg, language: [ 'c', 'cpp' ])\n else\n@@ -540,6 +554,7 @@ conf_data.set('SIRIL_UNSTABLE',\
+        \ stable ? false : 1)\n conf_data.set('SIRIL_OUTPUT_DEBUG', get_option('buildtype').startswith('debug') ? 1 : false)\n\
+        \ conf_data.set('ENABLE_RELOCATABLE_RESOURCES', relocatable_bundle ? 1 : false)\n conf_data.set('OS_OSX', platform_osx\
+        \ ? 1 : false)\n+conf_data.set('OS_IOS', platform_ios ? 1 : false)\n conf_data.set('HAVE_GTK', enable_gtk ? 1 : false,\
+        \ description : 'Build includes GTK GUI support.')\n conf_data.set('HAVE_X11_DND_FALLBACK', enable_x11_dnd_fallback\
+        \ ? 1 : false, description : 'GTK4 X11 drag-and-drop fallback compiled in (libX11 linked).')\n \ndiff --git a/meson_options.txt\
+        \ b/meson_options.txt\nindex ef72134..834c615 100644\n--- a/meson_options.txt\n+++ b/meson_options.txt\n@@ -1,4 +1,9\
+        \ @@\n # Build properties\n+option('embedded',\n+  type: 'boolean',\n+  value: false,\n+  description: 'Build core\
+        \ static libraries without desktop GUI, CLI or test executables'\n+)\n option('gtk',\n  type : 'boolean',\n  value\
+        \ : true,\ndiff --git a/src/core/OS_utils.c b/src/core/OS_utils.c\nindex 1886cea..020a2c0 100644\n--- a/src/core/OS_utils.c\n\
+        +++ b/src/core/OS_utils.c\n@@ -49,7 +49,11 @@\n #include <sys/param.h>\t\t// define or not BSD macro\n #endif\n #ifdef\
+        \ OS_OSX\n+#ifdef OS_IOS\n+#include <Foundation/Foundation.h>\n+#else\n #include <AppKit/AppKit.h>\n+#endif\n #include\
+        \ <mach/task.h>\n #include <mach/mach_init.h>\n #include <mach/mach_types.h>\n@@ -1161,7 +1165,13 @@ gchar *find_executable_in_path(const\
+        \ char *exe_name, const char *path) {\n  * for org.gnome.desktop.interface, which KDE 6 and most GNOME desktops expose\n\
+        \  * via the xdg-desktop-portal; returns FALSE/no-op on other desktops). */\n \n-#ifdef OS_OSX\n+#ifdef OS_IOS\n+/*\
+        \ The embedding UIKit app owns appearance and observes trait changes. */\n+gboolean siril_system_is_dark_mode(void)\
+        \ { return FALSE; }\n+void siril_watch_system_appearance_changes(void (*callback)(gboolean dark)) {\n+\t(void)callback;\n\
+        +}\n+#elif defined(OS_OSX)\n \n gboolean siril_system_is_dark_mode(void) {\n \tNSAppearanceName name = [[NSApp effectiveAppearance]\n\
+        @@ -1264,7 +1274,7 @@ void siril_watch_system_appearance_changes(void (*callback)(gboolean dark)) {\n \n #endif /*\
+        \ OS_OSX / _WIN32 / Linux */\n \n-#ifdef OS_OSX\n+#if defined(OS_OSX) && !defined(OS_IOS)\n /* GTK4's GdkMacosView\
+        \ does not override performKeyEquivalent:, unlike GTK3's\n  * GdkQuartzView which forwarded Cmd+key events directly\
+        \ to GDK.  As a result,\n  * Command+key shortcuts never reach GTK4's shortcut controller.\n@@ -1356,4 +1366,4 @@\
+        \ gchar *get_siril_version_string() {\n \treturn g_strdup_printf(_(\"%s %s for %s (%s)\"), PACKAGE, VERSION, SIRIL_BUILD_PLATFORM_FAMILY,\
+        \ CPU_ARCH);\n #endif\n #endif\n-}\n\\ No newline at end of file\n+}\ndiff --git a/src/meson.build b/src/meson.build\n\
+        index 59a7f81..403bd3a 100644\n--- a/src/meson.build\n+++ b/src/meson.build\n@@ -399,6 +399,7 @@ siril_resources =\
+        \ gnome.compile_resources(\n   c_name : 'siril_resource')\n \n siril_lib = static_library('siril',\n+            \
+        \               pic: true,\n                            siril_resources[0], src_files,\n                         \
+        \   dependencies: core_dep,\n                            include_directories: siril_inc_dir,\n@@ -406,6 +407,7 @@\
+        \ siril_lib = static_library('siril',\n                            cpp_args : siril_cpp_flag)\n \n siril_headless_lib\
+        \ = static_library('siril_headless',\n+                                    pic: true,\n                          \
+        \           'core/headless_stubs.c',\n                                     dependencies: core_dep,\n             \
+        \                        include_directories: siril_inc_dir,\n@@ -439,6 +441,7 @@ endif\n # (on-demand stubs for remaining\
+        \ direct GUI calls from core code).\n # gui_iface_impl.c is never linked here.  main-cli.c does not define guiinfo\
+        \ gui.\n \n+if not enable_embedded\n siril_cli = executable('siril-cli', 'main-cli.c', win_res,\n                \
+        \        dependencies: siril_dep,\n                        link_whole: siril_lib,\n@@ -452,3 +455,4 @@ siril_cli =\
+        \ executable('siril-cli', 'main-cli.c', win_res,\n # Tests\n \n subdir('tests')\n+endif\nPORT_PATCH\ngit apply --check\
+        \ \"$RUNNER_TEMP/siril-ipados.patch\"\ngit apply \"$RUNNER_TEMP/siril-ipados.patch\"\ngit diff --check\ngit diff >\
+        \ ../diagnostics/siril-ipados.patch\ncp meson.build ../diagnostics/siril-meson.build.txt\ncp meson_options.txt ../diagnostics/siril-meson-options.txt\n\
+        printf '%s\\n' 'Environment check only. Siril core has NOT been compiled or linked. compiler-probe.a is NOT a Siril\
+        \ library.' > ../diagnostics/STATUS.txt\ngit submodule update --init --depth 1 subprojects/librtprocess subprojects/yyjson\n"
+    - name: Install host build tools
+      shell: bash
+      run: |
+        set -euo pipefail
+        if ! command -v cmake >/dev/null; then brew install cmake; fi
+        if ! command -v pkg-config >/dev/null; then brew install pkgconf; fi
+        python3 -m venv "$RUNNER_TEMP/siril-build-tools"
+        "$RUNNER_TEMP/siril-build-tools/bin/python" -m pip install meson ninja
+        echo "$RUNNER_TEMP/siril-build-tools/bin" >> "$GITHUB_PATH"
+        if ! brew list --versions glib >/dev/null; then brew install glib; fi
+    - name: Restore verified base libraries
+      id: base-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ipados-stage
+        key: ipados17-arm64-${{ steps.apple.outputs.sdk }}-${{ steps.apple.outputs.xcode }}-base-r4
+    - name: Cross-compile CFITSIO for iPadOS arm64
+      shell: bash
+      run: |
+        set -euo pipefail
+        sdk_path="$(xcrun --sdk iphoneos --show-sdk-path)"
+        stage_dir="$GITHUB_WORKSPACE/ipados-stage"
+        git init cfitsio-src
+        git -C cfitsio-src remote add origin https://github.com/HEASARC/cfitsio.git
+        git -C cfitsio-src fetch --depth 1 origin 1d2f37b1bc8e6d5e8cf8cd497314680322063468
+        git -C cfitsio-src checkout --detach FETCH_HEAD
+        git -C cfitsio-src rev-parse HEAD > diagnostics/cfitsio-commit.txt
+        cmake -S cfitsio-src -B cfitsio-build \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+          -DCMAKE_SYSTEM_NAME=iOS \
+          -DCMAKE_OSX_SYSROOT="$sdk_path" \
+          -DCMAKE_OSX_ARCHITECTURES=arm64 \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX="$stage_dir" \
+          -DCMAKE_FIND_ROOT_PATH="$sdk_path" \
+          -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+          -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+          -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+          -DBUILD_SHARED_LIBS=OFF -DUSE_CURL=OFF -DUSE_PTHREADS=ON \
+          -DTESTS=OFF -DUTILS=OFF -DITERPROGS=OFF \
+          -DUSE_SSE2=OFF -DUSE_SSSE3=OFF -DUSE_BZIP2=OFF \
+          -DHAVE_SHMEM_SERVICES=OFF 2>&1 | tee diagnostics/cfitsio-configure.log
+        cmake --build cfitsio-build --parallel 3 2>&1 | tee diagnostics/cfitsio-build.log
+        cmake --install cfitsio-build 2>&1 | tee diagnostics/cfitsio-install.log
+        test -f "$stage_dir/lib/libcfitsio.a"
+        xcrun lipo -info "$stage_dir/lib/libcfitsio.a" > diagnostics/cfitsio-architecture.txt
+        xcrun lipo "$stage_dir/lib/libcfitsio.a" -verify_arch arm64 2>&1 | tee diagnostics/cfitsio-verify-architecture.log
+        xcrun otool -l "$stage_dir/lib/libcfitsio.a" > diagnostics/cfitsio-platform.txt 2>&1
+        printf '#include <fitsio.h>\nint main(void) { float version; fits_get_version(&version); return 0; }\n' > "$RUNNER_TEMP/fits-link-probe.c"
+        xcrun --sdk iphoneos clang -target arm64-apple-ios17.0 -isysroot "$sdk_path" \
+          -I"$stage_dir/include" "$RUNNER_TEMP/fits-link-probe.c" \
+          "$stage_dir/lib/libcfitsio.a" -lz -lm -lpthread \
+          -o diagnostics/fits-link-probe 2>&1 | tee diagnostics/fits-link-probe-build.log
+        xcrun vtool -show-build diagnostics/fits-link-probe > diagnostics/fits-link-probe-platform.txt 2>&1
+        printf '%s\n' 'CFITSIO built and link-checked for iPadOS arm64. No on-device execution yet. Siril core not yet built.' > diagnostics/STATUS.txt
+      if: steps.base-cache.outputs.cache-hit != 'true'
+    - name: Generate shared iPadOS cross-build configuration
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 - <<'PY'
+        import os, pathlib, subprocess
+        sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
+        def tool(name):
+            return subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--find', name], text=True).strip()
+        prefix = str(pathlib.Path('ipados-stage').resolve())
+        args = ['-target', 'arm64-apple-ios17.0', '-isysroot', sdk]
+        pathlib.Path('ipados-cross.ini').write_text(
+            '[binaries]\n' +
+            '\n'.join(f'{key} = {tool(name)!r}' for key, name in [('c','clang'),('cpp','clang++'),('objc','clang'),('ar','ar'),('strip','strip')]) +
+            "\npkg-config = 'pkg-config'\ncmake = 'cmake'\n" +
+            "[host_machine]\nsystem = 'darwin'\ncpu_family = 'aarch64'\ncpu = 'arm64'\nendian = 'little'\n" +
+            '[properties]\nneeds_exe_wrapper = true\nsiril_apple_mobile = true\n' +
+            f'cmake_toolchain_file = {str(pathlib.Path("ipados-toolchain.cmake").resolve())!r}\n' +
+            f'pkg_config_libdir = {[prefix + "/lib/pkgconfig", prefix + "/share/pkgconfig"]!r}\n' +
+            '[built-in options]\n' +
+            '\n'.join(f'{key} = {args!r}' for key in ['c_args','cpp_args','objc_args','c_link_args','cpp_link_args','objc_link_args']) + '\nprefer_static = true\n')
+        PY
+        cp ipados-cross.ini diagnostics/
+        python3 - <<'PY_TOOLCHAIN'
+        from pathlib import Path
+        import subprocess
+        sdk = subprocess.check_output(['xcrun','--sdk','iphoneos','--show-sdk-path'], text=True).strip()
+        stage = str(Path('ipados-stage').resolve())
+        Path('ipados-toolchain.cmake').write_text(f'''set(CMAKE_SYSTEM_NAME iOS)
+        set(CMAKE_OSX_SYSROOT "{sdk}")
+        set(CMAKE_OSX_ARCHITECTURES arm64)
+        set(CMAKE_OSX_DEPLOYMENT_TARGET 17.0)
+        set(CMAKE_FIND_ROOT_PATH "{stage}" "{sdk}")
+        set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+        set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+        set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+        ''')
+        brew = subprocess.check_output(['brew','--prefix'], text=True).strip()
+        wrapper = Path('native-pkg-config.sh').resolve()
+        wrapper.write_text(f'#!/bin/sh\nunset PKG_CONFIG_LIBDIR PKG_CONFIG_SYSROOT_DIR\nexport PKG_CONFIG_PATH="{brew}/lib/pkgconfig:{brew}/share/pkgconfig"\nexec "{brew}/bin/pkg-config" "$@"\n')
+        wrapper.chmod(0o755)
+        Path('macos-tools.ini').write_text(f"[binaries]\npkg-config = '{wrapper}'\n")
+        PY_TOOLCHAIN
+        cp ipados-toolchain.cmake macos-tools.ini diagnostics/
+    - name: Build GLib and its base dependencies for iPadOS
+      shell: bash
+      run: |
+        set -euo pipefail
+        stage_dir="$GITHUB_WORKSPACE/ipados-stage"
+        export PKG_CONFIG_PATH=""
+        export PKG_CONFIG_LIBDIR="$stage_dir/lib/pkgconfig:$stage_dir/share/pkgconfig"
+        git init glib-src
+        git -C glib-src remote add origin https://github.com/GNOME/glib.git
+        git -C glib-src fetch --depth 1 origin 41eca60845d3fc309af361f5e7f801ba339099aa
+        git -C glib-src checkout --detach FETCH_HEAD
+        git -C glib-src rev-parse HEAD > diagnostics/glib-commit.txt
+        python3 - <<'PY'
+        from pathlib import Path
+        import re
+        source = Path('glib-src')
+        wrap = source / 'subprojects/libffi.wrap'
+        text = wrap.read_text()
+        assert 'revision=meson' in text
+        wrap.write_text(text.replace('revision=meson', 'revision=83d0cfd00d7d37af4b4349511d29f1f0512621b3'))
+        # iPadOS does not provide process launching. Preserve the GLib API,
+        # but return an explicit error rather than compile fork/exec calls.
+        header = (source / 'glib/gspawn-private.h').read_text()
+        definitions = []
+        for name in ['g_spawn_sync_impl', 'g_spawn_async_with_pipes_and_fds_impl']:
+            match = re.search(r'gboolean\s+' + name + r'\s*\([^;]+\);', header)
+            assert match, name
+            signature = match.group(0)[:-1]
+            definitions.append(signature + '\n{\n  g_set_error_literal(error, G_SPAWN_ERROR, G_SPAWN_ERROR_FAILED, "Process launching is unavailable in this iPadOS build");\n  return FALSE;\n}\n')
+        preamble = '/* SPDX-License-Identifier: LGPL-2.1-or-later\n * iPadOS backend for GLib; public declarations retain their upstream license.\n */\n#include "config.h"\n#include "glib.h"\n#include "gspawn-private.h"\n#include <sys/wait.h>\nG_DEFINE_QUARK (g-exec-error-quark, g_spawn_error)\nG_DEFINE_QUARK (g-spawn-exit-error-quark, g_spawn_exit_error)\n'
+        tail = '''gboolean g_spawn_check_wait_status_impl(gint status, GError **error) {
+          if (WIFEXITED(status) && WEXITSTATUS(status) == 0) return TRUE;
+          if (WIFEXITED(status)) g_set_error(error, G_SPAWN_EXIT_ERROR, WEXITSTATUS(status), "Child exited with status %d", WEXITSTATUS(status));
+          else g_set_error_literal(error, G_SPAWN_ERROR, G_SPAWN_ERROR_FAILED, "Child did not exit successfully");
+          return FALSE;
+        }
+        void g_spawn_close_pid_impl(GPid pid) { (void)pid; }
+        '''
+        (source / 'glib/gspawn-ios.c').write_text(preamble + '\n'.join(definitions) + tail)
+        meson = source / 'glib/meson.build'
+        text = meson.read_text()
+        old = "  glib_sources += files('glib-unix.c', 'gspawn-posix.c', 'giounix.c')"
+        assert text.count(old) == 1
+        new = "  glib_sources += files('glib-unix.c', 'giounix.c')\n  if host_system == 'ios'\n    glib_sources += files('gspawn-ios.c')\n  else\n    glib_sources += files('gspawn-posix.c')\n  endif"
+        meson.write_text(text.replace(old, new))
+        PY
+        git -C glib-src diff --check
+        git -C glib-src diff > diagnostics/glib-ipados.patch
+        cp glib-src/glib/gspawn-ios.c diagnostics/
+        # Static GLib targets, but allow Apple SDK system dylibs (resolv/iconv/zlib).
+        # Keep target executables out of the build; native macOS tools are separate.
+        trap 'if test -d glib-ios-build/meson-logs; then cp -R glib-ios-build/meson-logs diagnostics/glib-meson-logs; fi' EXIT
+        meson setup glib-ios-build glib-src --cross-file ipados-cross.ini \
+          --prefix "$stage_dir" --libdir lib --buildtype release \
+          --force-fallback-for libffi,libpcre2-8,intl \
+          -Ddefault_library=static -Dprefer_static=false -Dtests=false -Dinstalled_tests=false \
+          -Dintrospection=disabled -Ddocumentation=false -Dman-pages=disabled \
+          -Dnls=disabled -Dlibmount=disabled -Dselinux=disabled \
+          -Dlibelf=disabled -Dsysprof=disabled -Dsystemtap=disabled -Ddtrace=disabled \
+          -Dpcre2:jit=disabled -Dpcre2:grep=false -Dpcre2:test=false \
+          -Dlibffi:ffi-build-versioned=false \
+          2>&1 | tee diagnostics/glib-configure.log
+        # Static GLib archives do not automatically build all subproject archives.
+        # Build every declared static library before installing development files.
+        python3 - <<'PY_STATIC_LIBRARIES' 2>&1 | tee diagnostics/glib-build.log
+        import json, pathlib, subprocess
+        build = pathlib.Path('glib-ios-build').resolve()
+        targets = json.loads(subprocess.check_output(['meson', 'introspect', '--targets', str(build)], text=True))
+        archives = []
+        for target in targets:
+            if target['type'] == 'static library':
+                for filename in target['filename']:
+                    output = pathlib.Path(filename)
+                    if not output.is_absolute(): output = build / output
+                    archives.append(str(output.relative_to(build)))
+        if not archives: raise RuntimeError('No static library targets were declared')
+        pathlib.Path('diagnostics/glib-static-targets.json').write_text(json.dumps(archives, indent=2))
+        subprocess.run(['ninja', '-C', str(build), '-j', '3', *archives], check=True)
+        PY_STATIC_LIBRARIES
+        meson install -C glib-ios-build --no-rebuild --tags devel \
+          2>&1 | tee diagnostics/glib-install.log
+        for library in libglib-2.0.a libgobject-2.0.a libgio-2.0.a libgmodule-2.0.a; do
+          test -f "$stage_dir/lib/$library"
+          xcrun lipo "$stage_dir/lib/$library" -verify_arch arm64 \
+            2>&1 | tee -a diagnostics/glib-architecture-check.log
+        done
+        python3 - <<'PY'
+        from pathlib import Path
+        import shlex, subprocess
+        source = Path('diagnostics/glib-link-probe.c')
+        source.write_text('#include <gio/gio.h>\nint main(void) { GFile *file = g_file_new_for_path("."); g_object_unref(file); return 0; }\n')
+        sdk = subprocess.check_output(['xcrun','--sdk','iphoneos','--show-sdk-path'], text=True).strip()
+        flags = shlex.split(subprocess.check_output(['pkg-config','--static','--cflags','--libs','gio-2.0','gio-unix-2.0','gobject-2.0'], text=True))
+        Path('diagnostics/glib-link-flags.txt').write_text(shlex.join(flags))
+        command = ['xcrun','--sdk','iphoneos','clang','-target','arm64-apple-ios17.0','-isysroot',sdk,str(source),*flags,'-o','diagnostics/glib-link-probe']
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        Path('diagnostics/glib-link-probe-build.log').write_text(result.stdout)
+        print(result.stdout)
+        if result.returncode: raise SystemExit(result.returncode)
+        PY
+        xcrun vtool -show-build diagnostics/glib-link-probe > diagnostics/glib-link-probe-platform.txt 2>&1
+        printf '%s\n' 'CFITSIO and GLib cross-built and link-checked. No device execution yet. Siril core configuration is next.' > diagnostics/STATUS.txt
+      if: steps.base-cache.outputs.cache-hit != 'true'
+    - name: Cache completed base libraries
+      if: steps.base-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ipados-stage
+        key: ipados17-arm64-${{ steps.apple.outputs.sdk }}-${{ steps.apple.outputs.xcode }}-base-r4
+    - name: Restore completed additional libraries
+      id: extra-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ipados-stage
+        key: ipados17-arm64-${{ steps.apple.outputs.sdk }}-${{ steps.apple.outputs.xcode }}-extra-v1-${{ github.run_id }}
+        restore-keys: ipados17-arm64-${{ steps.apple.outputs.sdk }}-${{ steps.apple.outputs.xcode }}-extra-v1-
+    - name: Build all remaining Siril core dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 tools/build-ipados-deps.py
+    - name: Attempt real Siril iPadOS core configuration
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Do not let host macOS pkg-config/CMake metadata satisfy iPadOS dependencies.
+        export PKG_CONFIG_PATH=""
+        export PKG_CONFIG_LIBDIR="$GITHUB_WORKSPACE/ipados-stage/lib/pkgconfig:$GITHUB_WORKSPACE/ipados-stage/share/pkgconfig"
+        set +e
+        meson setup siril-ios-build siril-src --cross-file ipados-cross.ini --native-file macos-tools.ini \
+          --wrap-mode=nodownload -Dembedded=true -Dgtk=false \
+          -Dopenmp=false -Darch_native=false -Dcriterion=false \
+          -Dexiv2=false -Dlibraw=false -Dlibtiff=false -Dlibjpeg=false \
+          -Dlibpng=false -Dlibheif=false -DlibXISF=false -Dlibjxl=false \
+          -Dlibgit2=false -Dffms2=false -Dffmpeg=false -Dlibcurl=false -Dsqlite=false \
+          2>&1 | tee diagnostics/siril-configure.log
+        configure_status=${PIPESTATUS[0]}
+        set -e
+        if test -d siril-ios-build/meson-logs; then cp -R siril-ios-build/meson-logs diagnostics/; fi
+        printf '%s\n' "$configure_status" > diagnostics/siril-configure-exit-code.txt
+        if test "$configure_status" -ne 0; then
+          printf '%s\n' 'CFITSIO and GLib built. Siril configuration blocked; see siril-configure.log. Remaining iPadOS libraries are not installed yet.' >> diagnostics/STATUS.txt
+          exit "$configure_status"
+        fi
+        meson compile -C siril-ios-build 2>&1 | tee diagnostics/siril-core-build.log
+        printf '%s\n' 'Siril compilation command completed; App integration and device execution remain unverified.' >> diagnostics/STATUS.txt
+    - name: Save completed additional libraries for the next fix
+      if: always() && steps.extra-cache.outcome == 'success'
+      uses: actions/cache/save@v4
+      with:
+        path: ipados-stage
+        key: ipados17-arm64-${{ steps.apple.outputs.sdk }}-${{ steps.apple.outputs.xcode }}-extra-v1-${{ github.run_id }}
+    - name: Upload diagnostic files
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: siril-ipados-build-diagnostics
+        path: |
+          diagnostics/
+          ipados-stage/
+        if-no-files-found: warn
+'on':
+  workflow_dispatch: null
