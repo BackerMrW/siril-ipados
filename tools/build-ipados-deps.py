@@ -92,6 +92,7 @@ def meson(name, url, revision, options, patch=None):
     build = WORK / f"{name}-build"
     try:
         run(["meson", "setup", build, source, "--cross-file", CROSS,
+             "--native-file", ROOT / "macos-tools.ini",
              "--prefix", STAGE, "--libdir", "lib", "--buildtype", "release",
              "-Ddefault_library=static", "-Dprefer_static=false", *options], f"{name}-configure")
         build_archives(build, name)
@@ -119,6 +120,30 @@ def ios_frameworks(source):
             text = text.replace("modules: [ 'CoreFoundation', 'ApplicationServices' ]",
                                 "modules: [ 'CoreFoundation', 'CoreGraphics', 'CoreText' ]")
             p.write_text(text)
+    # ATSUI and desktop display enumeration are unavailable on iOS. Keep
+    # CoreText/CGFont rendering and use an explicit RGB space for image surfaces.
+    quartz = source / "src/cairo-quartz.h"
+    if quartz.exists():
+        text = quartz.read_text().replace(
+            "cairo_public cairo_font_face_t *\ncairo_quartz_font_face_create_for_atsu_font_id (ATSUFontID font_id);", "")
+        quartz.write_text(text)
+        font = source / "src/cairo-quartz-font.c"
+        text = font.read_text()
+        text = text.replace("static ATSFontRef (*FMGetATSFontRefFromFontPtr) (FMFont iFont) = NULL;", "")
+        text = text.replace('    FMGetATSFontRefFromFontPtr = dlsym(RTLD_DEFAULT, "FMGetATSFontRefFromFont");', "")
+        text = text.replace("#if MAC_OS_X_VERSION_MIN_REQUIRED < 1080", "#if 0 /* iOS uses the current CoreText names */")
+        text = text.split("/*\n * compat with old ATSUI backend\n */")[0]
+        font.write_text(text)
+        for name in ("cairo-quartz-surface.c", "cairo-quartz-image-surface.c"):
+            p = source / "src" / name
+            text = p.read_text().replace("CGDisplayCopyColorSpace (CGMainDisplayID ())",
+                                         "CGColorSpaceCreateWithName (kCGColorSpaceSRGB)")
+            text = "#include <ImageIO/ImageIO.h>\n" + text
+            p.write_text(text)
+        meson_file = source / "meson.build"
+        text = meson_file.read_text().replace("['CoreGraphics', 'CoreText']",
+                                               "['CoreGraphics', 'CoreText', 'ImageIO']")
+        meson_file.write_text(text)
 
 
 def cmake(name, url, revision, options):
