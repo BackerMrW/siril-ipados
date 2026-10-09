@@ -31,6 +31,15 @@ int siril_image_subtract(SirilImage *destination, const SirilImage *source);
 int siril_image_divide_scalar(SirilImage *image, float divisor);
 /* Export a new floating-point FITS; refuses to overwrite an existing path. */
 int siril_image_write(const SirilImage *image, const char *path);
+/* Execute original Siril commands synchronously, stopping at the first error.
+ * Blank lines and # comments are accepted. No desktop process or GTK loop.
+ * Returns 1 on success; errors identify the source line. */
+int siril_run_commands(const char *directory, const char *script, char *error, size_t error_size);
+/* Independent of the engine lock, so UI can read logs and cancel a running job. */
+void siril_copy_processing_log(char *buffer, size_t capacity);
+void siril_cancel_processing(void);
+/* Runtime catalog from the configured upstream command table: name<TAB>usage. */
+const char *siril_command_catalog(void);
 #ifdef __cplusplus
 }
 #endif
