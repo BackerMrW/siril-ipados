@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import io
 import json
+import re
 from pathlib import Path
 import subprocess
 import tarfile
@@ -56,7 +57,7 @@ def main():
                 with tarfile.open(fileobj=io.BytesIO(body)) as source:
                     for item in source.getmembers():
                         if item.isfile() and item.size < 1024 * 1024 and (
-                            item.name.split("/")[-1].upper().startswith(("LICENSE", "COPYING", "COPYRIGHT", "NOTICE"))):
+                            re.match(r"^(LICENSE|COPYING|COPYRIGHT|NOTICE)([._-]|$)", item.name.split("/")[-1], re.IGNORECASE)):
                             parts = Path(item.name).parts[1:]
                             if not parts or ".." in parts: continue
                             target = root / "ThirdPartyLicenses" / name / Path(*parts)
