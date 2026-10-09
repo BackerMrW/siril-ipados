@@ -108,6 +108,20 @@ index 1886cea..020a2c0 100644
 -}
 \ No newline at end of file
 +}
+diff --git a/src/core/command.c b/src/core/command.c
+index 9692060..f681d62 100644
+--- a/src/core/command.c
++++ b/src/core/command.c
+@@ -13268,7 +13268,9 @@ int process_pcc(int nb) {
+ }
+ 
+ int process_spcc(int nb) {
++#ifdef HAVE_LIBCURL
+ 	siril_check_spcc_mirrors(TRUE, TRUE);
++#endif
+ 	return do_pcc(nb, TRUE);
+ }
+ 
 diff --git a/src/meson.build b/src/meson.build
 index 59a7f81..a75eb95 100644
 --- a/src/meson.build
