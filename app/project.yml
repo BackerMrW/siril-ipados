@@ -15,6 +15,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.backermrw.sirilpad
         PRODUCT_NAME: SirilPad
         SWIFT_VERSION: "5.0"
+        ARCHS: arm64
         TARGETED_DEVICE_FAMILY: "2"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Siril iPad
