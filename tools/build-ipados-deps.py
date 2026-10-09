@@ -4,6 +4,7 @@ import hashlib
 import inspect
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import subprocess
@@ -144,6 +145,15 @@ def ios_frameworks(source):
         text = meson_file.read_text().replace("['CoreGraphics', 'CoreText']",
                                                "['CoreGraphics', 'CoreText', 'ImageIO']")
         meson_file.write_text(text)
+    coretext = source / "pango/pangocoretext-fontmap.c"
+    if coretext.exists():
+        text = coretext.read_text().replace(
+            "#if !defined(MAC_OS_X_VERSION_10_8) || MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_8",
+            "#if 0 /* iOS uses the public CTFontCopyDefaultCascadeListForLanguages */")
+        text = text.replace(
+            "#if defined(MAC_OS_X_VERSION_10_8) && MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_8",
+            "#if 1 /* iOS 17 supports the current public CoreText API */")
+        coretext.write_text("#include <strings.h>\n" + text)
 
 
 def cmake(name, url, revision, options):
@@ -197,6 +207,14 @@ def autotools(name, url, digest, options):
 
 
 def main():
+    # The SDK supplies libz.tbd and headers, but no pkg-config metadata. Give
+    # target-only packages their required zlib entry without using host Homebrew.
+    version = re.search(r'^#define ZLIB_VERSION "([^"]+)"',
+                        (Path(SDK) / "usr/include/zlib.h").read_text(), re.MULTILINE).group(1)
+    pcdir = STAGE / "lib/pkgconfig"
+    pcdir.mkdir(parents=True, exist_ok=True)
+    (pcdir / "zlib.pc").write_text(
+        f"Name: zlib\nDescription: Apple iPhoneOS SDK zlib\nVersion: {version}\nLibs: -lz\nCflags:\n")
     meson("lcms", "https://github.com/mm2/Little-CMS.git", "453bafeb85b4ef96498866b7a8eadcc74dff9223",
           ["-Djpeg=disabled", "-Dtiff=disabled", "-Dutils=false", "-Dsamples=false"])
     autotools("fftw", "https://www.fftw.org/fftw-3.3.10.tar.gz",

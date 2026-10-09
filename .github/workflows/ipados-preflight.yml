@@ -332,6 +332,15 @@ jobs:
         fi
         meson compile -C siril-ios-build 2>&1 | tee diagnostics/siril-core-build.log
         printf '%s\n' 'Siril compilation command completed; App integration and device execution remain unverified.' >> diagnostics/STATUS.txt
+    - name: Package the link-verified Siril core
+      shell: bash
+      run: python3 tools/package-siril.py
+    - name: Upload native core for App integration
+      uses: actions/upload-artifact@v4
+      with:
+        name: SirilCore-iPadOS-arm64
+        path: dist/
+        if-no-files-found: error
     - name: Save completed additional libraries for the next fix
       if: always() && steps.extra-cache.outcome == 'success'
       uses: actions/cache/save@v4

@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+dist/
+deps-work/
+diagnostics/
+ipados-stage/
+siril-src/
+siril-ios-build/
