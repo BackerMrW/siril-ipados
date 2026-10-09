@@ -6,6 +6,7 @@
 #include "core/arithm.h"
 #include "io/image_format_fits.h"
 #include "filters/mtf.h"
+#include "algos/siril_random.h"
 #include "git-version.h"
 #include <gsl/gsl_errno.h>
 #include <stdio.h>
@@ -24,6 +25,7 @@ static void initialize(void) {
         com.script = TRUE;
         com.max_thread = 1;
         gsl_set_error_handler_off();
+        siril_initialize_rng();
         initialize_default_settings();
         g_once_init_leave(&initialized, 1);
     }

@@ -109,25 +109,25 @@ index 1886cea..020a2c0 100644
 \ No newline at end of file
 +}
 diff --git a/src/meson.build b/src/meson.build
-index 59a7f81..403bd3a 100644
+index 59a7f81..a75eb95 100644
 --- a/src/meson.build
 +++ b/src/meson.build
-@@ -399,6 +399,7 @@ siril_resources = gnome.compile_resources(
-   c_name : 'siril_resource')
+@@ -400,6 +400,7 @@ siril_resources = gnome.compile_resources(
  
  siril_lib = static_library('siril',
-+                           pic: true,
                             siril_resources[0], src_files,
++                           pic: true,
                             dependencies: core_dep,
                             include_directories: siril_inc_dir,
-@@ -406,6 +407,7 @@ siril_lib = static_library('siril',
-                            cpp_args : siril_cpp_flag)
+                            c_args : siril_c_flag,
+@@ -407,6 +408,7 @@ siril_lib = static_library('siril',
  
  siril_headless_lib = static_library('siril_headless',
-+                                    pic: true,
                                      'core/headless_stubs.c',
++                                    pic: true,
                                      dependencies: core_dep,
                                      include_directories: siril_inc_dir,
+                                     c_args : siril_c_flag,
 @@ -439,6 +441,7 @@ endif
  # (on-demand stubs for remaining direct GUI calls from core code).
  # gui_iface_impl.c is never linked here.  main-cli.c does not define guiinfo gui.
