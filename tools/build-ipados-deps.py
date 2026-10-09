@@ -162,7 +162,10 @@ def ios_opencv_metadata(source):
     p = source / "cmake/OpenCVGenPkgconfig.cmake"
     text = p.read_text()
     assert "if(MSVC OR IOS OR XROS)" in text
-    p.write_text(text.replace("if(MSVC OR IOS OR XROS)", "if(MSVC OR XROS)"))
+    text = text.replace("if(MSVC OR IOS OR XROS)", "if(MSVC OR XROS)")
+    text = re.sub(r"cmake_minimum_required\(VERSION 2\.[^)]+\)",
+                  "cmake_minimum_required(VERSION 3.5)", text)
+    p.write_text(text)
 
 
 def cmake(name, url, revision, options, patch=None):

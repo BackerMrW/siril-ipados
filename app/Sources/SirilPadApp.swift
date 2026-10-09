@@ -29,7 +29,8 @@ enum EngineError: LocalizedError {
 actor SirilEngine {
     private func read(_ url: URL) throws -> OpaquePointer {
         var error = [CChar](repeating: 0, count: 512)
-        guard let image = url.path.withCString({ siril_image_read($0, &error, error.count) }) else {
+        let capacity = error.count
+        guard let image = url.path.withCString({ siril_image_read($0, &error, capacity) }) else {
             throw EngineError.failed(String(cString: error))
         }
         return image

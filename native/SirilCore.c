@@ -122,6 +122,10 @@ int siril_image_divide_scalar(SirilImage *image, float divisor) {
 }
 int siril_image_write(const SirilImage *image, const char *path) {
     if (!image || !path) return 0;
+    /* Upstream savefits adds/rewrites suffixes. Require an exact output path
+     * so our existing-file check protects the actual destination. */
+    if (!g_str_has_suffix(path, ".fit") && !g_str_has_suffix(path, ".fits") &&
+        !g_str_has_suffix(path, ".fts")) return 0;
     g_mutex_lock(&engine_mutex);
     int ok = !g_file_test(path, G_FILE_TEST_EXISTS) && savefits(path, (fits *)&image->fit) == 0;
     g_mutex_unlock(&engine_mutex);
