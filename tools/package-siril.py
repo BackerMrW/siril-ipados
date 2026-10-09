@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Package only the static archives actually used by the proven core link."""
 import json
+import os
 from pathlib import Path
 import shlex
 import shutil
@@ -53,7 +54,7 @@ subprocess.run(["xcodebuild", "-create-xcframework", "-library", str(library),
                 "-headers", str(headers), "-output", str(framework)], check=True)
 (out / "BUILD.json").write_text(json.dumps({
     "siril_commit": (root / "diagnostics/siril-commit.txt").read_text().strip(),
-    "platform": "iOS", "architecture": "arm64", "minimum_os": "17.0",
+    "platform": os.environ.get("SIRIL_SDK", "iphoneos"), "architecture": "arm64", "minimum_os": "17.0",
     "verification": "All compiled upstream core symbols device-linked; not executed on device",
     "archives": [str(p.relative_to(root)) for p in archives],
 }, indent=2))

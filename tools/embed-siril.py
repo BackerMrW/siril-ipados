@@ -7,7 +7,7 @@ root = Path.cwd()
 source = root / "siril-src"
 destination = source / "src/ipados"
 destination.mkdir(exist_ok=True)
-for name in ("SirilCore.c", "SirilCore.h", "core-link-probe.c"):
+for name in ("SirilCore.c", "SirilCore.h", "core-link-probe.c", "core-runtime-tests.c"):
     shutil.copy2(root / "native" / name, destination / name)
 meson = source / "src/meson.build"
 text = meson.read_text()
@@ -23,6 +23,10 @@ if enable_embedded
     dependencies: siril_dep,
     link_whole: siril_lib,
     link_args: siril_link_arg,
+    c_args: siril_c_flag,
+    cpp_args: siril_cpp_flag)
+  executable('siril-ipados-runtime-tests', 'ipados/core-runtime-tests.c',
+    dependencies: siril_dep,
     c_args: siril_c_flag,
     cpp_args: siril_cpp_flag)
 endif

@@ -19,8 +19,10 @@ CROSS = ROOT / "ipados-cross.ini"
 STATE = STAGE / ".build-state"
 for directory in (STAGE, LOGS, WORK, STATE):
     directory.mkdir(parents=True, exist_ok=True)
-SDK = subprocess.check_output(["xcrun", "--sdk", "iphoneos", "--show-sdk-path"], text=True).strip()
-SDK_VERSION = subprocess.check_output(["xcrun", "--sdk", "iphoneos", "--show-sdk-version"], text=True).strip()
+SDK_NAME = os.environ.get("SIRIL_SDK", "iphoneos")
+TARGET = os.environ.get("SIRIL_TARGET", "arm64-apple-ios17.0")
+SDK = subprocess.check_output(["xcrun", "--sdk", SDK_NAME, "--show-sdk-path"], text=True).strip()
+SDK_VERSION = subprocess.check_output(["xcrun", "--sdk", SDK_NAME, "--show-sdk-version"], text=True).strip()
 ENV = dict(os.environ, PKG_CONFIG_PATH="", PKG_CONFIG_LIBDIR=f"{STAGE}/lib/pkgconfig:{STAGE}/share/pkgconfig")
 
 
@@ -209,9 +211,9 @@ def autotools(name, url, digest, options):
     source = folders[0]
     build = WORK / f"{name}-build"
     build.mkdir()
-    flags = shlex.join(["-target", "arm64-apple-ios17.0", "-isysroot", SDK, "-O2", "-fPIC"])
-    cc = subprocess.check_output(["xcrun", "--sdk", "iphoneos", "--find", "clang"], text=True).strip()
-    cpp = subprocess.check_output(["xcrun", "--sdk", "iphoneos", "--find", "clang++"], text=True).strip()
+    flags = shlex.join(["-target", TARGET, "-isysroot", SDK, "-O2", "-fPIC"])
+    cc = subprocess.check_output(["xcrun", "--sdk", SDK_NAME, "--find", "clang"], text=True).strip()
+    cpp = subprocess.check_output(["xcrun", "--sdk", SDK_NAME, "--find", "clang++"], text=True).strip()
     env = dict(ENV, CC=cc, CXX=cpp, CFLAGS=flags, CXXFLAGS=flags, LDFLAGS=flags,
                AR="/usr/bin/ar", RANLIB="/usr/bin/ranlib")
     run([source / "configure", f"--prefix={STAGE}", "--host=aarch64-apple-darwin",

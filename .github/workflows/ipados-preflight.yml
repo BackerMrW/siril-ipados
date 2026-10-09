@@ -5,6 +5,10 @@ jobs:
   preflight:
     runs-on: macos-15
     timeout-minutes: 150
+    env:
+      SIRIL_SDK: ${{ inputs.sdk || 'iphoneos' }}
+      SIRIL_TARGET: ${{ inputs.sdk == 'iphonesimulator' && 'arm64-apple-ios17.0-simulator' || 'arm64-apple-ios17.0' }}
+      CACHE_SUFFIX: ${{ inputs.sdk == 'iphonesimulator' && '-simulator' || '' }}
     steps:
     - name: Check out port build scripts
       uses: actions/checkout@v4
@@ -14,14 +18,14 @@ jobs:
         set -euo pipefail
         mkdir -p diagnostics
         xcodebuild -version > diagnostics/xcode.txt
-        xcrun --sdk iphoneos --show-sdk-version > diagnostics/ipados-sdk.txt
-        sdk_path="$(xcrun --sdk iphoneos --show-sdk-path)"
+        xcrun --sdk "$SIRIL_SDK" --show-sdk-version > diagnostics/ipados-sdk.txt
+        sdk_path="$(xcrun --sdk "$SIRIL_SDK" --show-sdk-path)"
         printf '#import <Foundation/Foundation.h>\nint apple_sdk_probe(void) { return 1; }\n' > "$RUNNER_TEMP/probe.m"
-        xcrun --sdk iphoneos clang -target arm64-apple-ios17.0 -isysroot "$sdk_path" -c "$RUNNER_TEMP/probe.m" -o "$RUNNER_TEMP/probe.o"
-        xcrun --sdk iphoneos ar rcs diagnostics/compiler-probe.a "$RUNNER_TEMP/probe.o"
+        xcrun --sdk "$SIRIL_SDK" clang -target "$SIRIL_TARGET" -isysroot "$sdk_path" -c "$RUNNER_TEMP/probe.m" -o "$RUNNER_TEMP/probe.o"
+        xcrun --sdk "$SIRIL_SDK" ar rcs diagnostics/compiler-probe.a "$RUNNER_TEMP/probe.o"
         file diagnostics/compiler-probe.a > diagnostics/compiler-probe.txt
         xcrun nm diagnostics/compiler-probe.a >> diagnostics/compiler-probe.txt
-        echo "sdk=$(xcrun --sdk iphoneos --show-sdk-version)" >> "$GITHUB_OUTPUT"
+        echo "sdk=$(xcrun --sdk "$SIRIL_SDK" --show-sdk-version)" >> "$GITHUB_OUTPUT"
         echo "xcode=$(xcodebuild -version | head -n 1 | cut -d ' ' -f 2)" >> "$GITHUB_OUTPUT"
       id: apple
     - name: Fetch pinned Siril source and verify initial port patch
@@ -55,12 +59,12 @@ jobs:
       uses: actions/cache/restore@v4
       with:
         path: ipados-stage
-        key: ipados17-arm64-${{ steps.apple.outputs.sdk }}-${{ steps.apple.outputs.xcode }}-base-r4
+        key: ipados17-arm64${{ env.CACHE_SUFFIX }}-${{ steps.apple.outputs.sdk }}-${{ steps.apple.outputs.xcode }}-base-r4
     - name: Cross-compile CFITSIO for iPadOS arm64
       shell: bash
       run: |
         set -euo pipefail
-        sdk_path="$(xcrun --sdk iphoneos --show-sdk-path)"
+        sdk_path="$(xcrun --sdk "$SIRIL_SDK" --show-sdk-path)"
         stage_dir="$GITHUB_WORKSPACE/ipados-stage"
         git init cfitsio-src
         git -C cfitsio-src remote add origin https://github.com/HEASARC/cfitsio.git
@@ -90,7 +94,7 @@ jobs:
         xcrun lipo "$stage_dir/lib/libcfitsio.a" -verify_arch arm64 2>&1 | tee diagnostics/cfitsio-verify-architecture.log
         xcrun otool -l "$stage_dir/lib/libcfitsio.a" > diagnostics/cfitsio-platform.txt 2>&1
         printf '#include <fitsio.h>\nint main(void) { float version; fits_get_version(&version); return 0; }\n' > "$RUNNER_TEMP/fits-link-probe.c"
-        xcrun --sdk iphoneos clang -target arm64-apple-ios17.0 -isysroot "$sdk_path" \
+        xcrun --sdk "$SIRIL_SDK" clang -target "$SIRIL_TARGET" -isysroot "$sdk_path" \
           -I"$stage_dir/include" "$RUNNER_TEMP/fits-link-probe.c" \
           "$stage_dir/lib/libcfitsio.a" -lz -lm -lpthread \
           -o diagnostics/fits-link-probe 2>&1 | tee diagnostics/fits-link-probe-build.log
@@ -103,11 +107,11 @@ jobs:
         set -euo pipefail
         python3 - <<'PY'
         import os, pathlib, subprocess
-        sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], text=True).strip()
+        sdk = subprocess.check_output(['xcrun', '--sdk', os.environ['SIRIL_SDK'], '--show-sdk-path'], text=True).strip()
         def tool(name):
-            return subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--find', name], text=True).strip()
+            return subprocess.check_output(['xcrun', '--sdk', os.environ['SIRIL_SDK'], '--find', name], text=True).strip()
         prefix = str(pathlib.Path('ipados-stage').resolve())
-        args = ['-target', 'arm64-apple-ios17.0', '-isysroot', sdk]
+        args = ['-target', os.environ['SIRIL_TARGET'], '-isysroot', sdk]
         pathlib.Path('ipados-cross.ini').write_text(
             '[binaries]\n' +
             '\n'.join(f'{key} = {tool(name)!r}' for key, name in [('c','clang'),('cpp','clang++'),('objc','clang'),('ar','ar'),('strip','strip')]) +
@@ -122,8 +126,8 @@ jobs:
         cp ipados-cross.ini diagnostics/
         python3 - <<'PY_TOOLCHAIN'
         from pathlib import Path
-        import subprocess
-        sdk = subprocess.check_output(['xcrun','--sdk','iphoneos','--show-sdk-path'], text=True).strip()
+        import os, subprocess
+        sdk = subprocess.check_output(['xcrun','--sdk',os.environ['SIRIL_SDK'],'--show-sdk-path'], text=True).strip()
         stage = str(Path('ipados-stage').resolve())
         Path('ipados-toolchain.cmake').write_text(f'''set(CMAKE_SYSTEM_NAME iOS)
         set(CMAKE_OSX_SYSROOT "{sdk}")
@@ -229,13 +233,13 @@ jobs:
         done
         python3 - <<'PY'
         from pathlib import Path
-        import shlex, subprocess
+        import os, shlex, subprocess
         source = Path('diagnostics/glib-link-probe.c')
         source.write_text('#include <gio/gio.h>\nint main(void) { GFile *file = g_file_new_for_path("."); g_object_unref(file); return 0; }\n')
-        sdk = subprocess.check_output(['xcrun','--sdk','iphoneos','--show-sdk-path'], text=True).strip()
+        sdk = subprocess.check_output(['xcrun','--sdk',os.environ['SIRIL_SDK'],'--show-sdk-path'], text=True).strip()
         flags = shlex.split(subprocess.check_output(['pkg-config','--static','--cflags','--libs','gio-2.0','gio-unix-2.0','gobject-2.0'], text=True))
         Path('diagnostics/glib-link-flags.txt').write_text(shlex.join(flags))
-        command = ['xcrun','--sdk','iphoneos','clang','-target','arm64-apple-ios17.0','-isysroot',sdk,str(source),*flags,'-o','diagnostics/glib-link-probe']
+        command = ['xcrun','--sdk',os.environ['SIRIL_SDK'],'clang','-target',os.environ['SIRIL_TARGET'],'-isysroot',sdk,str(source),*flags,'-o','diagnostics/glib-link-probe']
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         Path('diagnostics/glib-link-probe-build.log').write_text(result.stdout)
         print(result.stdout)
@@ -249,14 +253,14 @@ jobs:
       uses: actions/cache/save@v4
       with:
         path: ipados-stage
-        key: ipados17-arm64-${{ steps.apple.outputs.sdk }}-${{ steps.apple.outputs.xcode }}-base-r4
+        key: ipados17-arm64${{ env.CACHE_SUFFIX }}-${{ steps.apple.outputs.sdk }}-${{ steps.apple.outputs.xcode }}-base-r4
     - name: Restore completed additional libraries
       id: extra-cache
       uses: actions/cache/restore@v4
       with:
         path: ipados-stage
-        key: ipados17-arm64-${{ steps.apple.outputs.sdk }}-${{ steps.apple.outputs.xcode }}-extra-v1-${{ github.run_id }}
-        restore-keys: ipados17-arm64-${{ steps.apple.outputs.sdk }}-${{ steps.apple.outputs.xcode }}-extra-v1-
+        key: ipados17-arm64${{ env.CACHE_SUFFIX }}-${{ steps.apple.outputs.sdk }}-${{ steps.apple.outputs.xcode }}-extra-v1-${{ github.run_id }}
+        restore-keys: ipados17-arm64${{ env.CACHE_SUFFIX }}-${{ steps.apple.outputs.sdk }}-${{ steps.apple.outputs.xcode }}-extra-v1-
     - name: Build all remaining Siril core dependencies
       shell: bash
       run: |
@@ -304,24 +308,33 @@ jobs:
         set -euo pipefail
         brew install xcodegen
         xcodegen generate --spec app/project.yml
+        destination='generic/platform=iOS'
+        if test "$SIRIL_SDK" = iphonesimulator; then destination='generic/platform=iOS Simulator'; fi
         xcodebuild -project app/SirilPad.xcodeproj -scheme SirilPad -configuration Release \
-          -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath app-build \
+          -sdk "$SIRIL_SDK" -destination "$destination" -derivedDataPath app-build \
           CODE_SIGNING_ALLOWED=NO build 2>&1 | tee diagnostics/native-app-build.log
-        mkdir -p dist/Payload
-        cp -R app-build/Build/Products/Release-iphoneos/SirilPad.app dist/Payload/
-        (cd dist && zip -qr SirilPad-unsigned.ipa Payload)
+        if test "$SIRIL_SDK" = iphoneos; then
+          mkdir -p dist/Payload
+          cp -R app-build/Build/Products/Release-iphoneos/SirilPad.app dist/Payload/
+          (cd dist && zip -qr SirilPad-unsigned.ipa Payload)
+        fi
     - name: Upload iPad App for local signing
+      if: env.SIRIL_SDK == 'iphoneos'
       uses: actions/upload-artifact@v4
       with:
         name: SirilPad-unsigned
         path: dist/SirilPad-unsigned.ipa
         if-no-files-found: error
+    - name: Execute upstream engine regression checks on an iPad simulator
+      if: env.SIRIL_SDK == 'iphonesimulator'
+      shell: bash
+      run: python3 tools/test-on-simulator.py
     - name: Save completed additional libraries for the next fix
       if: always() && steps.extra-cache.outcome == 'success'
       uses: actions/cache/save@v4
       with:
         path: ipados-stage
-        key: ipados17-arm64-${{ steps.apple.outputs.sdk }}-${{ steps.apple.outputs.xcode }}-extra-v1-${{ github.run_id }}
+        key: ipados17-arm64${{ env.CACHE_SUFFIX }}-${{ steps.apple.outputs.sdk }}-${{ steps.apple.outputs.xcode }}-extra-v1-${{ github.run_id }}
     - name: Upload diagnostic files
       if: always()
       uses: actions/upload-artifact@v4
@@ -332,4 +345,11 @@ jobs:
           ipados-stage/
         if-no-files-found: warn
 'on':
-  workflow_dispatch: null
+  workflow_dispatch:
+    inputs:
+      sdk:
+        description: Apple target SDK
+        type: choice
+        options: [iphoneos, iphonesimulator]
+        default: iphoneos
+
