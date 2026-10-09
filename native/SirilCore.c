@@ -15,6 +15,7 @@
 #include "core/proto.h"
 #include "core/icc_profile.h"
 #include "core/siril_log.h"
+#include "core/OS_utils.h"
 #include "io/sequence.h"
 #include "io/conversion.h"
 #include <gsl/gsl_errno.h>
@@ -199,6 +200,10 @@ int siril_run_commands(const char *directory, const char *script, char *error, s
     g_mutex_unlock(&log_mutex);
     int ok = 0;
     gchar *directory_error = NULL;
+    if (get_max_memory_in_MB() < 1) {
+        if (error && capacity) snprintf(error, capacity, "No processing memory budget is available; close other Apps and retry");
+        goto done;
+    }
     if (siril_change_dir(directory, &directory_error)) {
         if (error && capacity) snprintf(error, capacity, "Working directory: %s", directory_error ? directory_error : directory);
         /* siril_change_dir returns a borrowed pointer to the upstream log. */

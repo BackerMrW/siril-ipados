@@ -87,9 +87,16 @@ needle = "guint64 get_available_memory() {\n#if defined(__linux__) || defined(__
 assert text.count(needle) == 1
 text = text.replace(needle, """#ifdef OS_IOS
 #include <os/proc.h>
+#include <TargetConditionals.h>
 #endif
 guint64 get_available_memory() {
 #if defined(OS_IOS)
+    /* This API reports zero in the simulator. Keep a conservative test budget;
+     * physical iPads use the real per-process remaining-memory estimate. */
+#if TARGET_OS_SIMULATOR
+    return (guint64)512 * 1024 * 1024;
+#else
     return (guint64)os_proc_available_memory();
+#endif
 #elif defined(__linux__) || defined(__CYGWIN__)""")
 utilities.write_text(text)
