@@ -13,6 +13,21 @@ C 接口也接入了上游图像算术函数。校准、配准、叠加和完整
 可在 Windows 上通过 [Sideloadly](https://sideloadly.io/) 本地签名并安装到连接的 iPad。
 Apple 账号只用于本地签名，云端构建不需要 Apple 密码。
 
+已验证：
+
+- [真机目标构建](https://github.com/BackerMrW/siril-ipados/actions/runs/37975728415)：完整内核链接、原生 App 编译、未签名 IPA 生成。
+- [iPad 模拟器运行](https://github.com/BackerMrW/siril-ipados/actions/runs/37975902599)：FITS 信息与读写、图像加减、除法、16 位无符号像素归一化、拒绝覆盖已有输出、自动 MTF 预览。
+- 同一模拟器中，Swift actor 通过 Siril 读取真实 FITS，并在 SwiftUI 中显示预览。物理 iPad 和文件选择器仍需实机验证。
+
+安装真机测试版：
+
+1. 打开成功的真机目标构建，在页面底部下载 **SirilPad-unsigned**，解压取得 `.ipa`。
+2. 在 Windows 安装 Sideloadly，用 USB 连接 iPad 并选择“信任此电脑”。
+3. 把 `.ipa` 拖进 Sideloadly，选择 iPad，使用自己的 Apple ID 本地签名安装。
+4. 按 iPad 提示信任开发者；如提示需要开发者模式，在“设置 → 隐私与安全 → 开发者模式”开启并重启。
+
+免费 Apple ID 签名通常有效 7 天，之后需要重新签名。
+
 [构建记录](https://github.com/BackerMrW/siril-ipados/actions/workflows/ipados-preflight.yml)
 会分别显示依赖、内核链接、App 构建的结果。编译及链接成功不代表已在 iPad 上运行验证。
 `dist/BUILD.json` 记录打包时使用的上游提交与静态库。
