@@ -9,7 +9,7 @@ extern "C" {
 typedef struct SirilImage SirilImage;
 typedef struct {
     uint32_t width, height, channels;
-    int32_t source_bitpix, gain, offset;
+    int32_t working_bitpix, gain, offset; /* loaded representation; imports are normalized float */
     double exposure, temperature;
     char object[80], bayer[80];
 } SirilImageInfo;

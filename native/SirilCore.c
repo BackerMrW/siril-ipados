@@ -59,7 +59,7 @@ int siril_image_info(const SirilImage *image, SirilImageInfo *info) {
     const fits *fit = &image->fit;
     memset(info, 0, sizeof *info);
     info->width = fit->rx; info->height = fit->ry;
-    info->channels = (uint32_t)fit->naxes[2]; info->source_bitpix = fit->orig_bitpix;
+    info->channels = (uint32_t)fit->naxes[2]; info->working_bitpix = fit->orig_bitpix;
     info->gain = fit->keywords.key_gain; info->offset = fit->keywords.key_offset;
     info->exposure = fit->keywords.exposure; info->temperature = fit->keywords.ccd_temp;
     snprintf(info->object, sizeof info->object, "%.*s", FLEN_VALUE, fit->keywords.object);
