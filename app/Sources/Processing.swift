@@ -212,7 +212,7 @@ enum SirilWorkflow {
         if includeQuality {
             for filter in options.filters where filter.enabled { stack += ["-filter-\(filter.metric.rawValue)=\(number(filter.value))\(filter.limit.suffix)"] }
         }
-        stack += ["-32b", "-out=\(output)"]
+        stack += ["-filter-included", "-32b", "-out=\(output)"]
         return stack.joined(separator: " ")
     }
 

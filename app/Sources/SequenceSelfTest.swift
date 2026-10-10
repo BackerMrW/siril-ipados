@@ -58,6 +58,13 @@ extension SirilEngine {
         try require(try await reopened.inspectSequence(location).selection == before.selection, "cross-relaunch undo")
         try await reopened.editSequence(location, redo: true)
         try require(try await reopened.inspectSequence(location).selection == selected, "cross-relaunch redo")
+        let processInputs = try FileManager.default.contentsOfDirectory(at: job.folder.appendingPathComponent("process"), includingPropertiesForKeys: nil).filter { $0.pathExtension == "fit" }
+        let rawInputs = try FileManager.default.contentsOfDirectory(at: job.folder.appendingPathComponent("lights"), includingPropertiesForKeys: nil)
+        try require(processInputs.count == 3 && rawInputs.count == 3, "restack duplicated input frames")
+        for run in try FileManager.default.contentsOfDirectory(at: job.folder.appendingPathComponent("SequenceRuns"), includingPropertiesForKeys: nil) {
+            let fitNames = try FileManager.default.contentsOfDirectory(atPath: run.path).filter { $0.hasSuffix(".fits") || $0.hasSuffix(".fit") }
+            try require(fitNames == ["result.fits"], "restack copied FITS inputs into run")
+        }
         let statsCSV = try sequenceStatistics(location)
         try require(try String(contentsOf: statsCSV).contains("mean"), "original statistics CSV missing mean")
         let stats = try inspectSequence(location)

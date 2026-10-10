@@ -307,7 +307,7 @@ static int sequence_checks(const char *registered, const char *combinations) {
     CHECK(siril_sequence_select(combinations, "combination_.seq", flags, 3, 0, error, sizeof error));
     CHECK(siril_sequence_inspect(combinations, "combination_.seq", 0, &info, frames, 3, error, sizeof error) == 3);
     CHECK(info.included == 2 && info.reference == 0 && !frames[2].included);
-    CHECK(siril_run_commands(combinations, "stack combination mean none 3 3 -nonorm -32b -out=subset.fits\nseqstat combination sequence-statistics.csv main\n", error, sizeof error));
+    CHECK(siril_run_commands(combinations, "stack combination mean none 3 3 -nonorm -filter-included -32b -out=subset.fits\nseqstat combination sequence-statistics.csv main\n", error, sizeof error));
     float pixels[4];
     snprintf(path, sizeof path, "%s/subset.fits", combinations);
     CHECK(read_pixels(path, pixels, 4) == 0);
@@ -319,7 +319,7 @@ static int sequence_checks(const char *registered, const char *combinations) {
     for (int i = 0; i < 4; i++) CHECK(fabs(pixels[i] - (0.9 + i * 0.01)) < 2e-5);
     flags[2] = 1;
     CHECK(siril_sequence_select(combinations, "combination_.seq", flags, 3, -1, error, sizeof error));
-    CHECK(siril_run_commands(combinations, "stack combination mean none 3 3 -nonorm -32b -out=restored.fits\n", error, sizeof error));
+    CHECK(siril_run_commands(combinations, "stack combination mean none 3 3 -nonorm -filter-included -32b -out=restored.fits\n", error, sizeof error));
     snprintf(path, sizeof path, "%s/restored.fits", combinations);
     CHECK(read_pixels(path, pixels, 4) == 0);
     for (int i = 0; i < 4; i++) CHECK(fabs(pixels[i] - (0.4 + i * 0.01)) < 2e-5);
