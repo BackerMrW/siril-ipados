@@ -18,12 +18,6 @@ enum FrameRole: String, CaseIterable, Identifiable, Codable, Sendable {
     }
 }
 
-struct BatchOptions: Sendable {
-    var debayer = false
-    var register = true
-    var rejection = true
-}
-
 struct ProcessingJob: Sendable {
     let folder: URL
     let script: String
@@ -37,25 +31,73 @@ enum SirilWorkflow {
             throw EngineError.failed("至少勾选两张亮场；每次处理使用勾选的文件。")
         }
         let first = lights[0]
-        if options.debayer && lights.contains(where: { $0.channels != 1 }) {
+        let isCFA = options.cfa || options.debayer
+        if isCFA && lights.contains(where: { $0.channels != 1 }) {
             throw EngineError.failed("CFA 去马赛克只适用于单通道彩色相机原始图像；RGB 图像请关闭此选项。")
         }
         guard files.filter({ $0.role != .results }).allSatisfy({ $0.width == first.width && $0.height == first.height && $0.channels == first.channels }) else {
             throw EngineError.failed("亮场和校准帧的尺寸、通道数必须相同。")
         }
-        if options.rejection && lights.count < 3 {
-            throw EngineError.failed("异常值剔除叠加至少需要三张亮场；两张请关闭此选项。")
+        if options.method == .mean && options.rejection != .none {
+            guard lights.count >= 3 else { throw EngineError.failed("异常值剔除至少需要三张亮场；两张请选择不剔除或中位数。") }
+            guard options.low.isFinite, options.high.isFinite, options.low >= 0, options.high >= 0,
+                  !options.rejection.fractional || (options.low <= 1 && options.high <= 1) else {
+                throw EngineError.failed("剔除参数必须为非负有限数；百分位和广义 ESD 参数必须在 0–1 之间。")
+            }
+            if options.rejection == .generalized && (options.low <= 0 || options.high <= 0 || options.high >= 1) {
+                throw EngineError.failed("广义 ESD 的最大异常值比例须大于 0；显著性水平须大于 0 且小于 1。")
+            }
         }
         let has: (FrameRole) -> Bool = { !(groups[$0] ?? []).isEmpty }
-        for role in FrameRole.allCases where role != .lights && role != .results && has(role) {
-            guard groups[role]!.count >= 2 else {
-                throw EngineError.failed("\(role.title)至少需要两张才能生成主校准帧。")
+        if options.darkOptimization != .none {
+            guard has(.darks), has(.biases) else { throw EngineError.failed("暗场优化需要同时勾选暗场和偏置；主暗场会先扣除偏置再缩放。") }
+        }
+        if options.cosmetic {
+            guard has(.darks), first.channels == 1, options.coldSigma.isFinite, options.hotSigma.isFinite,
+                  options.coldSigma >= 0, options.hotSigma >= 0, options.coldSigma > 0 || options.hotSigma > 0 else {
+                throw EngineError.failed("主暗场坏点修正需要单通道数据和暗场；至少一个 Sigma 必须大于 0。")
             }
+        }
+        if isCFA == false && (options.equalizeCFA || options.fixXTrans) {
+            throw EngineError.failed("CFA 均衡与 X-Trans 修复需要启用 CFA 原始数据选项。")
+        }
+        // Hidden options do not affect an unrelated stacking method.
+        if options.method == .mean && options.weight == .noise && options.normalization == .none {
+            throw EngineError.failed("噪声权重需要启用输入归一化。")
+        }
+        if options.register {
+            guard (4...2000).contains(options.minimumPairs), (100...2000).contains(options.maximumStars),
+                  options.minimumPairs <= options.maximumStars, (0...2).contains(options.layer),
+                  options.scale.isFinite, (0.1...3).contains(options.scale) else {
+                throw EngineError.failed("请检查配准星对、星数、通道和输出倍率范围。")
+            }
+            if options.interpolation == .none && (options.transform != .shift || options.scale != 1) {
+                throw EngineError.failed("不插值只支持仅平移、输出倍率为 1 的配准。")
+            }
+            if let id = options.referenceID, !lights.contains(where: { $0.id == id }) {
+                throw EngineError.failed("指定参考亮场未勾选；请重新选择参考帧或改为自动选择。")
+            }
+            for filter in options.filters where filter.enabled {
+                guard filter.value.isFinite, filter.value > 0,
+                      filter.limit != .percentage || filter.value <= 100,
+                      filter.limit != .threshold || filter.metric != .round || filter.value <= 1 else {
+                    throw EngineError.failed("质量阈值须大于 0；百分比不能超过 100，圆度绝对阈值不能超过 1。")
+                }
+            }
+        }
+        if options.method == .mean && [.nbstars, .wfwhm].contains(options.weight) && !options.register {
+            throw EngineError.failed("星点数量和加权 FWHM 权重需要启用配准。")
         }
         if has(.darks) {
             let exposure = groups[.darks]![0].exposure
-            guard exposure > 0, (lights + groups[.darks]!).allSatisfy({ abs($0.exposure - exposure) <= 0.01 }) else {
-                throw EngineError.failed("此流程不缩放暗场：亮场和暗场的曝光时间必须相同。")
+            guard exposure.isFinite, exposure > 0, groups[.darks]!.allSatisfy({ abs($0.exposure - exposure) <= 0.01 }) else {
+                throw EngineError.failed("生成主暗场的各张暗场必须具有相同且有效的曝光时间。")
+            }
+            if options.darkOptimization == .none && !lights.allSatisfy({ abs($0.exposure - exposure) <= 0.01 }) {
+                throw EngineError.failed("未启用暗场优化：亮场和暗场的曝光时间必须相同。")
+            }
+            if options.darkOptimization == .exposure && !lights.allSatisfy({ $0.exposure.isFinite && $0.exposure > 0 }) {
+                throw EngineError.failed("按曝光缩放需要每张亮场的 FITS 中有有效曝光时间。")
             }
         }
         if has(.flats) && !has(.biases) && !has(.flatdarks) {
@@ -68,42 +110,84 @@ enum SirilWorkflow {
             }
         }
         var lines = ["# Siril iPad 本地批处理", "set32bits"]
+        func number(_ value: Double) -> String { String(format: "%.9g", locale: Locale(identifier: "en_US_POSIX"), value) }
         func convert(_ role: FrameRole, _ base: String) {
             lines += ["cd \(role.rawValue)", "convert \(base) -out=../process", "cd ../process"]
         }
         for (role, base) in [(FrameRole.biases, "bias"), (.darks, "dark"), (.flatdarks, "flatdark")] where has(role) {
-            convert(role, base)
-            lines += ["stack \(base) median -nonorm -out=master_\(base).fits", "cd .."]
+            if groups[role]!.count == 1 {
+                lines += ["cd process", "load ../\(role.rawValue)/frame_00001.fits"]
+                if role == .darks && options.darkOptimization != .none { lines += ["isub master_bias.fits"] }
+                lines += ["save master_\(base).fits", "close", "cd .."]
+            } else {
+                convert(role, base)
+                var source = base
+                if role == .darks && options.darkOptimization != .none {
+                    lines += ["calibrate dark -bias=master_bias.fits -prefix=bd_"]
+                    source = "bd_dark"
+                }
+                lines += ["stack \(source) median -nonorm -out=master_\(base).fits", "cd .."]
+            }
         }
         if has(.flats) {
             convert(.flats, "flat")
             let calibration = has(.flatdarks) ? "-dark=master_flatdark.fits" : "-bias=master_bias.fits"
-            lines += ["calibrate flat \(calibration)\(options.debayer ? " -cfa" : "") -prefix=pp_",
+            lines += ["calibrate flat \(calibration)\(isCFA ? " -cfa" : "") -prefix=pp_",
                       "stack pp_flat median -norm=mul -out=master_flat.fits", "cd .."]
         }
         convert(.lights, "light")
         var calibration: [String] = []
         if has(.darks) { calibration += ["-dark=master_dark.fits"] }
-        else if has(.biases) { calibration += ["-bias=master_bias.fits"] }
+        if has(.biases) && (!has(.darks) || options.darkOptimization != .none) { calibration += ["-bias=master_bias.fits"] }
         if has(.flats) { calibration += ["-flat=master_flat.fits"] }
-        if options.debayer { calibration += ["-cfa", "-debayer"] }
+        if isCFA { calibration += ["-cfa"] }
+        if options.debayer { calibration += ["-debayer"] }
+        if options.equalizeCFA && has(.flats) { calibration += ["-equalize_cfa"] }
+        if options.fixXTrans { calibration += ["-fix_xtrans"] }
+        if options.darkOptimization != .none { calibration += [options.darkOptimization == .exposure ? "-opt=exp" : "-opt"] }
+        if options.cosmetic { calibration += ["-cc=dark", number(options.coldSigma), number(options.hotSigma)] }
         var sequence = "light"
         if !calibration.isEmpty {
             lines += ["calibrate light \(calibration.joined(separator: " ")) -prefix=pp_"]
             sequence = "pp_light"
         }
         if options.register {
-            lines += ["register \(sequence)"]
+            if let index = lights.firstIndex(where: { $0.id == options.referenceID }) { lines += ["setref \(sequence) \(index + 1)"] }
+            let outputOptions = "-interp=\(options.interpolation.rawValue) -scale=\(number(options.scale))" +
+                (options.interpolation.supportsClamp && !options.clamp ? " -noclamp" : "")
+            let layer = first.channels == 1 && !options.debayer ? 0 : options.layer
+            let registration = "-transf=\(options.transform.rawValue) -minpairs=\(options.minimumPairs) -maxstars=\(options.maximumStars) -layer=\(layer)"
+            if options.twoPass {
+                lines += ["register \(sequence) -2pass \(registration)",
+                          "seqapplyreg \(sequence) \(outputOptions) -framing=\(options.framing.rawValue) -layer=\(layer)"]
+            } else { lines += ["register \(sequence) \(registration) \(outputOptions)"] }
             sequence = "r_" + sequence
         }
-        let method = options.rejection ? "rej w 3 3 -norm=addscale -output_norm" : "median -nonorm"
-        lines += ["stack \(sequence) \(method) -out=result.fits"]
+        var stack = ["stack", sequence, options.method.rawValue]
+        if options.method == .mean { stack += [options.rejection.rawValue, number(options.low), number(options.high)] }
+        if options.method.supportsNormalization {
+            stack += [options.normalization == .none ? "-nonorm" : "-norm=\(options.normalization.rawValue)"]
+            if options.outputNormalization { stack += ["-output_norm"] }
+            if options.normalization != .none {
+                if options.fastNormalization { stack += ["-fastnorm"] }
+                if options.equalizeRGB && (first.channels == 3 || options.debayer) { stack += ["-rgb_equal"] }
+            }
+        }
+        if options.method == .mean {
+            if options.weight != .none { stack += ["-weight=\(options.weight.rawValue)"] }
+            if options.rejection != .none && options.maps != .none { stack += [options.maps == .separate ? "-rejmaps" : "-rejmap"] }
+        }
+        if options.register {
+            for filter in options.filters where filter.enabled { stack += ["-filter-\(filter.metric.rawValue)=\(number(filter.value))\(filter.limit.suffix)"] }
+        }
+        stack += ["-32b", "-out=result.fits"]
+        lines += [stack.joined(separator: " ")]
         return lines.joined(separator: "\n") + "\n"
     }
 }
 
 extension SirilEngine {
-    func prepareJob(files: [FITSRecord], script: String) throws -> ProcessingJob {
+    func prepareJob(files: [FITSRecord], script: String, batchOptions: BatchOptions? = nil) throws -> ProcessingJob {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let folder = documents.appendingPathComponent("Jobs", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -117,6 +201,8 @@ extension SirilEngine {
             }
         }
         try script.write(to: folder.appendingPathComponent("processing.ssf"), atomically: true, encoding: .utf8)
+        try JSONEncoder().encode(files).write(to: folder.appendingPathComponent("inputs.json"), options: .atomic)
+        if let batchOptions { try JSONEncoder().encode(batchOptions).write(to: folder.appendingPathComponent("batch-options.json"), options: .atomic) }
         try writeJobState(folder, state: "准备完成", count: files.count)
         return ProcessingJob(folder: folder, script: script)
     }
@@ -160,7 +246,8 @@ struct ProcessingView: View {
     let files: [FITSRecord]
     let onPreview: (URL, UUID?) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var options = BatchOptions()
+    @State private var options = BatchOptions.load()
+    @State private var generatedOptions: BatchOptions?
     @State private var script = ""
     @State private var log = ""
     @State private var busy = false
@@ -183,12 +270,15 @@ struct ProcessingView: View {
                     Text("暗场与亮场需匹配曝光、温度、增益和偏置；尺寸与拍摄模式也需一致。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                Group { BatchControls(options: $options, lights: files.filter { $0.role == .lights }) }.disabled(busy)
                 Section("批处理流程") {
-                    Toggle("彩色相机 CFA 去马赛克", isOn: $options.debayer)
-                    Toggle("星点配准", isOn: $options.register)
-                    Toggle("Winsorized 异常值剔除叠加", isOn: $options.rejection)
                     Button("生成校准 → 配准 → 叠加脚本") {
-                        do { script = try SirilWorkflow.script(files: files, options: options); status = "可编辑命令后运行" }
+                        do {
+                            script = try SirilWorkflow.script(files: files, options: options)
+                            generatedOptions = options
+                            options.save()
+                            status = "脚本已生成；执行以此处脚本文本为准。参数与输入列表会随任务保存。"
+                        }
                         catch { status = error.localizedDescription }
                     }
                 }.disabled(busy)
@@ -201,6 +291,7 @@ struct ProcessingView: View {
                     Button("生成单张处理脚本") {
                         do {
                             script = try ImageToolScript.make(files: files, options: tools)
+                            generatedOptions = nil
                             status = "可编辑后运行；输出保留在新的任务目录"
                         } catch { status = error.localizedDescription }
                     }
@@ -247,6 +338,14 @@ struct ProcessingView: View {
             .navigationTitle("Siril 本地处理")
             .toolbar { Button("完成") { dismiss() }.disabled(busy) }
             .interactiveDismissDisabled(busy)
+            .onDisappear { options.save() }
+            .task {
+                if let id = options.referenceID, !files.contains(where: { $0.id == id && $0.role == .lights }) { options.referenceID = nil }
+                if ProcessInfo.processInfo.environment["SIRIL_BATCH_VIEW_CHECK"] == "1" {
+                    let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                    try? "PASS: native calibration, registration and stacking controls loaded.\n".write(to: root.appendingPathComponent("simulator-batch-ready.txt"), atomically: true, encoding: .utf8)
+                }
+            }
             .sheet(isPresented: $showCommands) {
                 CommandBrowser { name in
                     script += (script.hasSuffix("\n") || script.isEmpty ? "" : "\n") + name + "\n"
@@ -266,6 +365,7 @@ struct ProcessingView: View {
                         throw EngineError.failed("请选择 .ssf 或 .txt 脚本")
                     }
                     script = try String(contentsOf: url, encoding: .utf8)
+                    generatedOptions = nil
                     status = "已导入 \(url.lastPathComponent)，请检查工作目录与文件路径"
                 } catch { status = error.localizedDescription }
             }
@@ -286,7 +386,7 @@ struct ProcessingView: View {
             UIApplication.shared.isIdleTimerDisabled = false
         }
         do {
-            let job = try await engine.prepareJob(files: files, script: script)
+            let job = try await engine.prepareJob(files: files, script: script, batchOptions: generatedOptions)
             folder = job.folder
             status = "处理期间请保持 App 在前台"
             logTask = Task { @MainActor in

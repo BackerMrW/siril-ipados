@@ -119,6 +119,14 @@ struct JobDetailView: View {
             Section("脚本") {
                 ShareLink("导出 .ssf", item: job.folder.appendingPathComponent("processing.ssf"))
                 Text(script).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                if FileManager.default.fileExists(atPath: job.folder.appendingPathComponent("batch-options.json").path) {
+                    ShareLink("导出生成时的批处理参数", item: job.folder.appendingPathComponent("batch-options.json"))
+                    Text("运行以保存的脚本为准；手动编辑脚本后，命令可能与生成时的界面参数不同。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if FileManager.default.fileExists(atPath: job.folder.appendingPathComponent("inputs.json").path) {
+                    ShareLink("导出输入文件列表", item: job.folder.appendingPathComponent("inputs.json"))
+                }
             }
             Section("日志") {
                 if FileManager.default.fileExists(atPath: job.folder.appendingPathComponent("processing.log").path) {

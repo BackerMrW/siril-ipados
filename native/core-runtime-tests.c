@@ -26,6 +26,15 @@ static int fixture(const char *path, const void *pixels, int image_type, int pix
     fits_close_file(file, &status);
     return status;
 }
+static int read_pixels(const char *path, float *pixels, long count) {
+    fitsfile *file = NULL;
+    int status = 0, any_null = 0;
+    fits_open_file(&file, path, READONLY, &status);
+    if (status) return status;
+    fits_read_img(file, TFLOAT, 1, count, NULL, pixels, &any_null, &status);
+    fits_close_file(file, &status);
+    return status;
+}
 static int star_fixture(const char *path, int dx, int dy) {
     const int side = 256;
     float *pixels = calloc(side * side, sizeof(float));
@@ -264,6 +273,59 @@ int main(int argc, char **argv) {
     siril_copy_processing_log(logs, sizeof logs);
     CHECK(logs[0]);
     puts("PASS: original Siril command engine converted three FITS, calibrated with a master dark, median-stacked exact expected pixels, stopped on errors, and rejected desktop exit/detached scripts");
+    // Known photometric values distinguish all five stacking methods. The
+    // upstream sum operation deliberately scales its largest pixel to one.
+    char combinations[4096], combo_process[4096];
+    snprintf(combinations, sizeof combinations, "%s/combinations", argv[1]);
+    snprintf(combo_process, sizeof combo_process, "%s/combo-process", argv[1]);
+    CHECK(mkdir(combinations, 0700) == 0 && mkdir(combo_process, 0700) == 0);
+    const float offsets[] = {0.1f, 0.2f, 0.9f};
+    for (int frame = 0; frame < 3; frame++) {
+        float values[4];
+        for (int p = 0; p < 4; p++) values[p] = offsets[frame] + p * 0.01f;
+        snprintf(path, sizeof path, "%s/frame%d.fits", combinations, frame);
+        CHECK(fixture(path, values, FLOAT_IMG, TFLOAT) == 0);
+    }
+    CHECK(siril_run_commands(combinations, "set32bits\nconvert combination -out=../combo-process\n", error, sizeof error));
+    const char *methods[] = {"mean none 3 3 -nonorm", "median -nonorm", "min", "max", "sum"};
+    const float bases[] = {0.4f, 0.2f, 0.1f, 0.9f};
+    for (int method = 0; method < 5; method++) {
+        snprintf(script, sizeof script, "stack combination %s -32b -out=method%d.fits\n", methods[method], method);
+        CHECK(siril_run_commands(combo_process, script, error, sizeof error));
+        snprintf(path, sizeof path, "%s/method%d.fits", combo_process, method);
+        image = siril_image_read(path, error, sizeof error);
+        CHECK(image && read_pixels(path, actual, 4) == 0);
+        for (int p = 0; p < 4; p++) {
+            // Direct buffers use the same raw row order as CFITSIO fixtures.
+            float expected = method == 4 ? (1.2f + p * 0.03f) / 1.29f : bases[method] + p * 0.01f;
+            CHECK(fabsf(actual[p] - expected) < 2e-5f);
+        }
+        siril_image_free(image);
+    }
+    // Distinct single-frame high outlier among eleven near-identical values:
+    // all seven original rejection algorithms must reduce its contribution.
+    char rejection_frames[4096], rejection_process[4096];
+    snprintf(rejection_frames, sizeof rejection_frames, "%s/rejection-frames", argv[1]);
+    snprintf(rejection_process, sizeof rejection_process, "%s/rejection-process", argv[1]);
+    CHECK(mkdir(rejection_frames, 0700) == 0 && mkdir(rejection_process, 0700) == 0);
+    for (int frame = 0; frame < 11; frame++) {
+        float values[4];
+        for (int p = 0; p < 4; p++) values[p] = (frame == 10 ? 0.9f : 0.1f + frame * 0.002f) + p * 0.01f;
+        snprintf(path, sizeof path, "%s/frame%02d.fits", rejection_frames, frame);
+        CHECK(fixture(path, values, FLOAT_IMG, TFLOAT) == 0);
+    }
+    CHECK(siril_run_commands(rejection_frames, "convert rejection -out=../rejection-process\n", error, sizeof error));
+    const char *rejections[] = {"winsorized 3 3", "sigma 2 2", "mad 3 3", "median 3 3", "linear 3 3", "generalized 0.3 0.05", "percentile 0.2 0.1"};
+    for (int algorithm = 0; algorithm < 7; algorithm++) {
+        snprintf(script, sizeof script, "stack rejection mean %s -nonorm -rejmaps -32b -out=reject%d.fits\n", rejections[algorithm], algorithm);
+        CHECK(siril_run_commands(rejection_process, script, error, sizeof error));
+        snprintf(path, sizeof path, "%s/reject%d.fits", rejection_process, algorithm);
+        image = siril_image_read(path, error, sizeof error);
+        CHECK(image && read_pixels(path, actual, 4) == 0);
+        for (int p = 0; p < 4; p++) CHECK(isfinite(actual[p]) && actual[p] >= 0.09f && actual[p] < 0.17f);
+        siril_image_free(image);
+    }
+    puts("PASS: all five upstream stacking methods matched expected pixels; all seven rejection algorithms reduced a known outlier");
     // Global star registration must actually align translated star fields.
     char stars[4096], registered[4096];
     snprintf(stars, sizeof stars, "%s/stars", argv[1]);
@@ -290,6 +352,48 @@ int main(int argc, char **argv) {
     CHECK(aligned[31 * 256 + 30] > aligned[26 * 256 + 38] + 0.5f);
     CHECK(strstr(siril_command_catalog(), "calibrate\t") && strstr(siril_command_catalog(), "register\t"));
     puts("PASS: upstream global star registration aligned translated synthetic star fields and preserved the reference star in the default Winsorized stack");
+    const char *transforms[] = {"homography", "affine", "similarity", "shift"};
+    const char *interpolations[] = {"lanczos4", "cubic", "linear", "nearest", "area", "none"};
+    for (int pass = 0; pass < 6; pass++) {
+        const char *transform = pass < 4 ? transforms[pass] : "shift";
+        snprintf(script, sizeof script,
+            "setref stars 1\nregister stars -2pass -transf=%s -minpairs=4 -maxstars=100 -layer=0\n"
+            "seqapplyreg stars -prefix=a%d_ -interp=%s -noclamp -scale=1 -framing=current -layer=0\n"
+            "stack a%d_stars mean none 3 3 -norm=addscale -weight=nbstars -filter-fwhm=100%% -32b -out=advanced%d.fits\n",
+            transform, pass, interpolations[pass], pass, pass);
+        CHECK(siril_run_commands(registered, script, error, sizeof error));
+        snprintf(path, sizeof path, "%s/advanced%d.fits", registered, pass);
+        image = siril_image_read(path, error, sizeof error);
+        CHECK(image && siril_image_info(image, &info) && info.width == 256 && info.height == 256);
+        CHECK(read_pixels(path, aligned, 256 * 256) == 0);
+        CHECK(aligned[31 * 256 + 30] > 0.65f && aligned[26 * 256 + 38] < 0.1f);
+        siril_image_free(image);
+    }
+    // Actual transformed output size, not just acceptance of the scale flag.
+    CHECK(siril_run_commands(registered,
+        "register stars -transf=similarity -minpairs=4 -maxstars=100 -interp=linear -scale=0.5 -prefix=half_\n"
+        "stack half_stars median -nonorm -32b -out=half.fits\n", error, sizeof error));
+    snprintf(path, sizeof path, "%s/half.fits", registered);
+    image = siril_image_read(path, error, sizeof error);
+    CHECK(image && siril_image_info(image, &info) && info.width == 128 && info.height == 128);
+    siril_image_free(image);
+    // Original normalization/weights/filter parser must execute with real
+    // per-frame registration and background statistics.
+    const char *norms[] = {"add", "addscale", "mul", "mulscale"};
+    const char *weights[] = {"noise", "nbstars", "wfwhm", "nbstack"};
+    for (int i = 0; i < 4; i++) {
+        snprintf(script, sizeof script,
+            "stack r_stars mean none 3 3 -norm=%s -fastnorm -weight=%s "
+            "-filter-fwhm=100%% -filter-wfwhm=100%% -filter-round=100%% -filter-bkg=100%% -filter-nbstars=100%% -32b -out=norm%d.fits\n",
+            norms[i], weights[i], i);
+        CHECK(siril_run_commands(registered, script, error, sizeof error));
+        snprintf(path, sizeof path, "%s/norm%d.fits", registered, i);
+        image = siril_image_read(path, error, sizeof error);
+        CHECK(image && read_pixels(path, aligned, 256 * 256) == 0);
+        CHECK(isfinite(aligned[31 * 256 + 30]) && aligned[31 * 256 + 30] > 0.6f);
+        siril_image_free(image);
+    }
+    puts("PASS: real two-pass registration/application, four transforms, six interpolators, output scaling, four normalizations/weights and five quality filters preserved translated star photometry");
     snprintf(path, sizeof path, "%s/postprocessed.fits", argv[1]);
     snprintf(script, sizeof script, "load %s\nautostretch -linked\nsave %s\nclose\n", light, path);
     CHECK(siril_run_commands(frames, script, error, sizeof error));

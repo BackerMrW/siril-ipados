@@ -316,6 +316,7 @@ struct ContentView: View {
                     analysisTab = 0
                     showAnalysis = true
                 }
+                if ProcessInfo.processInfo.environment["SIRIL_BATCH_VIEW_CHECK"] == "1" { showProcessing = true }
             }
         }
     }
@@ -401,13 +402,19 @@ struct ContentView: View {
                 let calibration = try await engine.importFile(fixture, role: role)
                 batch += [calibration, calibration, calibration]
             }
-            let script = try SirilWorkflow.script(files: batch, options: BatchOptions(debayer: false, register: false, rejection: false))
+            var batchOptions = BatchOptions()
+            batchOptions.register = false
+            batchOptions.method = .median
+            batchOptions.normalization = .none
+            batchOptions.outputNormalization = false
+            let script = try SirilWorkflow.script(files: batch, options: batchOptions)
             let job = try await engine.prepareJob(files: batch, script: script)
             let outputs = try await engine.run(job)
             guard let result = outputs.first(where: { $0.lastPathComponent == "result.fits" }) else {
                 throw EngineError.failed("Native batch result missing")
             }
             let processed = try await engine.importFile(result, role: .results)
+            try await engine.batchSelfTest(files: batch)
             guard processed.width == 2 && processed.height == 2 else { throw EngineError.failed("Batch output dimensions changed") }
             await loadPreview(processed)
             try await engine.saveLibrary([record, processed])
@@ -475,7 +482,7 @@ struct ContentView: View {
             await loadPreview(backgroundFile)
             try await engine.saveLibrary(files)
             showBackground = true
-            try "PASS: Swift actor imported FITS, calibrated and stacked lights with original Siril commands, restored library/history, ran manual MTF, tested native background samples/RBF/model/FITS export, and verified original full/selected statistics and histogram counts, full-resolution pixel reads and complete FITS header. Batch/trash deletion, interrupted restore recovery, persistent FITS undo/redo/branching, permanent storage cleanup, task restoration and symlink safety passed. Bundled original feature inventory and notices were verified.\n"
+            try "PASS: Swift actor imported FITS, calibrated and stacked lights with original Siril commands, verified advanced batch settings and exact exposure-scaled calibration with single/multiple calibration inputs, restored library/history, ran manual MTF, tested native background samples/RBF/model/FITS export, and verified original full/selected statistics and histogram counts, full-resolution pixel reads and complete FITS header. Batch/trash deletion, interrupted restore recovery, persistent FITS undo/redo/branching, permanent storage cleanup, task restoration and symlink safety passed. Bundled original feature inventory and notices were verified.\n"
                 .write(to: report, atomically: true, encoding: .utf8)
         } catch {
             try? ("FAIL: " + error.localizedDescription + "\n" + String(SirilEngine.processingLog().suffix(16000)))
