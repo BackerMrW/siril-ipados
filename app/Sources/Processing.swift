@@ -120,6 +120,9 @@ enum SirilWorkflow {
             }
         }
         var lines = ["# Siril iPad 本地批处理", "set32bits"]
+        if drizzle.enabled {
+            lines += ["set gui_registration.drizz_weight_match_bitpix=\(drizzle.matchWeightBitDepth ? "true" : "false")"]
+        }
         func number(_ value: Double) -> String { String(format: "%.9g", locale: Locale(identifier: "en_US_POSIX"), value) }
         func convert(_ role: FrameRole, _ base: String) {
             lines += ["cd \(role.rawValue)", "convert \(base) -out=../process", "cd ../process"]

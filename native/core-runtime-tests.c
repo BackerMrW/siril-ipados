@@ -100,13 +100,15 @@ static int drizzle_checks(const char *root) {
         }
         CHECK(siril_run_commands(source, bayer ? "convert drizzle -out=../drizzleprocess1\n" : "convert drizzle -out=../drizzleprocess0\n", error, sizeof error));
         CHECK(siril_run_commands(process, "setref drizzle 1\nregister drizzle -2pass -transf=shift -minpairs=4 -maxstars=100 -layer=0\n", error, sizeof error));
-        for (int k = 0; k < (bayer ? 1 : 7); k++) {
+        CHECK(siril_run_commands(process, "set gui_registration.drizz_weight_match_bitpix=false\n", error, sizeof error));
+        for (int k = 0; k < (bayer ? 1 : 8); k++) {
             const int side = 512, channels = bayer ? 3 : 1;
             const size_t count = (size_t)side * side * channels;
             // Bayer uses Square; the six mono cases cover all native kernels.
+            if (k == 7) CHECK(siril_run_commands(process, "set gui_registration.drizz_weight_match_bitpix=true\n", error, sizeof error));
             snprintf(script, sizeof script,
                 "seqapplyreg drizzle -drizzle -scale=2 -pixfrac=%s -kernel=%s -framing=current -prefix=d%d_\n"
-                "stack d%d_drizzle mean none 3 3 -nonorm -32b -out=drizzle%d.fits\n", k == 6 ? "0.5" : "1", bayer || k == 6 ? "square" : kernels[k], k, k, k);
+                "stack d%d_drizzle mean none 3 3 -nonorm -32b -out=drizzle%d.fits\n", k == 6 ? "0.5" : "1", bayer || k >= 6 ? "square" : kernels[k], k, k, k);
             CHECK(siril_run_commands(process, script, error, sizeof error));
             snprintf(path, sizeof path, "%s/drizzle%d.fits", process, k);
             SirilImage *image = siril_image_read(path, error, sizeof error);

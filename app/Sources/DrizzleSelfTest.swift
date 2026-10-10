@@ -29,6 +29,7 @@ extension SirilEngine {
         let reader = ImageAnalysisEngine()
         for twoPass in [false, true] {
             options.twoPass = twoPass
+            options.drizzleOptions.matchWeightBitDepth = twoPass
             options.scale = twoPass ? 2 : 1
             let job = try prepareJob(files: inputs, script: SirilWorkflow.script(files: inputs, options: options), batchOptions: options)
             let outputs = try run(job)
@@ -50,6 +51,8 @@ extension SirilEngine {
             let weights = job.folder.appendingPathComponent("process/drizztmp")
             let names = try FileManager.default.contentsOfDirectory(at: weights, includingPropertiesForKeys: nil).filter { $0.pathExtension == "fit" }
             try require(names.count == 4, "four real per-frame weight maps")
+            let weightDetails = try await reader.open(names[0])
+            try require(weightDetails.header.contains(twoPass ? "BITPIX  =                  -32" : "BITPIX  =                    8"), "actual weight map BITPIX")
             let weightBytes = try Data(contentsOf: names[0])
             guard let task = jobHistory().first(where: { $0.id == job.folder.lastPathComponent }) else {
                 throw EngineError.failed("Drizzle job history missing")
@@ -61,7 +64,7 @@ extension SirilEngine {
             _ = try restoreTrash(entry.id)
             try require(try Data(contentsOf: names[0]) == weightBytes, "weight map changed on task delete/restore")
             let saved = try JSONDecoder().decode(BatchOptions.self, from: Data(contentsOf: job.folder.appendingPathComponent("batch-options.json")))
-            try require(saved.drizzleOptions.enabled && saved.drizzleOptions.useFlat && saved.twoPass == twoPass, "saved Drizzle configuration")
+            try require(saved.drizzleOptions.enabled && saved.drizzleOptions.useFlat && saved.twoPass == twoPass && saved.drizzleOptions.matchWeightBitDepth == twoPass, "saved Drizzle configuration")
             try trashJob(task)
             let deletion = trashEntries().filter { $0.jobName == job.folder.lastPathComponent }
             try permanentlyDeleteTrash(Set(deletion.map(\.id)))

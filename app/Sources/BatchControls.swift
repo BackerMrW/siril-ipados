@@ -31,6 +31,7 @@ struct DrizzleOptions: Codable, Sendable {
     var kernel: DrizzleKernel = .square
     var pixelFraction = 1.0
     var useFlat = false
+    var matchWeightBitDepth = false
 }
 enum StackMethod: String, BatchChoice {
     case mean, median, sum, min, max
@@ -185,6 +186,9 @@ struct BatchControls: View {
                 BatchPicker(title: "Drizzle 核", value: $options.drizzleOptions.kernel)
                 BatchNumber(title: "像素比例（0.1–10）", value: $options.drizzleOptions.pixelFraction)
                 Toggle("主平场用于初始像素权重", isOn: $options.drizzleOptions.useFlat)
+                Toggle("权重位深匹配输出（32 位）", isOn: $options.drizzleOptions.matchWeightBitDepth)
+                Text("关闭时沿用原版默认的 8 位权重；开启时保存 32 位浮点权重，保留更高精度并增加存储占用。")
+                    .font(.caption).foregroundStyle(.secondary)
                 Text("输出倍率使用上方配准设置（0.1–3）。原版像素比例默认 1；通常可从倍率的倒数开始尝试。主平场仍正常用于校准，此开关额外用于像素权重。")
                     .font(.caption).foregroundStyle(.secondary)
                 Text("单色使用普通 Drizzle；带 BAYERPAT 的单通道 Bayer 数据由原版自动生成 RGB。Bayer 模式请开启 CFA、关闭校准后去马赛克。RGB 与 X-Trans 输入不能使用此流程。建议用平均值或求和叠加，以利用像素权重。")
