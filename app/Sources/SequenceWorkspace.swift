@@ -23,7 +23,7 @@ struct SequenceBrowserView: View {
             }
             .navigationTitle("原版序列")
             .toolbar { Button("完成") { dismiss() } }
-            .task { locations = await engine.sequenceLocations(job: job) }
+            .onAppear { Task { locations = await engine.sequenceLocations(job: job) } }
         }
     }
 }
@@ -32,6 +32,7 @@ struct SequenceWorkspace: View {
     let location: SequenceLocation
     let engine: SirilEngine
     let onPreview: (URL) -> Void
+    @Environment(\.dismiss) private var dismiss
     @State private var snapshot: SequenceSnapshot?
     @State private var editHistory: SequenceEditHistory?
     @State private var index = 0
@@ -53,6 +54,12 @@ struct SequenceWorkspace: View {
     @State private var log = ""
     @State private var logTask: Task<Void, Never>?
     @State private var showStack = false
+    @State private var showApply = false
+    @State private var generated: SequenceLocation?
+    @State private var flats: [FITSRecord] = []
+    @State private var flatID: UUID?
+    @State private var initializedLayer = false
+    @State private var showDelete = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -101,8 +108,14 @@ struct SequenceWorkspace: View {
                         try await engine.measureSequence(location, options: options, layer: layer)
                         log = SirilEngine.processingLog(); await reload()
                     } }
-                    Text("测量执行原版两遍配准，保存星点质量和变换矩阵。需要应用旋转、缩放或 Drizzle 时，请在批处理流程中生成配准输出，再选择对应输出序列。")
+                    Text("测量保存星点质量和变换矩阵。调整参与帧后，可在下方应用已有变换；新加入的未测量帧需重新测量。")
                         .font(.caption).foregroundStyle(.secondary)
+                    Button("应用配准 / Drizzle 参数", systemImage: "arrow.triangle.branch") { showApply = true }
+                        .disabled(snapshot.info.included < 2 || !snapshot.frames.filter(\.included).allSatisfy { $0.native.has_registration != 0 })
+                    if let generated {
+                        NavigationLink("打开配准输出并继续叠加") { SequenceWorkspace(location: generated, engine: engine, onPreview: onPreview) }
+                        Text("已生成 \(generated.name)").font(.caption).textSelection(.enabled)
+                    }
                     Button("计算原版序列统计") { perform { export = try await engine.sequenceStatistics(location); log = SirilEngine.processingLog(); await reload() } }
                     Button("导出质量数据 CSV") { perform { export = try await engine.exportSequenceQuality(location, layer: layer) } }
                     if let export { ShareLink("分享 CSV", item: export) }
@@ -113,7 +126,7 @@ struct SequenceWorkspace: View {
                         Button("查看本次叠加结果") { onPreview(result) }
                         ShareLink("导出本次 FITS", item: result)
                     }
-                }
+                }.id("sequence-registration")
                 Section("逐帧列表") {
                     ForEach(snapshot.frames) { frame in
                         Button { index = frame.id } label: {
@@ -130,6 +143,11 @@ struct SequenceWorkspace: View {
                         }.foregroundStyle(.primary)
                     }
                 }
+                Section("任务存储") {
+                    Button("删除本任务及全部序列", role: .destructive) { showDelete = true }
+                    Text("移入最近删除后可以恢复。任务的输入副本、所有配准输出和 Drizzle 权重会一并移动；图库原图独立保留。永久删除后释放空间。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             } else { ProgressView("读取原版序列") }
             if busy { Section { ProgressView("Siril 正在处理") } }
             if !message.isEmpty { Section("提示") { Text(message).textSelection(.enabled) } }
@@ -145,11 +163,13 @@ struct SequenceWorkspace: View {
             if ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_VIEW_CHECK"] == "1", snapshot != nil {
                 for _ in 0..<60 where image == nil { try? await Task.sleep(for: .milliseconds(50)) }
                 guard image != nil else { return }
-                if ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] == "quality" {
-                    try? await Task.sleep(for: .milliseconds(400)); proxy.scrollTo("sequence-quality", anchor: .top)
+                let section = ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] ?? "frames"
+                if section == "quality" || section == "registration" {
+                    try? await Task.sleep(for: .milliseconds(400)); proxy.scrollTo("sequence-" + section, anchor: .top)
+                } else if section == "apply" {
+                    options.drizzleOptions.enabled = true; options.scale = 2; showApply = true
                 }
                 try? await Task.sleep(for: .milliseconds(400))
-                let section = ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] ?? "frames"
                 let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
                 try? "PASS: native sequence \(section) workspace loaded original frames, preview and quality.\n".write(to: root.appendingPathComponent("simulator-sequence-\(section)-ready.txt"), atomically: true, encoding: .utf8)
             }
@@ -159,6 +179,23 @@ struct SequenceWorkspace: View {
         .onChange(of: automatic) { _, _ in refreshPreview() }
         .onChange(of: layer) { _, _ in Task { await reload() } }
         .onDisappear { previewTask?.cancel(); logTask?.cancel() }
+        .alert("删除本任务？", isPresented: $showDelete) {
+            Button("移入最近删除", role: .destructive) { perform {
+                guard let task = await engine.jobHistory().first(where: { $0.id == location.job }) else { throw EngineError.failed("任务已不存在。") }
+                try await engine.trashJob(task); dismiss()
+            } }
+            Button("取消", role: .cancel) { }
+        } message: { Text("该任务中的所有序列和结果都将移入最近删除，可在存储管理中恢复。") }
+        .sheet(isPresented: $showApply) {
+            SequenceApplyView(options: $options, flatID: $flatID, flats: flats) {
+                showApply = false
+                let flat = flats.first { $0.id == flatID }
+                perform {
+                    generated = try await engine.applySequenceRegistration(location, options: options, layer: layer, flat: flat)
+                    log = SirilEngine.processingLog(); await reload()
+                }
+            }
+        }
         .sheet(isPresented: $showStack) {
             NavigationStack {
                 Form {
@@ -223,10 +260,17 @@ struct SequenceWorkspace: View {
     @MainActor private func reload() async {
         do {
             snapshot = try await engine.inspectSequence(location, layer: layer)
+            if !initializedLayer {
+                initializedLayer = true
+                if snapshot?.info.layers == 3 {
+                    layer = 1; snapshot = try await engine.inspectSequence(location, layer: layer)
+                }
+            }
             if let snapshot {
                 index = min(index, snapshot.frames.count - 1)
                 editHistory = try await engine.sequenceHistory(location, snapshot: snapshot)
                 options.register = snapshot.frames.contains { $0.native.has_registration != 0 }
+                flats = await engine.loadLibrary().filter { $0.channels == 1 && $0.width == Int(snapshot.info.width) && $0.height == Int(snapshot.info.height) }
             }
             refreshPreview()
         } catch { message = error.localizedDescription }
@@ -265,5 +309,55 @@ struct SequenceWorkspace: View {
         for i in (first - 1)..<last { selection.included[i] = included }
         if selection.reference >= 0 && !selection.included[selection.reference] { selection.reference = -1 }
         change(selection)
+    }
+}
+
+struct SequenceApplyView: View {
+    @Binding var options: BatchOptions
+    @Binding var flatID: UUID?
+    let flats: [FITSRecord]
+    let apply: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("输出范围与采样") {
+                    BatchPicker(title: "输出范围", value: $options.framing)
+                    BatchNumber(title: "输出倍率（0.1–3）", value: $options.scale)
+                    Toggle("Drizzle / Bayer Drizzle", isOn: $options.drizzleOptions.enabled)
+                    if !options.drizzleOptions.enabled {
+                        BatchPicker(title: "插值", value: $options.interpolation)
+                        if options.interpolation.supportsClamp { Toggle("插值钳位", isOn: $options.clamp) }
+                        Text("不插值只支持原版仅平移矩阵、倍率 1，以及参考帧范围或图像中心。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if options.drizzleOptions.enabled {
+                    Section("Drizzle 参数") {
+                        BatchPicker(title: "Drizzle 核", value: $options.drizzleOptions.kernel)
+                        BatchNumber(title: "像素比例（0.1–10）", value: $options.drizzleOptions.pixelFraction)
+                        Toggle("主平场用于初始像素权重", isOn: $options.drizzleOptions.useFlat)
+                        if options.drizzleOptions.useFlat {
+                            Picker("已校准的主平场", selection: $flatID) {
+                                Text("使用本任务 master_flat.fits").tag(UUID?.none)
+                                ForEach(flats) { Text($0.displayName).tag(Optional($0.id)) }
+                            }
+                            Text("请选择已扣除偏置或暗平场的主平场。此处只用于像素权重，不再次校准亮场。选中的主平场会随本次运行保存副本。")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Toggle("权重位深匹配输出（32 位）", isOn: $options.drizzleOptions.matchWeightBitDepth)
+                        Text("关闭时保存原版默认 8 位权重；开启后保存浮点权重。单色和 Bayer 原始图适用；RGB 与 X-Trans 输入不适用。2 倍输出约增加至 4 倍像素。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                QualityFilterControls(options: $options, title: "应用配准时的质量筛选")
+                Section {
+                    Button("应用当前参与帧的配准", action: apply)
+                    Text("执行原版 seqapplyreg，生成独立命名的输出序列。当前排除帧不参与；原图和之前的输出继续保留。完成后打开输出序列再叠加。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }.navigationTitle("应用配准")
+                .toolbar { Button("完成") { dismiss() } }
+        }
     }
 }

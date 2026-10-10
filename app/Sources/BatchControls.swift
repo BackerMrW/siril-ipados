@@ -229,7 +229,15 @@ struct StackControls: View {
             Text("剔除参数与算法对应；百分位和广义 ESD 的两个参数必须在 0–1 之间。结果使用 32 位 FITS，保留校准及叠加精度。")
                 .font(.caption).foregroundStyle(.secondary)
         }.id("batch-stacking")
-        Section("叠加质量筛选") {
+        QualityFilterControls(options: $options, title: "叠加质量筛选")
+    }
+}
+
+struct QualityFilterControls: View {
+    @Binding var options: BatchOptions
+    let title: String
+    var body: some View {
+        Section(title) {
             if options.register {
                 ForEach(options.filters.indices, id: \.self) { index in
                     Toggle(options.filters[index].metric.title, isOn: $options.filters[index].enabled)
@@ -238,7 +246,7 @@ struct StackControls: View {
                         BatchNumber(title: "阈值", value: $options.filters[index].value)
                     }
                 }
-                Text("同时启用的条件取交集。FWHM 与背景保留较低值；圆度与星数保留较高值。筛选后不足两张时，Siril 会停止叠加并保留日志。")
+                Text("同时启用的条件取交集。FWHM 与背景保留较低值；圆度与星数保留较高值。筛选后不足两张时，Siril 会停止处理并保留日志。")
                     .font(.caption).foregroundStyle(.secondary)
             } else { Text("启用星点配准后，可使用配准测得的质量参数筛选图像。") }
         }

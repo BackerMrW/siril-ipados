@@ -190,12 +190,16 @@ extension SirilEngine {
         }
         return job
     }
-    func runSequenceCommand(_ location: SequenceLocation, command: String, title: String) throws -> URL {
+    func runSequenceCommand(_ location: SequenceLocation, command: String, title: String, options: BatchOptions? = nil, flat: URL? = nil) throws -> URL {
         let snapshot = try inspectSequence(location)
         let process = try sequenceFolder(location), job = process.deletingLastPathComponent()
         let folder = try owned(UUID().uuidString, under: try owned("SequenceRuns", under: job))
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let script = "# \(title)\ncd process\n" + command.replacingOccurrences(of: "$OUTPUT", with: "../SequenceRuns/\(folder.lastPathComponent)/result.fits").replacingOccurrences(of: "$CSV", with: "../SequenceRuns/\(folder.lastPathComponent)/statistics.csv") + "\n"
+        let prefix = "r_" + folder.lastPathComponent.replacingOccurrences(of: "-", with: "") + "_"
+        let relative = "../SequenceRuns/\(folder.lastPathComponent)/"
+        if let flat { try FileManager.default.copyItem(at: flat, to: folder.appendingPathComponent("flat.fits")) }
+        if let options { try JSONEncoder().encode(options).write(to: folder.appendingPathComponent("batch-options.json"), options: .atomic) }
+        let script = "# \(title)\ncd process\n" + command.replacingOccurrences(of: "$OUTPUT", with: relative + "result.fits").replacingOccurrences(of: "$CSV", with: relative + "statistics.csv").replacingOccurrences(of: "$PREFIX", with: prefix).replacingOccurrences(of: "$FLAT", with: relative + "flat.fits") + "\n"
         try script.write(to: folder.appendingPathComponent("processing.ssf"), atomically: true, encoding: .utf8)
         try Data(contentsOf: process.appendingPathComponent(location.name)).write(to: folder.appendingPathComponent("source.seq"), options: .atomic)
         let state = JobState(created: Date(), updated: Date(), state: "运行中", inputCount: Int(snapshot.info.included), message: title)
@@ -219,7 +223,59 @@ extension SirilEngine {
         guard snapshot.info.included >= 2, (4...2000).contains(options.minimumPairs), (100...2000).contains(options.maximumStars), options.minimumPairs <= options.maximumStars else {
             throw EngineError.failed("星点配准需至少两张参与帧，并设置有效的星对、星点数量。")
         }
-        _ = try runSequenceCommand(location, command: "register \(sequenceCommandName(location)) -2pass -selected -transf=\(options.transform.rawValue) -minpairs=\(options.minimumPairs) -maxstars=\(options.maximumStars) -layer=\(layer)", title: "原版两遍星点配准与质量测量")
+        _ = try runSequenceCommand(location, command: "register \(sequenceCommandName(location)) -2pass -selected -transf=\(options.transform.rawValue) -minpairs=\(options.minimumPairs) -maxstars=\(options.maximumStars) -layer=\(layer)", title: "原版两遍星点配准与质量测量", options: options)
+        let measured = try inspectSequence(location, layer: layer)
+        guard measured.frames.filter({ $0.included && $0.native.has_registration != 0 }).count >= 2 else { throw EngineError.failed("原版未测得足够的参与帧配准数据，请检查星点检测和运行日志。") }
+    }
+    func applySequenceRegistration(_ location: SequenceLocation, options: BatchOptions, layer: Int, flat: FITSRecord? = nil) throws -> SequenceLocation {
+        let snapshot = try inspectSequence(location, layer: layer)
+        guard snapshot.info.included >= 2, snapshot.frames.filter(\.included).allSatisfy({ $0.native.has_registration != 0 }) else {
+            throw EngineError.failed("请先对当前参与帧执行两遍星点配准，再应用变换。新增参与帧需要重新测量。")
+        }
+        guard location.base.utf8.count < 180, options.scale.isFinite, (0.1...3).contains(options.scale) else { throw EngineError.failed("输出倍率须在 0.1–3；序列名称过长时请从原始序列重新应用。") }
+        let drizzle = options.drizzleOptions
+        if drizzle.enabled {
+            guard snapshot.info.layers == 1, drizzle.pixelFraction.isFinite, (0.1...10).contains(drizzle.pixelFraction) else { throw EngineError.failed("Drizzle 需要单通道单色或 Bayer 原始数据，像素比例须在 0.1–10。") }
+        } else if options.interpolation == .none && (options.scale != 1 || options.framing == .min || options.framing == .max) {
+            throw EngineError.failed("不插值需保持倍率 1，并选择参考帧范围或图像中心；矩阵必须为仅平移。")
+        }
+        for filter in options.filters where filter.enabled {
+            guard filter.value.isFinite, filter.value > 0, filter.limit != .percentage || filter.value <= 100,
+                  filter.limit != .threshold || filter.metric != .round || filter.value <= 1 else { throw EngineError.failed("质量筛选阈值无效。") }
+        }
+        var flatURL: URL?
+        if drizzle.enabled && drizzle.useFlat {
+            if let flat {
+                guard flat.channels == 1, flat.width == Int(snapshot.info.width), flat.height == Int(snapshot.info.height), loadLibrary().contains(where: { $0.id == flat.id }) else { throw EngineError.failed("主平场必须来自图库，且尺寸、通道与输入序列一致。") }
+                flatURL = try owned(flat.url.lastPathComponent, under: documents.appendingPathComponent("FITS"))
+            } else {
+                flatURL = try owned("master_flat.fits", under: sequenceFolder(location))
+            }
+            guard let flatURL, FileManager.default.fileExists(atPath: flatURL.path) else { throw EngineError.failed("当前任务没有主平场，请从图库选择已校准的主平场或关闭平场权重。") }
+        }
+        func number(_ value: Double) -> String { String(format: "%.9g", locale: Locale(identifier: "en_US_POSIX"), value) }
+        var args = ["seqapplyreg", try sequenceCommandName(location), "-prefix=$PREFIX", "-layer=\(layer)", "-filter-included", "-framing=\(options.framing.rawValue)", "-scale=\(number(options.scale))"]
+        if drizzle.enabled {
+            args += ["-drizzle", "-pixfrac=\(number(drizzle.pixelFraction))", "-kernel=\(drizzle.kernel.rawValue)"]
+            if drizzle.useFlat { args += ["-flat=$FLAT"] }
+        } else {
+            args += ["-interp=\(options.interpolation.rawValue)"]
+            if options.interpolation.supportsClamp && !options.clamp { args += ["-noclamp"] }
+        }
+        for filter in options.filters where filter.enabled { args += ["-filter-\(filter.metric.rawValue)=\(number(filter.value))\(filter.limit.suffix)"] }
+        let command = "set32bits\nset gui_registration.drizz_weight_match_bitpix=\(drizzle.matchWeightBitDepth ? "true" : "false")\n" + args.joined(separator: " ")
+        let folder = try runSequenceCommand(location, command: command, title: "应用当前序列配准变换", options: options, flat: flatURL)
+        let prefix = "r_" + folder.lastPathComponent.replacingOccurrences(of: "-", with: "") + "_"
+        let output = SequenceLocation(job: location.job, name: prefix + location.name)
+        do {
+            let generated = try inspectSequence(output, layer: drizzle.enabled ? 0 : layer)
+            guard generated.info.count >= 2 else { throw EngineError.failed("原版未生成至少两张配准输出。") }
+            try JSONEncoder().encode(output).write(to: folder.appendingPathComponent("output-sequence.json"), options: .atomic)
+            return output
+        } catch {
+            try? writeJobState(folder, state: "输出验证失败", message: error.localizedDescription)
+            throw EngineError.failed("Siril 未生成可用的配准序列，请查看运行日志。\n" + error.localizedDescription)
+        }
     }
     func sequenceStatistics(_ location: SequenceLocation) throws -> URL {
         let folder = try runSequenceCommand(location, command: "seqstat \(sequenceCommandName(location)) $CSV main", title: "原版序列统计")
@@ -245,8 +301,7 @@ extension SirilEngine {
                   filter.limit != .threshold || filter.metric != .round || filter.value <= 1 else { throw EngineError.failed("质量筛选阈值无效。") }
         }
         let command = "set32bits\n" + SirilWorkflow.stackCommand(sequence: try sequenceCommandName(location), options: options, channels: Int(snapshot.info.layers), includeQuality: registered, output: "$OUTPUT")
-        let folder = try runSequenceCommand(location, command: command, title: "按当前序列选择重新叠加")
-        try JSONEncoder().encode(options).write(to: folder.appendingPathComponent("batch-options.json"), options: .atomic)
+        let folder = try runSequenceCommand(location, command: command, title: "按当前序列选择重新叠加", options: options)
         let result = folder.appendingPathComponent("result.fits")
         guard FileManager.default.fileExists(atPath: result.path) else { throw EngineError.failed("Siril 未生成叠加结果，请查看运行日志。") }
         return result
