@@ -134,9 +134,13 @@ int siril_sequence_inspect(const char *directory, const char *name, int layer,
         }
         if (seq->stats && seq->stats[layer] && seq->stats[layer][i]) {
             imstats *stat = seq->stats[layer][i];
-            double norm = stat->normValue > 0 ? stat->normValue : (seq->bitpix == FLOAT_IMG ? 1 : USHRT_MAX_DOUBLE);
+            double norm = stat->normValue > 0 ? stat->normValue : (seq->bitpix == FLOAT_IMG ? 1 : seq->bitpix == BYTE_IMG ? UCHAR_MAX_DOUBLE : USHRT_MAX_DOUBLE);
             frame->has_statistics = TRUE;
-            frame->mean = stat->mean / norm; frame->median = stat->median / norm; frame->sigma = stat->sigma / norm;
+            /* Original caches may contain only median/normalization fields.
+             * Preserve missing values as NaN, never as measured graph points. */
+            frame->mean = stat->mean == NULL_STATS ? NAN : stat->mean / norm;
+            frame->median = stat->median == NULL_STATS ? NAN : stat->median / norm;
+            frame->sigma = stat->sigma == NULL_STATS ? NAN : stat->sigma / norm;
         }
     }
 free_seq:

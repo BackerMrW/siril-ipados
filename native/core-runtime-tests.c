@@ -314,6 +314,15 @@ static int sequence_checks(const char *registered, const char *combinations) {
     for (int i = 0; i < 4; i++) CHECK(fabs(pixels[i] - (0.15 + i * 0.01)) < 2e-5);
     CHECK(siril_sequence_inspect(combinations, "combination_.seq", 0, &info, frames, 3, error, sizeof error) == 3);
     for (int i = 0; i < 2; i++) CHECK(frames[i].has_statistics && fabs(frames[i].mean - (0.115 + i * 0.1)) < 2e-5);
+    original = readseqfile("combination_.seq");
+    CHECK(original && original->stats && original->stats[0] && original->stats[0][0]);
+    original->stats[0][0]->mean = NULL_STATS;
+    original->stats[0][0]->sigma = NULL_STATS;
+    CHECK(writeseqfile(original) == 0);
+    free_sequence(original, TRUE);
+    CHECK(siril_sequence_inspect(combinations, "combination_.seq", 0, &info, frames, 3, error, sizeof error) == 3);
+    CHECK(isnan(frames[0].mean) && isnan(frames[0].sigma) && fabs(frames[0].median - 0.115) < 2e-5);
+    CHECK(siril_run_commands(combinations, "seqstat combination sequence-statistics.csv main\n", error, sizeof error));
     snprintf(path, sizeof path, "%s/combination_00003.fit", combinations);
     CHECK(read_pixels(path, pixels, 4) == 0);
     for (int i = 0; i < 4; i++) CHECK(fabs(pixels[i] - (0.9 + i * 0.01)) < 2e-5);
@@ -323,7 +332,7 @@ static int sequence_checks(const char *registered, const char *combinations) {
     snprintf(path, sizeof path, "%s/restored.fits", combinations);
     CHECK(read_pixels(path, pixels, 4) == 0);
     for (int i = 0; i < 4; i++) CHECK(fabs(pixels[i] - (0.4 + i * 0.01)) < 2e-5);
-    puts("PASS: original sequence frame reads and measured registration values, invalid paths/layers/indices, preserved independent image handles; exclusion changed exact stacked pixels without altering source frames, reference validation and restored inclusion; original normalized sequence statistics");
+    puts("PASS: original sequence frame reads and measured registration values, invalid paths/layers/indices, preserved independent image handles; exclusion changed exact stacked pixels without altering source frames, reference validation and restored inclusion; original normalized sequence statistics and missing-cache values omitted from graphs");
     return 0;
 }
 
