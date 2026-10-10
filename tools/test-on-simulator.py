@@ -30,7 +30,7 @@ except subprocess.TimeoutExpired:
     booted = any(d["udid"] == udid and d["state"] == "Booted"
                  for group in state["devices"].values() for d in group)
     if not booted:
-        raise RuntimeError("iPad simulator did not boot within 180 seconds")
+        raise RuntimeError("iPad simulator did not boot within the bounded launch attempts")
     print("bootstatus timed out; testing the Booted device directly", flush=True)
 directory = tempfile.mkdtemp(prefix="siril-numeric-")
 command = ["xcrun", "simctl", "spawn", udid, str(root / "siril-ios-build/src/siril-ipados-runtime-tests"), directory]
@@ -44,23 +44,36 @@ container = Path(subprocess.check_output(["xcrun", "simctl", "get_app_container"
                                          "com.backermrw.sirilpad", "data"], text=True, timeout=45).strip())
 for name in ("simulator-app-selftest.txt", "simulator-background-ready.txt", "simulator-analysis-ready.txt"):
     (container / "Documents" / name).unlink(missing_ok=True)
-launch = subprocess.Popen(["xcrun", "simctl", "launch", udid, "com.backermrw.sirilpad"],
-                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                          env=dict(os.environ, SIMCTL_CHILD_SIRIL_SELF_TEST="1"))
 report = container / "Documents/simulator-app-selftest.txt"
-deadline = time.monotonic() + 180
-while not report.exists() and time.monotonic() < deadline:
-    if launch.poll() is not None and launch.returncode != 0:
+launch_outputs = []
+for attempt, seconds in enumerate((90, 180), start=1):
+    launch = subprocess.Popen(["xcrun", "simctl", "launch", udid, "com.backermrw.sirilpad"],
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                              env=dict(os.environ, SIMCTL_CHILD_SIRIL_SELF_TEST="1"))
+    deadline = time.monotonic() + seconds
+    while not report.exists() and time.monotonic() < deadline:
+        if launch.poll() is not None and launch.returncode != 0:
+            break
+        time.sleep(1)
+    try:
+        output, _ = launch.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        # Stop only the stalled simctl client. Do not restart an executing App
+        # or overwrite its report; an actual FAIL remains a hard failure.
+        launch.terminate()
+        output, _ = launch.communicate(timeout=10)
+    launch_outputs.append(output)
+    print(output, flush=True)
+    if report.exists():
         break
-    time.sleep(1)
-try:
-    output, _ = launch.communicate(timeout=10)
-except subprocess.TimeoutExpired:
-    # CoreSimulator's launch client can stall after starting the App. The App's
-    # own numerical report and loaded-view marker are the required success gates.
-    launch.terminate()
-    output, _ = launch.communicate(timeout=10)
-print(output, flush=True)
+    crashes = list((Path.home() / "Library/Logs/DiagnosticReports").glob("SirilPad*.ips"))
+    if crashes:
+        for path in crashes:
+            (root / "diagnostics" / path.name).write_bytes(path.read_bytes())
+        raise RuntimeError("Native App crashed before producing its self-check report")
+    if attempt == 1:
+        print("First CoreSimulator launch did not produce a report; retrying the launch client once", flush=True)
+(root / "diagnostics/app-launch-client.log").write_text("\n".join(launch_outputs))
 if not report.exists():
     subprocess.run(["xcrun", "simctl", "io", udid, "screenshot",
                     str(root / "diagnostics/app-launch-failure.png")], timeout=30)
