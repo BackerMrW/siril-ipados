@@ -126,6 +126,7 @@ struct ContentView: View {
     @State private var autoDisplay = true
     @State private var showBackground = false
     @State private var showTools = false
+    @State private var pendingTool: Int?
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columns) {
@@ -227,9 +228,13 @@ struct ContentView: View {
                 BackgroundExtractionView(file: file, onPreview: importResult)
             }
         }
-        .sheet(isPresented: $showTools) {
-            ToolInventoryView(onBackground: { showTools = false; showBackground = true },
-                              onProcessing: { showTools = false; showProcessing = true })
+        .sheet(isPresented: $showTools, onDismiss: {
+            if pendingTool == 0 { showBackground = true }
+            if pendingTool == 1 { showProcessing = true }
+            pendingTool = nil
+        }) {
+            ToolInventoryView(onBackground: { pendingTool = 0; showTools = false },
+                              onProcessing: { pendingTool = 1; showTools = false })
         }
         .onChange(of: displayChannel) { _, _ in refreshDisplay() }
         .onChange(of: autoDisplay) { _, _ in refreshDisplay() }

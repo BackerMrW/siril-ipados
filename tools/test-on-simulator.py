@@ -59,5 +59,15 @@ print(text, flush=True)
 (root / "diagnostics/app-launch-check.txt").write_text(text)
 if not text.startswith("PASS:"):
     raise RuntimeError(text)
+ready = container / "Documents/simulator-background-ready.txt"
+deadline = time.monotonic() + 30
+while not ready.exists() and time.monotonic() < deadline:
+    os.kill(int(pid), 0)
+    time.sleep(1)
+if not ready.exists():
+    raise RuntimeError("Interactive background view did not load its image and sample overlay")
+print(ready.read_text(), flush=True)
+# Let the displayed sample overlay finish a layout pass before capturing it.
+time.sleep(1)
 subprocess.run(["xcrun", "simctl", "io", udid, "screenshot",
                 str(root / "diagnostics/native-app-simulator.png")], check=True)

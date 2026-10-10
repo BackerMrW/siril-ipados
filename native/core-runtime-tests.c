@@ -344,7 +344,7 @@ int main(int argc, char **argv) {
     SirilBackgroundOptions bg_options = {
         .method = 0, .interpolation = 1, .degree = 1, .correction = 0, .smoothing = 0.5,
         .scale = 5, .smoothness = 1, .protect = 1, .protect_threshold = 0.05,
-        .protect_amount = 0.5, .simplified = 1, .auto_degree = 1, .downsample = 2
+        .protect_amount = 0.5, .simplified = 0, .auto_degree = 1, .downsample = 4
     };
     for (int method = 0; method < 4; method++) {
         bg_options.method = method == 3;

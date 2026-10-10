@@ -21,9 +21,9 @@ struct BackgroundSettings: Codable, Equatable, Sendable {
     var protect = true
     var protectThreshold = 0.05
     var protectAmount = 0.5
-    var simplified = true
+    var simplified = false
     var autoDegree = 1
-    var downsample = 2
+    var downsample = 4
     var native: SirilBackgroundOptions {
         var o = SirilBackgroundOptions()
         o.method = Int32(method); o.interpolation = Int32(interpolation)
@@ -173,7 +173,21 @@ struct BackgroundExtractionView: View {
             .navigationTitle("背景提取 · Background Extraction")
             .toolbar { Button("关闭") { dismiss() }.disabled(busy) }
             .interactiveDismissDisabled(busy)
-            .task { await perform { try await engine.open(file.url); try await refresh() } }
+            .task { await perform {
+                try await engine.open(file.url)
+                if ProcessInfo.processInfo.environment["SIRIL_SELF_TEST"] == "1" {
+                    settings.perLine = 8
+                    try await engine.generate(settings)
+                    markers = try await engine.samples()
+                }
+                try await refresh()
+                if ProcessInfo.processInfo.environment["SIRIL_SELF_TEST"] == "1", image != nil {
+                    let ready = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                        .appendingPathComponent("simulator-background-ready.txt")
+                    try "PASS: interactive background view loaded image and sample overlay\n"
+                        .write(to: ready, atomically: true, encoding: .utf8)
+                }
+            } }
             .onChange(of: view) { _, _ in Task { await perform { try await refresh() } } }
             .onChange(of: channel) { _, _ in Task { await perform { try await refresh() } } }
             .onChange(of: automatic) { _, _ in Task { await perform { try await refresh() } } }
@@ -258,7 +272,7 @@ struct BackgroundExtractionView: View {
                     .font(.caption).textSelection(.enabled)
                 Button("删除选中采样点", role: .destructive) { delete(selected) }
             }
-            Stepper("每行采样点：\(settings.perLine)", value: $settings.perLine, in: 5...100)
+            Stepper("\(settings.randomize ? "内部随机点数" : "每行采样点")：\(settings.perLine)", value: $settings.perLine, in: 5...100)
             numberSlider("容差", value: $settings.tolerance, range: 0.01...6)
             Toggle("随机暗区采样", isOn: $settings.randomize)
             Toggle("优化到附近暗区", isOn: $settings.gradientDescent)
