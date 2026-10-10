@@ -29,13 +29,13 @@
       "id": "win.undo",
       "title": "Undo",
       "group": "工作区与分析",
-      "status": "待移植或待逐项验证"
+      "status": "单张处理结果撤销已接入（采样/参数编辑和序列等仍待接入）"
     },
     {
       "id": "win.redo",
       "title": "Redo",
       "group": "工作区与分析",
-      "status": "待移植或待逐项验证"
+      "status": "单张处理结果重做已接入（采样/参数编辑和序列等仍待接入）"
     },
     {
       "id": "win.psf",

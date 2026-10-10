@@ -24,8 +24,8 @@
 | win.updates | Check For Updates | 待移植或待逐项验证 |
 | win.shortcuts | Keyboard Shortcuts | 待移植或待逐项验证 |
 | win.chain-chan | Link/unlink channels in autostretch viewer mode. Current state: linked. | 待移植或待逐项验证 |
-| win.undo | Undo | 待移植或待逐项验证 |
-| win.redo | Redo | 待移植或待逐项验证 |
+| win.undo | Undo | 单张处理结果撤销已接入（采样/参数编辑和序列等仍待接入） |
+| win.redo | Redo | 单张处理结果重做已接入（采样/参数编辑和序列等仍待接入） |
 | win.psf | PSF | 待移植或待逐项验证 |
 | win.seq-psf | PSF for the Sequence | 待移植或待逐项验证 |
 | win.pickstar | Pick a Star | 待移植或待逐项验证 |
@@ -128,4 +128,4 @@
 每项需有原版入口对应、参数与默认值对应、真实算法输出校验、原生交互校验和 iPad 验证记录。未通过者保持未完成。
 共享分析工作区已接入矩形选区、完整分辨率像素读数、原版 STATS_MAIN 八项统计及归一化/CFA 开关、原版整图/选区直方图和完整文件头查看/搜索/复制。选区目前用于分析；处理 ROI、蒙版、多边形选择、关键字编辑、文件信息编辑和直方图变换仍待移植。
 
-背景提取已接入原版采样和图像 hook：增删/选择采样、自动/随机采样、RBF/1–4 阶多项式、减法/除法、抖动、自动渐变完整参数、原图/模型/结果预览与另存。序列应用、拖动采样点和共享撤销仍待补齐。
+背景提取已接入原版采样和图像 hook：增删/选择采样、自动/随机采样、RBF/1–4 阶多项式、减法/除法、抖动、自动渐变完整参数、原图/模型/结果预览与另存。校正结果已支持共享 FITS 撤销/重做；序列应用、拖动采样点和采样/参数编辑撤销仍待补齐。
