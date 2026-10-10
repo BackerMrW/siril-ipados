@@ -50,7 +50,7 @@ extension SirilEngine {
             settings.normalization = .none
             settings.outputNormalization = false
             let batch = [light, light, light] + Array(repeating: longerDark, count: masterCount) +
-                Array(repeating: bias, count: masterCount) + [flat, flat, flat]
+                Array(repeating: bias, count: masterCount) + Array(repeating: flat, count: masterCount)
             let script = try SirilWorkflow.script(files: batch, options: settings)
             let job = try prepareJob(files: batch, script: script, batchOptions: settings)
             let outputs = try run(job)

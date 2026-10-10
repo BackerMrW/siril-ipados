@@ -13,7 +13,7 @@ on:
       tag:
         description: Test release tag
         required: true
-        default: v0.6.0
+        default: v0.7.0
         type: string
 permissions:
   contents: write
@@ -97,6 +97,7 @@ jobs:
               'background extraction/denoising with star preservation, crop/Asinh/MTF/saturation/rotation, Swift job history/manual MTF and notices.\n' +
               'Original eight statistics and per-CFA filters, selected-region row orientation, histogram bins, pixel reads and full FITS header; native selected-image analysis workspace.\n' +
               'Verified batch deletion/restoration, interrupted restore recovery, permanent gallery/task cleanup, symlink rejection, persistent FITS undo/redo/branch reset, active-task deletion rejection, native image/sequence memory release, and loaded storage/workspace UI.\n' +
+              'Advanced batch: exact exposure-scaled calibration with bias removed from darks and lights, single/multiple calibration inputs, persisted settings/input manifests; five stacking methods matched known pixels, seven rejection algorithms reduced a known outlier, real two-pass registration/application, four transforms/six interpolators/output scaling and normalization/weights/quality-filter checks. Loaded calibration/registration/stacking UI captured.\n' +
               'Physical iPad/file-picker/large real-camera datasets still require device testing.\n')
           PY
       - name: Upload and publish the test release
@@ -108,13 +109,16 @@ jobs:
           from pathlib import Path
           Path('/tmp/release-notes.md').write_text(
               'Native iPadOS test release using the original pinned Siril engine. Processing runs locally on the iPad.\n\n' +
+              '- Advanced calibration: separate CFA/debayer controls, flat CFA equalization and X-Trans repair options, noise/exposure dark optimization and cold/hot master-dark cosmetic correction. A single bias/dark/flat-dark is accepted as a master; one or multiple flats are calibrated. Optimization subtracts bias from darks and lights separately before applying scaled dark current. Camera-specific cosmetic/X-Trans/CFA-equalization outputs still require device validation.\n' +
+              '- Global star registration: one/two-pass workflows with real seqapplyreg output, selected reference frame, four transformations, six interpolation modes, clamping, star-pair/star-count/channel/scale parameters and two-pass framing.\n' +
+              '- Stacking: five methods, seven rejection algorithms, four normalization methods plus none, input/output and fast normalization, RGB equalization, four weighting modes, rejection maps, and FWHM/weighted-FWHM/roundness/background/star-count filters with percentage/absolute/Sigma thresholds. Settings persist; each job saves inputs and generation settings alongside the actual editable script.\n' +
               '- Gallery single/batch deletion, persistent Recently Deleted restoration, permanent deletion/empty trash, and gallery/job/trash storage sizes. Processing tasks can be deleted with their input copies and intermediate files. Imported gallery copies remain independent. Deletion closes original command image/sequence caches and deleting the displayed image clears its preview.\n' +
               '- Full-FITS undo/redo for newly generated single-image processing results, persistent parent links, redo branch reset and adaptive portrait controls. Batch stacking and sample/parameter edits do not yet have undo.\n' +
               '- Interactive background extraction: sample placement/deletion/inspection, original RBF/polynomial/automatic models, subtract/divide, original/model/result views and preserved-source FITS export.\n' +
               '- Shared analysis workspace: rectangular selection, original full-resolution pixel reads, original eight statistics with normalized/CFA options, original whole/selected histograms, and full FITS header viewer/search/copy. Keyword and image-metadata editing remain pending.\n' +
               '- Image workspace: pinch zoom and pan, RGB/R/G/B display, linear/automatic display stretch, and an inventory of original tools with explicit incomplete statuses.\n' +
               '- This release does not complete desktop Siril parity. See docs/FUNCTIONAL-PARITY.md for missing parameters, interactions, formats and modules.\n' +
-              '- Multi-FITS import; light/dark/flat/bias/flat-dark roles; calibration, CFA debayering, star registration and stacking.\n' +
+              '- Full sequence browsing/quality plots, PSF/DFT/KOMBAT, Drizzle, distortion/external references, synthetic bias/BPM input controls, overlap normalization/feathering/upscale-at-stacking and other original parameters remain pending.\n' +
               '- Native background extraction, denoising, automatic/Asinh/manual MTF stretch, RGB saturation, crop and rotation.\n' +
               '- Siril scripts, command catalog, logs, cancellation, FITS export and persistent processing history.\n' +
               '- App includes open-source notices; the source ZIP includes the port/build scripts, upstream engine, submodules and dependencies.\n\n' +

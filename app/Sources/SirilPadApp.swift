@@ -253,7 +253,7 @@ struct ContentView: View {
         .sheet(isPresented: $showTools, onDismiss: {
             if pendingTool == 0 { showBackground = true }
             if pendingTool == 1 {
-                if let activeFile { selected = [activeFile.id] }
+                if selected.isEmpty, let activeFile { selected = [activeFile.id] }
                 showProcessing = true
             }
             if let pendingTool, pendingTool >= 2 { analysisTab = pendingTool - 2; showAnalysis = true }

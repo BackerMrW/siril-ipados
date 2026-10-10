@@ -138,7 +138,7 @@ struct BatchControls: View {
             }
             Text("一张偏置、暗场或暗平场按现成主帧使用；多张生成中位数主帧。平场仍会先扣除偏置或暗平场，再生成主平场。")
                 .font(.caption).foregroundStyle(.secondary)
-        }
+        }.id("calibration")
         Section("全局星点配准") {
             Toggle("启用配准", isOn: $options.register)
             if options.register {
@@ -160,7 +160,7 @@ struct BatchControls: View {
                 Text("两遍模式会执行 register -2pass 后再执行 seqapplyreg，生成可叠加的实际图像。单色数据自动使用通道 0。")
                     .font(.caption).foregroundStyle(.secondary)
             }
-        }
+        }.id("batch-registration")
         Section("叠加") {
             BatchPicker(title: "合成方法", value: $options.method)
             if options.method == .mean {
@@ -185,7 +185,7 @@ struct BatchControls: View {
             }
             Text("剔除参数与算法对应；百分位和广义 ESD 的两个参数必须在 0–1 之间。结果使用 32 位 FITS，保留校准及叠加精度。")
                 .font(.caption).foregroundStyle(.secondary)
-        }
+        }.id("batch-stacking")
         Section("叠加质量筛选") {
             if options.register {
                 ForEach(options.filters.indices, id: \.self) { index in

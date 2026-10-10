@@ -131,7 +131,7 @@
       "id": "win.align-global",
       "title": "2-pass global star alignment (deep-sky)",
       "group": "工作区与分析",
-      "status": "待移植或待逐项验证"
+      "status": "原版两遍全局星点配准和应用已接入（Drizzle、畸变与外部参考仍待接入）"
     },
     {
       "id": "win.align-kombat",

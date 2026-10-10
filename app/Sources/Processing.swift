@@ -132,8 +132,11 @@ enum SirilWorkflow {
         if has(.flats) {
             convert(.flats, "flat")
             let calibration = has(.flatdarks) ? "-dark=master_flatdark.fits" : "-bias=master_bias.fits"
-            lines += ["calibrate flat \(calibration)\(isCFA ? " -cfa" : "") -prefix=pp_",
-                      "stack pp_flat median -norm=mul -out=master_flat.fits", "cd .."]
+            lines += ["calibrate flat \(calibration)\(isCFA ? " -cfa" : "") -prefix=pp_"]
+            if groups[.flats]!.count == 1 {
+                lines += ["load pp_flat_00001.fits", "save master_flat.fits", "close"]
+            } else { lines += ["stack pp_flat median -norm=mul -out=master_flat.fits"] }
+            lines += ["cd .."]
         }
         convert(.lights, "light")
         var calibration: [String] = []
@@ -262,6 +265,7 @@ struct ProcessingView: View {
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             Form {
                 Section("本次使用勾选的文件") {
                     ForEach(FrameRole.allCases) { role in
@@ -335,16 +339,25 @@ struct ProcessingView: View {
                     }
                 }
             }
+            .task {
+                if ProcessInfo.processInfo.environment["SIRIL_BATCH_VIEW_CHECK"] == "1" {
+                    let section = ProcessInfo.processInfo.environment["SIRIL_BATCH_SECTION"] ?? "batch"
+                    options.twoPass = true
+                    options.cosmetic = true
+                    try? await Task.sleep(for: .milliseconds(500))
+                    proxy.scrollTo(section == "batch" ? "calibration" : section, anchor: .top)
+                    try? await Task.sleep(for: .milliseconds(300))
+                    let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                    try? "PASS: native advanced batch controls loaded at \(section).\n".write(to: root.appendingPathComponent("simulator-\(section)-ready.txt"), atomically: true, encoding: .utf8)
+                }
+            }
+            }
             .navigationTitle("Siril 本地处理")
             .toolbar { Button("完成") { dismiss() }.disabled(busy) }
             .interactiveDismissDisabled(busy)
             .onDisappear { options.save() }
             .task {
                 if let id = options.referenceID, !files.contains(where: { $0.id == id && $0.role == .lights }) { options.referenceID = nil }
-                if ProcessInfo.processInfo.environment["SIRIL_BATCH_VIEW_CHECK"] == "1" {
-                    let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                    try? "PASS: native calibration, registration and stacking controls loaded.\n".write(to: root.appendingPathComponent("simulator-batch-ready.txt"), atomically: true, encoding: .utf8)
-                }
             }
             .sheet(isPresented: $showCommands) {
                 CommandBrowser { name in
