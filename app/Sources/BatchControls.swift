@@ -197,6 +197,13 @@ struct BatchControls: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }.id("batch-drizzle").disabled(!options.register)
+        StackControls(options: $options)
+    }
+}
+
+struct StackControls: View {
+    @Binding var options: BatchOptions
+    var body: some View {
         Section("叠加") {
             BatchPicker(title: "合成方法", value: $options.method)
             if options.method == .mean {

@@ -29,13 +29,13 @@
       "id": "win.undo",
       "title": "Undo",
       "group": "工作区与分析",
-      "status": "单张处理结果撤销已接入（采样/参数编辑和序列等仍待接入）"
+      "status": "单张处理结果和序列帧选择撤销已接入（采样/参数编辑等仍待接入）"
     },
     {
       "id": "win.redo",
       "title": "Redo",
       "group": "工作区与分析",
-      "status": "单张处理结果重做已接入（采样/参数编辑和序列等仍待接入）"
+      "status": "单张处理结果和序列帧选择重做已接入（采样/参数编辑等仍待接入）"
     },
     {
       "id": "win.psf",
@@ -479,7 +479,7 @@
       "id": "win.statistics",
       "title": "Statistics...",
       "group": "analysis",
-      "status": "原版单张/选区/CFA 统计已接入（序列浏览仍待接入）"
+      "status": "原版单张/选区/CFA 和序列统计已接入（测光等仍待接入）"
     },
     {
       "id": "win.evaluate-noise",
@@ -611,7 +611,7 @@
       "id": "win.seq-list",
       "title": "Show/Hide list of images in the sequence with registration data",
       "group": "工作区与分析",
-      "status": "待移植或待逐项验证"
+      "status": "序列帧浏览/排除/参考帧、真实质量图与选择撤销已接入（仍非完整序列功能）"
     }
   ],
   "panels": [

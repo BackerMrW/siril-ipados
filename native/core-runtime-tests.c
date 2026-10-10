@@ -2,6 +2,7 @@
 /* Executes against the real upstream engine on an Apple iPad simulator. */
 #include "SirilCore.h"
 #include "core/siril.h"
+#include "core/proto.h"
 #include "io/sequence.h"
 #include "io/single_image.h"
 #include "algos/statistics.h"
@@ -268,6 +269,64 @@ static int analysis_reference(const char *path, const SirilRegion *region, int c
     siril_image_free(image);
     return 0;
 }
+static int sequence_checks(const char *registered, const char *combinations) {
+    char error[512], path[4096];
+    SirilSequenceInfo info;
+    SirilSequenceFrame frames[3];
+    CHECK(siril_sequence_inspect(registered, "stars_.seq", 0, &info, frames, 3, error, sizeof error) == 3);
+    CHECK(info.count == 3 && info.included == 3 && info.reference == 0 && info.width == 256 && info.height == 256 && info.layers == 1);
+    // Independent original read confirms ABI forwards measured values unchanged.
+    sequence *original = readseqfile("stars_.seq");
+    CHECK(original && seq_check_basic_data(original, FALSE) >= 0 && original->regparam[0]);
+    for (int i = 0; i < 3; i++) {
+        regdata *reg = &original->regparam[0][i];
+        CHECK(frames[i].index == i && frames[i].file_number == original->imgparam[i].filenum && frames[i].has_registration);
+        CHECK(frames[i].fwhm > 0 && frames[i].stars > 0 && frames[i].fwhm == reg->fwhm && frames[i].weighted_fwhm == reg->weighted_fwhm);
+        CHECK(frames[i].roundness == reg->roundness && frames[i].background == reg->background_lvl && frames[i].stars == reg->number_of_stars);
+        CHECK(frames[i].translation_x == reg->H.h02 && frames[i].translation_y == reg->H.h12);
+    }
+    free_sequence(original, TRUE);
+    SirilImage *image = siril_sequence_frame(registered, "stars_.seq", 1, error, sizeof error);
+    SirilImageInfo metadata;
+    CHECK(image && siril_image_info(image, &metadata) && metadata.width == 256 && metadata.channels == 1);
+    float values[3], direct[256 * 256];
+    snprintf(path, sizeof path, "%s/stars_00002.fit", registered);
+    CHECK(read_pixels(path, direct, 256 * 256) == 0);
+    // Displayed pixel y=0 is the last stored row for this bottom-up FITS.
+    CHECK(siril_image_pixel(image, 40, 40, values) == 1);
+    CHECK(fabs(values[0] - direct[(255 - 40) * 256 + 40]) < 1e-7);
+    siril_release_workspace();
+    CHECK(siril_image_pixel(image, 40, 40, values) == 1);
+    siril_image_free(image);
+    CHECK(!siril_sequence_frame(registered, "stars_.seq", -1, error, sizeof error));
+    CHECK(siril_sequence_inspect(registered, "stars_.seq", 2, &info, frames, 3, error, sizeof error) == -1);
+    CHECK(siril_sequence_inspect(registered, "stars_.seq", 0, &info, frames, 2, error, sizeof error) == -1);
+    CHECK(siril_sequence_inspect(registered, "../stars_.seq", 0, &info, NULL, 0, error, sizeof error) == -1);
+    uint8_t flags[] = {1, 1, 0};
+    CHECK(!siril_sequence_select(combinations, "combination_.seq", flags, 3, 2, error, sizeof error));
+    CHECK(siril_sequence_select(combinations, "combination_.seq", flags, 3, 0, error, sizeof error));
+    CHECK(siril_sequence_inspect(combinations, "combination_.seq", 0, &info, frames, 3, error, sizeof error) == 3);
+    CHECK(info.included == 2 && info.reference == 0 && !frames[2].included);
+    CHECK(siril_run_commands(combinations, "stack combination mean none 3 3 -nonorm -32b -out=subset.fits\nseqstat combination sequence-statistics.csv main\n", error, sizeof error));
+    float pixels[4];
+    snprintf(path, sizeof path, "%s/subset.fits", combinations);
+    CHECK(read_pixels(path, pixels, 4) == 0);
+    for (int i = 0; i < 4; i++) CHECK(fabs(pixels[i] - (0.15 + i * 0.01)) < 2e-5);
+    CHECK(siril_sequence_inspect(combinations, "combination_.seq", 0, &info, frames, 3, error, sizeof error) == 3);
+    for (int i = 0; i < 2; i++) CHECK(frames[i].has_statistics && fabs(frames[i].mean - (0.115 + i * 0.1)) < 2e-5);
+    snprintf(path, sizeof path, "%s/combination_00003.fit", combinations);
+    CHECK(read_pixels(path, pixels, 4) == 0);
+    for (int i = 0; i < 4; i++) CHECK(fabs(pixels[i] - (0.9 + i * 0.01)) < 2e-5);
+    flags[2] = 1;
+    CHECK(siril_sequence_select(combinations, "combination_.seq", flags, 3, -1, error, sizeof error));
+    CHECK(siril_run_commands(combinations, "stack combination mean none 3 3 -nonorm -32b -out=restored.fits\n", error, sizeof error));
+    snprintf(path, sizeof path, "%s/restored.fits", combinations);
+    CHECK(read_pixels(path, pixels, 4) == 0);
+    for (int i = 0; i < 4; i++) CHECK(fabs(pixels[i] - (0.4 + i * 0.01)) < 2e-5);
+    puts("PASS: original sequence frame reads and measured registration values, invalid paths/layers/indices, preserved independent image handles; exclusion changed exact stacked pixels without altering source frames, reference validation and restored inclusion; original normalized sequence statistics");
+    return 0;
+}
+
 int main(int argc, char **argv) {
     CHECK(argc == 2);
     char light[4096], dark[4096], output[4096], missing[4096];
@@ -493,6 +552,7 @@ int main(int argc, char **argv) {
         siril_image_free(image);
     }
     puts("PASS: real two-pass registration/application, four transforms, six interpolators, output scaling, four normalizations/weights and five quality filters preserved translated star photometry");
+    CHECK(sequence_checks(registered, combo_process) == 0);
     CHECK(drizzle_checks(argv[1]) == 0);
     snprintf(path, sizeof path, "%s/postprocessed.fits", argv[1]);
     snprintf(script, sizeof script, "load %s\nautostretch -linked\nsave %s\nclose\n", light, path);

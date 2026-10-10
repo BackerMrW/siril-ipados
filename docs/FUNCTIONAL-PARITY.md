@@ -10,8 +10,8 @@
 ## 当前必须补齐的跨工具能力
 
 - 原版工作区：颜色通道、显示模式、直方图、像素读数、矩形/多边形选择、ROI、撤销重做、蒙版及对比预览。
-- 序列：浏览/排除帧、质量图、其他配准模式、畸变和外部参考；全局一遍/两遍配准、主要叠加算法和校准高级选项已接入，仍非完整序列工作区。
-- 颜色与分析：PCC/SPCC、星表/联网、解算与标注、测光与光变、PSF、像差/倾斜；单张/选区/CFA 图像统计已接入，序列浏览仍待接入。
+- 序列：基础浏览/排除帧/质量图/参考帧与选择撤销已接入；其他配准模式、畸变和外部参考仍待补齐；全局一遍/两遍配准、主要叠加算法和校准高级选项已接入，仍非完整序列工作区。
+- 颜色与分析：PCC/SPCC、星表/联网、解算与标注、测光与光变、PSF、像差/倾斜；单张/选区/CFA 和序列图像统计已接入，测光等仍待接入。
 - 完整单张工具：原版每个工具的参数、交互输入、应用/取消、作用于序列、蒙版和预览。
 - 格式和依赖：RAW、TIFF、JPEG、PNG、HEIF、JPEG XL、XISF、FFmpeg/FFMS2、curl/SQLite。当前对应 Siril 构建选项关闭。
 - 平台接口：StarNet 等外部程序、Python/插件、在线下载、文件权限、内存、后台生命周期。需要真正适配，不能把空按钮算完成。
@@ -24,8 +24,8 @@
 | win.updates | Check For Updates | 待移植或待逐项验证 |
 | win.shortcuts | Keyboard Shortcuts | 待移植或待逐项验证 |
 | win.chain-chan | Link/unlink channels in autostretch viewer mode. Current state: linked. | 待移植或待逐项验证 |
-| win.undo | Undo | 单张处理结果撤销已接入（采样/参数编辑和序列等仍待接入） |
-| win.redo | Redo | 单张处理结果重做已接入（采样/参数编辑和序列等仍待接入） |
+| win.undo | Undo | 单张处理结果和序列帧选择撤销已接入（采样/参数编辑等仍待接入） |
+| win.redo | Redo | 单张处理结果和序列帧选择重做已接入（采样/参数编辑等仍待接入） |
 | win.psf | PSF | 待移植或待逐项验证 |
 | win.seq-psf | PSF for the Sequence | 待移植或待逐项验证 |
 | win.pickstar | Pick a Star | 待移植或待逐项验证 |
@@ -99,7 +99,7 @@
 | win.image-information | Image Information... | 只读元数据已接入（原版编辑仍待接入） |
 | win.astrometry | Image Plate Solver... | 待移植或待逐项验证 |
 | win.annotate-dialog | Annotate... | 待移植或待逐项验证 |
-| win.statistics | Statistics... | 原版单张/选区/CFA 统计已接入（序列浏览仍待接入） |
+| win.statistics | Statistics... | 原版单张/选区/CFA 和序列统计已接入（测光等仍待接入） |
 | win.evaluate-noise | Noise Estimation | 待移植或待逐项验证 |
 | win.ccd-inspector | Aberration Inspector | 待移植或待逐项验证 |
 | win.show-tilt | Show Tilt | 待移植或待逐项验证 |
@@ -121,14 +121,16 @@
 | win.zoom-in | Enlarge the image | 待移植或待逐项验证 |
 | win.zoom-fit | Fit the image to the window | 待移植或待逐项验证 |
 | win.zoom-one | Show the image at its normal size | 待移植或待逐项验证 |
-| win.seq-list | Show/Hide list of images in the sequence with registration data | 待移植或待逐项验证 |
+| win.seq-list | Show/Hide list of images in the sequence with registration data | 序列帧浏览/排除/参考帧、真实质量图与选择撤销已接入（仍非完整序列功能） |
 
 ## 完成标准
 
 每项需有原版入口对应、参数与默认值对应、真实算法输出校验、原生交互校验和 iPad 验证记录。未通过者保持未完成。
 批处理已接入：单/多张校准输入、暗场不缩放/最小化噪声/曝光缩放、主暗场坏点修正、CFA/去马赛克/平场 CFA 均衡/X-Trans 修复入口；全局一遍/两遍配准及实际应用、参考亮场、4 种变换、6 种插值、星对/星数/通道/缩放/钳位和两遍输出范围；5 种叠加方法、7 种剔除算法、5 种归一化选择、4 种权重、剔除图及5项质量筛选。Drizzle / Bayer Drizzle 的6种核、像素比例、输出倍率、主平场初始权重与8/32位权重已接入一遍/两遍流程。所有处理调用固定上游算法；界面参数与输入列表随任务保存，实际执行以 processing.ssf 为准。
 
-批处理仍缺：原版完整序列浏览/排除帧/质量图、PSF/DFT/KOMBAT 配准、畸变/外部参考、合成偏置和 BPM 文件入口、偏移合成/重叠归一化/羽化/叠加时放大，以及全部 GUI 默认值对应。真实相机数据上的坏点修正、X-Trans 和 CFA 均衡仍需专项验证；不能把命令参数接出视为全功能完成。
+序列工作区已接入原版逐帧读取、缩放/通道显示、单帧/范围参与切换、参考帧、12种质量/统计轴、原版两遍配准测量、序列统计和CSV；选择/参考帧支持跨重启撤销重做及中断恢复；重新叠加保留旧结果并复用输入。
+
+批处理仍缺：其他原版序列交互/测光、PSF/DFT/KOMBAT 配准、畸变/外部参考、合成偏置和 BPM 文件入口、偏移合成/重叠归一化/羽化/叠加时放大，以及全部 GUI 默认值对应。真实相机数据上的坏点修正、X-Trans 和 CFA 均衡仍需专项验证；不能把命令参数接出视为全功能完成。
 
 共享分析工作区已接入矩形选区、完整分辨率像素读数、原版 STATS_MAIN 八项统计及归一化/CFA 开关、原版整图/选区直方图和完整文件头查看/搜索/复制。选区目前用于分析；处理 ROI、蒙版、多边形选择、关键字编辑、文件信息编辑和直方图变换仍待移植。
 

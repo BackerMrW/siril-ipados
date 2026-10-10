@@ -9,6 +9,24 @@ extern "C" {
 typedef struct SirilImage SirilImage;
 typedef struct SirilBackground SirilBackground;
 typedef struct {
+    int32_t count, included, layers, reference, width, height, drizzle, type;
+} SirilSequenceInfo;
+typedef struct {
+    int32_t index, file_number, included, width, height, has_registration, stars, has_statistics;
+    double fwhm, weighted_fwhm, roundness, background, quality, translation_x, translation_y;
+    double mean, median, sigma;
+} SirilSequenceFrame;
+/* Stateless reads use upstream readseqfile/seq_read_frame. name is an exact
+ * .seq basename; index/reference are zero-based (-1 means automatic reference).
+ * Returns frame count or -1 on error. NULL frames queries required capacity. */
+int siril_sequence_inspect(const char *directory, const char *name, int layer,
+    SirilSequenceInfo *info, SirilSequenceFrame *frames, size_t capacity, char *error, size_t error_size);
+SirilImage *siril_sequence_frame(const char *directory, const char *name, int index, char *error, size_t error_size);
+/* Original sequence flags and writer, with consistent selnum/reference. Caller
+ * owns transactional backup/undo; this never deletes or changes FITS pixels. */
+int siril_sequence_select(const char *directory, const char *name, const uint8_t *included,
+    size_t count, int reference, char *error, size_t error_size);
+typedef struct {
     double x, y, median[3]; /* displayed coordinates, origin at top left */
     uint32_t size;
 } SirilBackgroundSample;

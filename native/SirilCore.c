@@ -80,6 +80,113 @@ static void initialize(void) {
 }
 const char *siril_core_version(void) { return "Siril " VERSION "-" SIRIL_GIT_VERSION_ABBREV; }
 
+static sequence *embedded_sequence(const char *directory, const char *name, char *error, size_t capacity) {
+    if (error && capacity) error[0] = 0;
+    if (!directory || !name || !*name || strchr(name, '/') || strchr(name, '\\') || !g_str_has_suffix(name, ".seq")) {
+        if (error && capacity) snprintf(error, capacity, "Invalid sequence basename");
+        return NULL;
+    }
+    gchar *message = NULL;
+    if (siril_change_dir(directory, &message)) {
+        if (error && capacity) snprintf(error, capacity, "Cannot open sequence directory");
+        return NULL;
+    }
+    sequence *seq = readseqfile(name);
+    if (!seq) { if (error && capacity) snprintf(error, capacity, "Cannot read sequence %s", name); return NULL; }
+    gchar *base = g_strndup(name, strlen(name) - 4);
+    gboolean matching = seq->seqname && !strcmp(seq->seqname, base);
+    g_free(base);
+    if (!matching || seq->number < 1 || seq_check_basic_data(seq, FALSE) < 0 || seq->nb_layers < 1 || seq->nb_layers > 3) {
+        if (error && capacity) snprintf(error, capacity, "Invalid or unavailable sequence data");
+        free_sequence(seq, TRUE);
+        return NULL;
+    }
+    return seq;
+}
+int siril_sequence_inspect(const char *directory, const char *name, int layer,
+    SirilSequenceInfo *info, SirilSequenceFrame *frames, size_t capacity, char *error, size_t error_size) {
+    g_mutex_lock(&engine_mutex);
+    initialize();
+    sequence *seq = embedded_sequence(directory, name, error, error_size);
+    int count = -1;
+    if (!seq) goto done;
+    if (layer < 0 || layer >= seq->nb_layers || (frames && capacity < (size_t)seq->number)) {
+        if (error && error_size) snprintf(error, error_size, "Invalid sequence layer or frame capacity");
+        goto free_seq;
+    }
+    count = seq->number;
+    if (info) *info = (SirilSequenceInfo){seq->number, seq->selnum, seq->nb_layers, seq->reference_image,
+        seq->rx, seq->ry, seq->is_drizzle, seq->type};
+    if (frames) for (int i = 0; i < seq->number; i++) {
+        SirilSequenceFrame *frame = &frames[i];
+        memset(frame, 0, sizeof *frame);
+        frame->index = i; frame->file_number = seq->imgparam[i].filenum;
+        frame->included = seq->imgparam[i].incl;
+        frame->width = seq->is_variable ? seq->imgparam[i].rx : seq->rx;
+        frame->height = seq->is_variable ? seq->imgparam[i].ry : seq->ry;
+        if (seq->regparam && seq->regparam[layer]) {
+            regdata *reg = &seq->regparam[layer][i];
+            frame->has_registration = reg->fwhm > 0 || reg->H.h22 != 0;
+            frame->fwhm = reg->fwhm; frame->weighted_fwhm = reg->weighted_fwhm;
+            frame->roundness = reg->roundness; frame->background = reg->background_lvl;
+            frame->quality = reg->quality; frame->stars = reg->number_of_stars;
+            frame->translation_x = reg->H.h02; frame->translation_y = reg->H.h12;
+        }
+        if (seq->stats && seq->stats[layer] && seq->stats[layer][i]) {
+            imstats *stat = seq->stats[layer][i];
+            double norm = stat->normValue > 0 ? stat->normValue : (seq->bitpix == FLOAT_IMG ? 1 : USHRT_MAX_DOUBLE);
+            frame->has_statistics = TRUE;
+            frame->mean = stat->mean / norm; frame->median = stat->median / norm; frame->sigma = stat->sigma / norm;
+        }
+    }
+free_seq:
+    free_sequence(seq, TRUE);
+done:
+    g_mutex_unlock(&engine_mutex);
+    return count;
+}
+SirilImage *siril_sequence_frame(const char *directory, const char *name, int index, char *error, size_t error_size) {
+    g_mutex_lock(&engine_mutex);
+    initialize();
+    sequence *seq = embedded_sequence(directory, name, error, error_size);
+    SirilImage *image = NULL;
+    if (!seq) goto done;
+    if (index >= 0 && index < seq->number) {
+        image = g_try_new0(SirilImage, 1);
+        if (image && seq_read_frame(seq, index, &image->fit, TRUE, -1)) {
+            clearfits(&image->fit); g_free(image); image = NULL;
+        }
+    }
+    if (!image && error && error_size) snprintf(error, error_size, "Cannot read sequence frame %d", index + 1);
+    free_sequence(seq, TRUE);
+done:
+    g_mutex_unlock(&engine_mutex);
+    return image;
+}
+int siril_sequence_select(const char *directory, const char *name, const uint8_t *included,
+    size_t count, int reference, char *error, size_t error_size) {
+    g_mutex_lock(&engine_mutex);
+    initialize();
+    sequence *seq = embedded_sequence(directory, name, error, error_size);
+    int ok = 0;
+    if (!seq) goto done;
+    if (!included || count != (size_t)seq->number || reference < -1 || reference >= seq->number ||
+        (reference >= 0 && !included[reference])) {
+        if (error && error_size) snprintf(error, error_size, "Invalid frame selection or excluded reference");
+        goto free_seq;
+    }
+    for (int i = 0; i < seq->number; i++) seq->imgparam[i].incl = included[i] != 0;
+    seq->reference_image = reference;
+    fix_selnum(seq, FALSE);
+    ok = writeseqfile(seq) == 0;
+    if (!ok && error && error_size) snprintf(error, error_size, "Cannot save sequence selection");
+free_seq:
+    free_sequence(seq, TRUE);
+done:
+    g_mutex_unlock(&engine_mutex);
+    return ok;
+}
+
 struct SirilBackground {
     SirilImage *original;
     fits corrected;

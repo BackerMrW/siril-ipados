@@ -190,6 +190,11 @@ enum SirilWorkflow {
             } else { lines += ["register \(sequence) \(registration) \(outputOptions)"] }
             sequence = "r_" + sequence
         }
+        lines += [stackCommand(sequence: sequence, options: options, channels: first.channels == 3 || options.debayer || drizzle.enabled ? 3 : 1, includeQuality: options.register)]
+        return lines.joined(separator: "\n") + "\n"
+    }
+    static func stackCommand(sequence: String, options: BatchOptions, channels: Int, includeQuality: Bool, output: String = "result.fits") -> String {
+        func number(_ value: Double) -> String { String(format: "%.9g", locale: Locale(identifier: "en_US_POSIX"), value) }
         var stack = ["stack", sequence, options.method.rawValue]
         if options.method == .mean { stack += [options.rejection.rawValue, number(options.low), number(options.high)] }
         if options.method.supportsNormalization {
@@ -197,20 +202,20 @@ enum SirilWorkflow {
             if options.outputNormalization { stack += ["-output_norm"] }
             if options.normalization != .none {
                 if options.fastNormalization { stack += ["-fastnorm"] }
-                if options.equalizeRGB && (first.channels == 3 || options.debayer || drizzle.enabled) { stack += ["-rgb_equal"] }
+                if options.equalizeRGB && (channels == 3) { stack += ["-rgb_equal"] }
             }
         }
         if options.method == .mean {
             if options.weight != .none { stack += ["-weight=\(options.weight.rawValue)"] }
             if options.rejection != .none && options.maps != .none { stack += [options.maps == .separate ? "-rejmaps" : "-rejmap"] }
         }
-        if options.register {
+        if includeQuality {
             for filter in options.filters where filter.enabled { stack += ["-filter-\(filter.metric.rawValue)=\(number(filter.value))\(filter.limit.suffix)"] }
         }
-        stack += ["-32b", "-out=result.fits"]
-        lines += [stack.joined(separator: " ")]
-        return lines.joined(separator: "\n") + "\n"
+        stack += ["-32b", "-out=\(output)"]
+        return stack.joined(separator: " ")
     }
+
 }
 
 extension SirilEngine {
@@ -251,7 +256,12 @@ extension SirilEngine {
     }
 
     func resultFiles(in folder: URL) throws -> [URL] {
-        let paths = try FileManager.default.contentsOfDirectory(at: folder.appendingPathComponent("process"), includingPropertiesForKeys: nil)
+        var paths = try FileManager.default.contentsOfDirectory(at: folder.appendingPathComponent("process"), includingPropertiesForKeys: nil)
+        let runs = folder.appendingPathComponent("SequenceRuns")
+        for run in (try? FileManager.default.contentsOfDirectory(at: runs, includingPropertiesForKeys: nil)) ?? [] where UUID(uuidString: run.lastPathComponent) != nil {
+            guard (try? owned(run.lastPathComponent, under: runs)) != nil else { continue }
+            paths += (try? FileManager.default.contentsOfDirectory(at: run, includingPropertiesForKeys: nil)) ?? []
+        }
         return paths.filter { ["fit", "fits", "fts"].contains($0.pathExtension.lowercased()) }
             .sorted { a, b in
                 let ar = a.deletingPathExtension().lastPathComponent == "result"
@@ -286,6 +296,7 @@ struct ProcessingView: View {
     @State private var showCommands = false
     @State private var tools = ImageToolOptions()
     @State private var showBackground = false
+    @State private var showSequences = false
 
     var body: some View {
         NavigationStack {
@@ -300,6 +311,21 @@ struct ProcessingView: View {
                 }
                 Group { BatchControls(options: $options, lights: files.filter { $0.role == .lights }) }.disabled(busy)
                 Section("批处理流程") {
+                    Button("用勾选的亮场建立序列（暂不叠加）") {
+                        busy = true; log = ""
+                        UIApplication.shared.isIdleTimerDisabled = true
+                        logTask = Task { @MainActor in
+                            while !Task.isCancelled { log = SirilEngine.processingLog(); try? await Task.sleep(for: .milliseconds(500)) }
+                        }
+                        Task {
+                            defer { busy = false; logTask?.cancel(); log = SirilEngine.processingLog(); UIApplication.shared.isIdleTimerDisabled = false }
+                            do {
+                                let job = try await engine.createSequence(files: files)
+                                folder = job.folder; showSequences = true
+                                status = "序列已建立，可逐帧查看、测量质量和选择参与帧。"
+                            } catch { status = error.localizedDescription }
+                        }
+                    }
                     Button("生成校准 → 配准 → 叠加脚本") {
                         do {
                             script = try SirilWorkflow.script(files: files, options: options)
@@ -349,6 +375,7 @@ struct ProcessingView: View {
                 }
                 if let folder {
                     Section("文件与结果") {
+                        Button("打开本次任务的序列工作区") { showSequences = true }.disabled(busy)
                         Text("保存在“文件 → 我的 iPad → Siril iPad → Jobs → \(folder.lastPathComponent)”")
                             .font(.caption).textSelection(.enabled)
                         ShareLink("导出本次脚本", item: folder.appendingPathComponent("processing.ssf"))
@@ -387,6 +414,11 @@ struct ProcessingView: View {
             .sheet(isPresented: $showCommands) {
                 CommandBrowser { name in
                     script += (script.hasSuffix("\n") || script.isEmpty ? "" : "\n") + name + "\n"
+                }
+            }
+            .sheet(isPresented: $showSequences) {
+                SequenceBrowserView(engine: engine, job: folder?.lastPathComponent) { result in
+                    dismiss(); onPreview(result, nil)
                 }
             }
             .fullScreenCover(isPresented: $showBackground) {

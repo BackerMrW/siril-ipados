@@ -132,7 +132,7 @@ for tab, screenshot in ((0, "native-analysis-simulator.png"), (1, "native-histog
                     str(root / "diagnostics" / screenshot)], check=True, timeout=30)
 
 # Load deletion/restore controls and the processing undo workspace in the real App.
-for feature in ("workspace", "storage", "batch", "batch-registration", "batch-stacking", "batch-drizzle"):
+for feature in ("workspace", "storage", "batch", "batch-registration", "batch-stacking", "batch-drizzle", "sequence-frames", "sequence-quality"):
     subprocess.run(["xcrun", "simctl", "terminate", udid, "com.backermrw.sirilpad"], check=True, timeout=30)
     ready = container / f"Documents/simulator-{feature}-ready.txt"
     ready.unlink(missing_ok=True)
@@ -140,6 +140,9 @@ for feature in ("workspace", "storage", "batch", "batch-registration", "batch-st
     if feature.startswith("batch"):
         environment["SIMCTL_CHILD_SIRIL_BATCH_VIEW_CHECK"] = "1"
         environment["SIMCTL_CHILD_SIRIL_BATCH_SECTION"] = feature
+    elif feature.startswith("sequence-"):
+        environment["SIMCTL_CHILD_SIRIL_SEQUENCE_VIEW_CHECK"] = "1"
+        environment["SIMCTL_CHILD_SIRIL_SEQUENCE_SECTION"] = feature.removeprefix("sequence-")
     else:
         environment["SIMCTL_CHILD_SIRIL_" + feature.upper() + "_VIEW_CHECK"] = "1"
     launch = subprocess.Popen(["xcrun", "simctl", "launch", udid, "com.backermrw.sirilpad"],

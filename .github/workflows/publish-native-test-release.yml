@@ -13,7 +13,7 @@ on:
       tag:
         description: Test release tag
         required: true
-        default: v0.8.0
+        default: v0.9.0
         type: string
 permissions:
   contents: write
@@ -99,6 +99,7 @@ jobs:
               'Verified batch deletion/restoration, interrupted restore recovery, permanent gallery/task cleanup, symlink rejection, persistent FITS undo/redo/branch reset, active-task deletion rejection, native image/sequence memory release, and loaded storage/workspace UI.\n' +
               'Advanced batch: exact exposure-scaled calibration with bias removed from darks and lights, single/multiple calibration inputs, persisted settings/input manifests; five stacking methods matched known pixels, seven rejection algorithms reduced a known outlier, real two-pass registration/application, four transforms/six interpolators/output scaling and normalization/weights/quality-filter checks. Loaded calibration/registration/stacking UI captured.\n' +
               'Drizzle: six native kernels with subpixel dithers, actual 2x output, star preservation and independent per-pixel weighted-mean checks; Bayer RGB background levels; generated one/two-pass Bayer pipelines with nonuniform-flat calibration, weight-map delete/restore/permanent cleanup, actual 8/32-bit weight files, old-settings compatibility and actual Drizzle UI capture.\n' +
+              'Sequences: original frame reads and quality values, exact changed stack pixels after exclusion, persisted selection/reference undo/redo and branching, interrupted-edit recovery, sequence statistics/CSV, no duplicate inputs on restack, result history and task cleanup; native frame and quality screens captured.\n' +
               'Physical iPad/file-picker/large real-camera datasets still require device testing.\n')
           PY
       - name: Upload and publish the test release
@@ -110,6 +111,7 @@ jobs:
           from pathlib import Path
           Path('/tmp/release-notes.md').write_text(
               'Native iPadOS test release using the original pinned Siril engine. Processing runs locally on the iPad.\n\n' +
+              '- Native sequence workspace: frame browsing, zoom/display channels, inclusion/exclusion/ranges, reference selection, cross-relaunch selection undo/redo, original registration quality plots/statistics, CSV and restacking into new saved results without copying the inputs again. Interrupted flag edits recover transactionally.\n' +
               '- Advanced calibration: separate CFA/debayer controls, flat CFA equalization and X-Trans repair options, noise/exposure dark optimization and cold/hot master-dark cosmetic correction. A single bias/dark/flat-dark is accepted as a master; one or multiple flats are calibrated. Optimization subtracts bias from darks and lights separately before applying scaled dark current. Camera-specific cosmetic/X-Trans/CFA-equalization outputs still require device validation.\n' +
               '- Global star registration: one/two-pass workflows with real seqapplyreg output, selected reference frame, four transformations, six interpolation modes, clamping, star-pair/star-count/channel/scale parameters and two-pass framing.\n' +
               '- Drizzle / Bayer Drizzle: native one/two-pass workflows, all six kernels, pixel fraction and output scale, optional master-flat initial weights, default 8-bit or matching 32-bit weight files. Keep Bayer mosaics undecoded; the native engine produces RGB. Per-frame drizztmp weights stay with each job through deletion/restoration and are removed by permanent task cleanup. Existing 0.7 settings remain readable.\n' +
@@ -120,7 +122,7 @@ jobs:
               '- Shared analysis workspace: rectangular selection, original full-resolution pixel reads, original eight statistics with normalized/CFA options, original whole/selected histograms, and full FITS header viewer/search/copy. Keyword and image-metadata editing remain pending.\n' +
               '- Image workspace: pinch zoom and pan, RGB/R/G/B display, linear/automatic display stretch, and an inventory of original tools with explicit incomplete statuses.\n' +
               '- This release does not complete desktop Siril parity. See docs/FUNCTIONAL-PARITY.md for missing parameters, interactions, formats and modules.\n' +
-              '- Full sequence browsing/quality plots, PSF/DFT/KOMBAT, distortion/external references, synthetic bias/BPM input controls, overlap normalization/feathering/upscale-at-stacking and other original parameters remain pending.\n' +
+              '- Additional sequence interactions/photometry, PSF/DFT/KOMBAT, distortion/external references, synthetic bias/BPM input controls, overlap normalization/feathering/upscale-at-stacking and other original parameters remain pending.\n' +
               '- Native background extraction, denoising, automatic/Asinh/manual MTF stretch, RGB saturation, crop and rotation.\n' +
               '- Siril scripts, command catalog, logs, cancellation, FITS export and persistent processing history.\n' +
               '- App includes open-source notices; the source ZIP includes the port/build scripts, upstream engine, submodules and dependencies.\n\n' +

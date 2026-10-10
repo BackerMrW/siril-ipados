@@ -133,6 +133,8 @@ struct ContentView: View {
     @State private var analysisTab = 0
     @State private var imageSelection: ImageSelection?
     @State private var showStorage = false
+    @State private var showSequences = false
+    @State private var sequenceDemo: SequenceLocation?
     @State private var deleteIDs: Set<UUID> = []
     @State private var confirmDelete = false
     @State private var history = WorkspaceHistory()
@@ -189,6 +191,7 @@ struct ContentView: View {
                 Button("处理", systemImage: "slider.horizontal.3") { showProcessing = true }.disabled(busy)
                 Button("记录", systemImage: "clock.arrow.circlepath") { showHistory = true }.disabled(busy)
                 Menu("选择", systemImage: "checklist") {
+                    Button("原版序列工作区") { showSequences = true }
                     Button("选中拍摄帧") { selected = Set(files.filter { $0.role != .results }.map(\.id)) }
                     Button("取消全选") { selected.removeAll() }
                     Button("删除勾选的图像", role: .destructive) { deleteIDs = selected; confirmDelete = true }.disabled(selected.isEmpty)
@@ -201,6 +204,7 @@ struct ContentView: View {
                     if busy { ProgressView(progress) }
                     Button("删除与存储", systemImage: "trash") { showStorage = true }.font(.caption).disabled(busy)
                     Button("关于与源码") { showAbout = true }.font(.caption)
+                    Button("序列与质量图", systemImage: "square.stack") { showSequences = true }.font(.caption).disabled(busy)
                     Text("原生 Siril · 本地处理")
                         .font(.caption2).foregroundStyle(.secondary)
                 }.padding()
@@ -268,6 +272,16 @@ struct ContentView: View {
         .sheet(isPresented: $showHistory) {
             JobHistoryView(engine: engine) { result in importResult(result, parent: nil) }
         }
+        .fullScreenCover(isPresented: $showSequences) {
+            if let sequenceDemo {
+                NavigationStack {
+                    SequenceWorkspace(location: sequenceDemo, engine: engine) { result in showSequences = false; importResult(result, parent: nil) }
+                        .toolbar { Button("完成") { showSequences = false } }
+                }
+            } else {
+                SequenceBrowserView(engine: engine) { result in showSequences = false; importResult(result, parent: nil) }
+            }
+        }
         .sheet(isPresented: $showProcessing) {
             ProcessingView(engine: engine, files: files.filter { selected.contains($0.id) }) { result, parent in importResult(result, parent: parent) }
         }
@@ -317,6 +331,11 @@ struct ContentView: View {
                     showAnalysis = true
                 }
                 if ProcessInfo.processInfo.environment["SIRIL_BATCH_VIEW_CHECK"] == "1" { showProcessing = true }
+                if ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_VIEW_CHECK"] == "1" {
+                    let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-sequence-location.json")
+                    sequenceDemo = try? JSONDecoder().decode(SequenceLocation.self, from: Data(contentsOf: url))
+                    showSequences = sequenceDemo != nil
+                }
             }
         }
     }
@@ -416,6 +435,7 @@ struct ContentView: View {
             let processed = try await engine.importFile(result, role: .results)
             try await engine.batchSelfTest(files: batch)
             try await engine.drizzleSelfTest()
+            try await engine.sequenceSelfTest()
             guard processed.width == 2 && processed.height == 2 else { throw EngineError.failed("Batch output dimensions changed") }
             await loadPreview(processed)
             try await engine.saveLibrary([record, processed])
@@ -482,8 +502,9 @@ struct ContentView: View {
             files = [record, processed, backgroundFile]
             await loadPreview(backgroundFile)
             try await engine.saveLibrary(files)
+            try await engine.makeSequenceDemo()
             showBackground = true
-            try "PASS: Swift actor imported FITS, calibrated and stacked lights with original Siril commands, verified advanced batch settings and exact exposure-scaled calibration with single/multiple calibration inputs, real one/two-pass Bayer Drizzle with nonuniform-flat calibration, RGB photometry and weight-map delete/restore/permanent cleanup, compatible old settings, restored library/history, ran manual MTF, tested native background samples/RBF/model/FITS export, and verified original full/selected statistics and histogram counts, full-resolution pixel reads and complete FITS header. Batch/trash deletion, interrupted restore recovery, persistent FITS undo/redo/branching, permanent storage cleanup, task restoration and symlink safety passed. Bundled original feature inventory and notices were verified.\n"
+            try "PASS: Swift actor imported FITS, calibrated and stacked lights with original Siril commands, verified advanced batch settings and exact exposure-scaled calibration with single/multiple calibration inputs, real one/two-pass Bayer Drizzle with nonuniform-flat calibration, RGB photometry and weight-map delete/restore/permanent cleanup, compatible old settings, restored library/history, ran manual MTF, tested native background samples/RBF/model/FITS export, and verified original full/selected statistics and histogram counts, full-resolution pixel reads and complete FITS header. Batch/trash deletion, interrupted restore recovery, persistent FITS undo/redo/branching, permanent storage cleanup, task restoration and symlink safety passed. Native sequence frame reads, actual excluded-frame stack pixels, persisted selection undo/redo and branching, interrupted edit recovery, original sequence statistics/quality CSV, active-task protection, restack history and task delete/restore/permanent cleanup passed; actual quality graph fixtures were measured. Bundled original feature inventory and notices were verified.\n"
                 .write(to: report, atomically: true, encoding: .utf8)
         } catch {
             try? ("FAIL: " + error.localizedDescription + "\n" + String(SirilEngine.processingLog().suffix(16000)))

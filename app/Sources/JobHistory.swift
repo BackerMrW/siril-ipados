@@ -61,7 +61,7 @@ struct JobHistoryView: View {
                 }
                 ForEach(jobs) { job in
                     NavigationLink {
-                        JobDetailView(job: job) { result in dismiss(); onPreview(result) }
+                        JobDetailView(job: job, engine: engine) { result in dismiss(); onPreview(result) }
                     } label: {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(job.info.created.formatted(date: .abbreviated, time: .shortened))
@@ -95,9 +95,11 @@ struct JobHistoryView: View {
 
 struct JobDetailView: View {
     let job: JobRecord
+    let engine: SirilEngine
     let onPreview: (URL) -> Void
     @State private var script = ""
     @State private var log = ""
+    @State private var sequences: [SequenceLocation] = []
     var body: some View {
         List {
             Section("任务") {
@@ -115,6 +117,13 @@ struct JobDetailView: View {
                     }
                 }
                 if job.results.isEmpty { Text("没有输出 FITS，请查看日志。") }
+            }
+            if !sequences.isEmpty {
+                Section("原版序列与质量") {
+                    ForEach(sequences) { location in
+                        NavigationLink(location.name) { SequenceWorkspace(location: location, engine: engine, onPreview: onPreview) }
+                    }
+                }
             }
             Section("脚本") {
                 ShareLink("导出 .ssf", item: job.folder.appendingPathComponent("processing.ssf"))
@@ -137,6 +146,7 @@ struct JobDetailView: View {
         }
         .navigationTitle("任务详情")
         .task {
+            sequences = await engine.sequenceLocations(job: job.id)
             script = (try? String(contentsOf: job.folder.appendingPathComponent("processing.ssf"), encoding: .utf8)) ?? ""
             log = (try? String(contentsOf: job.folder.appendingPathComponent("processing.log"), encoding: .utf8)) ?? ""
         }

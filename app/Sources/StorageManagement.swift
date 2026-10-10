@@ -40,14 +40,14 @@ extension SirilEngine {
     private var trashRoot: URL { documents.appendingPathComponent("Trash", isDirectory: true) }
 
     // Reject traversal and symbolic links, including symlinks in parent directories.
-    private func owned(_ name: String, under root: URL) throws -> URL {
+    func owned(_ name: String, under root: URL) throws -> URL {
         guard !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\\") else {
             throw EngineError.failed("无效的文件路径")
         }
         let url = root.appendingPathComponent(name).standardizedFileURL
         guard url.resolvingSymlinksInPath().path == url.path,
               url.deletingLastPathComponent().path == root.standardizedFileURL.path else {
-            throw EngineError.failed("不能删除 App 文件夹以外的文件或符号链接")
+            throw EngineError.failed("不能访问 App 文件夹以外的文件或符号链接")
         }
         return url
     }
