@@ -40,20 +40,31 @@ print(result.stdout, flush=True)
 result.check_returncode()
 subprocess.run(["xcrun", "simctl", "install", udid,
                 str(root / "app-build/Build/Products/Release-iphonesimulator/SirilPad.app")], check=True, timeout=90)
-result = subprocess.run(["xcrun", "simctl", "launch", udid, "com.backermrw.sirilpad"],
-                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=True,
-                        env=dict(os.environ, SIMCTL_CHILD_SIRIL_SELF_TEST="1"), timeout=90)
-print(result.stdout, flush=True)
-pid = result.stdout.strip().split(":")[-1].strip()
 container = Path(subprocess.check_output(["xcrun", "simctl", "get_app_container", udid,
-                                         "com.backermrw.sirilpad", "data"], text=True).strip())
+                                         "com.backermrw.sirilpad", "data"], text=True, timeout=45).strip())
+launch = subprocess.Popen(["xcrun", "simctl", "launch", udid, "com.backermrw.sirilpad"],
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                          env=dict(os.environ, SIMCTL_CHILD_SIRIL_SELF_TEST="1"))
 report = container / "Documents/simulator-app-selftest.txt"
-deadline = time.monotonic() + 60
+deadline = time.monotonic() + 180
 while not report.exists() and time.monotonic() < deadline:
-    os.kill(int(pid), 0)
+    if launch.poll() is not None and launch.returncode != 0:
+        break
     time.sleep(1)
+try:
+    output, _ = launch.communicate(timeout=10)
+except subprocess.TimeoutExpired:
+    # CoreSimulator's launch client can stall after starting the App. The App's
+    # own numerical report and loaded-view marker are the required success gates.
+    launch.terminate()
+    output, _ = launch.communicate(timeout=10)
+print(output, flush=True)
 if not report.exists():
-    raise RuntimeError("Native App did not finish its FITS/preview check within 60 seconds")
+    subprocess.run(["xcrun", "simctl", "io", udid, "screenshot",
+                    str(root / "diagnostics/app-launch-failure.png")], timeout=30)
+    for path in (Path.home() / "Library/Logs/DiagnosticReports").glob("SirilPad*.ips"):
+        (root / "diagnostics" / path.name).write_bytes(path.read_bytes())
+    raise RuntimeError("Native App did not produce its numerical self-check report within 180 seconds")
 text = report.read_text()
 print(text, flush=True)
 (root / "diagnostics/app-launch-check.txt").write_text(text)
@@ -62,7 +73,6 @@ if not text.startswith("PASS:"):
 ready = container / "Documents/simulator-background-ready.txt"
 deadline = time.monotonic() + 30
 while not ready.exists() and time.monotonic() < deadline:
-    os.kill(int(pid), 0)
     time.sleep(1)
 if not ready.exists():
     raise RuntimeError("Interactive background view did not load its image and sample overlay")

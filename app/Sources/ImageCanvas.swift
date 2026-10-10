@@ -93,7 +93,8 @@ final class CanvasScrollView: UIScrollView {
         }
         let insetX = max(0, (bounds.width - contentSize.width) / 2)
         let insetY = max(0, (bounds.height - contentSize.height) / 2)
-        contentInset = UIEdgeInsets(top: insetY, left: insetX, bottom: insetY, right: insetX)
+        let desiredInset = UIEdgeInsets(top: insetY, left: insetX, bottom: insetY, right: insetX)
+        if contentInset != desiredInset { contentInset = desiredInset }
         let normal = UIBezierPath(), active = UIBezierPath()
         for marker in markers {
             let sx = canvas.bounds.width / max(1, sourceSize.width)
