@@ -15,7 +15,7 @@ GIT_SOURCES = [
     ("Siril", "https://gitlab.com/free-astro/siril.git", "6c0f8f3207b9cb712f7e04249217123a8ca66915", "siril-ipados"),
     ("CFITSIO", "https://github.com/HEASARC/cfitsio.git", "1d2f37b1bc8e6d5e8cf8cd497314680322063468", "cfitsio-upstream"),
     ("GLib", "https://github.com/GNOME/glib.git", "41eca60845d3fc309af361f5e7f801ba339099aa", "glib-ipados-upstream"),
-    ("libffi", "https://github.com/mesonbuild/libffi.git", "83d0cfd00d7d37af4b4349511d29f1f0512621b3", "libffi-meson-upstream"),
+    ("libffi", "https://gitlab.freedesktop.org/gstreamer/meson-ports/libffi.git", "83d0cfd00d7d37af4b4349511d29f1f0512621b3", "libffi-meson-upstream"),
     ("proxy-libintl", "https://github.com/frida/proxy-libintl.git", "33934de09af6a6627eb44e310a8079df009abdbb", None),
     ("LCMS", "https://github.com/mm2/Little-CMS.git", "453bafeb85b4ef96498866b7a8eadcc74dff9223", "lcms-ipados-upstream"),
     ("libpng", "https://github.com/pnggroup/libpng.git", "872555f4ba910252783af1507f9e7fe1653be252", None),
