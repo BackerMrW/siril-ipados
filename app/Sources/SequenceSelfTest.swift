@@ -43,6 +43,10 @@ extension SirilEngine {
         var options = BatchOptions()
         options.register = false; options.rejection = .none; options.normalization = .none; options.outputNormalization = false
         let all = try stackSequence(location, options: options, layer: 0)
+        let alias = documents.appendingPathComponent("sequence-job-parent-alias")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: documents.appendingPathComponent("Jobs"))
+        defer { try? FileManager.default.removeItem(at: alias) }
+        try require(try resultFiles(in: alias.appendingPathComponent(location.job)).contains(all), "sandbox parent alias hid restack results")
         let allBytes = try Data(contentsOf: all)
         let allPixels = try await pixels(all)
         for i in 0..<4 { try require(abs(allPixels[i] - baseline[i] - 0.4 / 3) < 2e-5, "all-frame mean pixel") }

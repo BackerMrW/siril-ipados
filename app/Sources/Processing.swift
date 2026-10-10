@@ -255,7 +255,11 @@ extension SirilEngine {
         return try resultFiles(in: job.folder)
     }
 
-    func resultFiles(in folder: URL) throws -> [URL] {
+    func resultFiles(in requested: URL) throws -> [URL] {
+        // iPadOS can spell the same sandbox as /var or /private/var. Resolve
+        // that OS alias while still rejecting actual symlinked job entries.
+        let folder = try owned(requested.lastPathComponent, under: documents.appendingPathComponent("Jobs"))
+        guard requested.standardizedFileURL.resolvingSymlinksInPath().path == folder.path else { throw EngineError.failed("无效的任务目录") }
         var paths = try FileManager.default.contentsOfDirectory(at: folder.appendingPathComponent("process"), includingPropertiesForKeys: nil)
         let runs = folder.appendingPathComponent("SequenceRuns")
         for run in (try? FileManager.default.contentsOfDirectory(at: runs, includingPropertiesForKeys: nil)) ?? [] where UUID(uuidString: run.lastPathComponent) != nil {

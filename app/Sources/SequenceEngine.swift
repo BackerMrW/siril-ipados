@@ -74,7 +74,8 @@ extension SirilEngine {
     }
     func sequenceLocations(job: String? = nil) -> [SequenceLocation] {
         jobHistory().filter { job == nil || $0.id == job }.flatMap { task in
-            let process = task.folder.appendingPathComponent("process")
+            guard let folder = try? owned(task.id, under: documents.appendingPathComponent("Jobs")),
+                  let process = try? owned("process", under: folder) else { return [SequenceLocation]() }
             return ((try? FileManager.default.contentsOfDirectory(at: process, includingPropertiesForKeys: nil)) ?? [])
                 .filter { $0.pathExtension == "seq" && (try? owned($0.lastPathComponent, under: process)) != nil }
                 .sorted { $0.lastPathComponent < $1.lastPathComponent }
