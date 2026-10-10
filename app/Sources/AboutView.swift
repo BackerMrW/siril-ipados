@@ -22,7 +22,7 @@ struct AboutView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Siril iPad 0.3") {
+                Section("Siril iPad " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")) {
                     Text(String(cString: siril_core_version()))
                     Text("原始 Siril 内核与 SwiftUI 原生界面，在 iPad 本地处理天文图像。")
                     Link("项目源码与构建脚本", destination: URL(string: "https://github.com/BackerMrW/siril-ipados")!)

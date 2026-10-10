@@ -313,6 +313,15 @@ jobs:
         xcodebuild -project app/SirilPad.xcodeproj -scheme SirilPad -configuration Release \
           -sdk "$SIRIL_SDK" -destination "$destination" -derivedDataPath app-build \
           CODE_SIGNING_ALLOWED=NO build 2>&1 | tee diagnostics/native-app-build.log
+        python3 - <<'PYINFO'
+        import os, plistlib
+        from pathlib import Path
+        app = Path('app-build/Build/Products') / ('Release-' + os.environ['SIRIL_SDK']) / 'SirilPad.app'
+        info = plistlib.loads((app / 'Info.plist').read_bytes())
+        assert info.get('UIFileSharingEnabled') is True, 'Files App sharing is missing'
+        assert info.get('LSSupportsOpeningDocumentsInPlace') is True, 'Files App document access is missing'
+        print('PASS: packaged App enables Files sharing and opening documents in place')
+        PYINFO
         if test "$SIRIL_SDK" = iphoneos; then
           mkdir -p dist/Payload
           cp -R app-build/Build/Products/Release-iphoneos/SirilPad.app dist/Payload/
