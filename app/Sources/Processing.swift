@@ -185,8 +185,11 @@ enum SirilWorkflow {
             let layer = first.channels == 1 && !options.debayer ? 0 : options.layer
             let registration = "-transf=\(options.transform.rawValue) -minpairs=\(options.minimumPairs) -maxstars=\(options.maximumStars) -layer=\(layer)"
             if options.twoPass {
-                lines += ["register \(sequence) -2pass \(registration)",
-                          "seqapplyreg \(sequence) \(outputOptions) -framing=\(options.framing.rawValue) -layer=\(layer)"]
+                lines += ["register \(sequence) -2pass \(registration)"]
+                // Two-pass measurement automatically selects its own reference;
+                // restore the user's framing reference before applying matrices.
+                if let index = lights.firstIndex(where: { $0.id == options.referenceID }) { lines += ["setref \(sequence) \(index + 1)"] }
+                lines += ["seqapplyreg \(sequence) \(outputOptions) -framing=\(options.framing.rawValue) -layer=\(layer)"]
             } else { lines += ["register \(sequence) \(registration) \(outputOptions)"] }
             sequence = "r_" + sequence
         }

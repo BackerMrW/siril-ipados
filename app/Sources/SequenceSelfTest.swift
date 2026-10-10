@@ -143,10 +143,11 @@ extension SirilEngine {
         options.rejection = .none; options.normalization = .none; options.outputNormalization = false
         options.drizzleOptions.enabled = false
         try measureSequence(source, options: options, layer: 0)
+        try require(try inspectSequence(source).selection == selection, "two-pass analysis overrode explicit reference")
         let measuredBytes = try Data(contentsOf: process.appendingPathComponent(source.name))
         let first = try applySequenceRegistration(source, options: options, layer: 0)
         let metadata = try inspectSequence(first)
-        try require(metadata.info.count == 3 && metadata.info.width == 512 && metadata.info.height == 512 && metadata.info.reference == 1, "output dimensions/count/reference mapping")
+        try require(metadata.info.count == 3 && metadata.info.width == 512 && metadata.info.height == 512 && metadata.info.reference == 1, "output dimensions/count/reference mapping: \(metadata.info.width)x\(metadata.info.height), count \(metadata.info.count), reference \(metadata.info.reference)")
         try require(metadata.frames.map { Int($0.native.file_number) } == [1, 3, 4], "excluded middle frame exported")
         let reader = ImageAnalysisEngine()
         func centroid(_ url: URL) async throws -> (Double, Double) {

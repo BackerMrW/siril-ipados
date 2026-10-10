@@ -223,7 +223,11 @@ extension SirilEngine {
         guard snapshot.info.included >= 2, (4...2000).contains(options.minimumPairs), (100...2000).contains(options.maximumStars), options.minimumPairs <= options.maximumStars else {
             throw EngineError.failed("星点配准需至少两张参与帧，并设置有效的星对、星点数量。")
         }
-        _ = try runSequenceCommand(location, command: "register \(sequenceCommandName(location)) -2pass -selected -transf=\(options.transform.rawValue) -minpairs=\(options.minimumPairs) -maxstars=\(options.maximumStars) -layer=\(layer)", title: "原版两遍星点配准与质量测量", options: options)
+        // Native two-pass analysis always chooses a reference. seqapplyreg
+        // can reframe its measured matrices around another included frame.
+        let name = try sequenceCommandName(location)
+        let restoreReference = snapshot.info.reference >= 0 ? "\nsetref \(name) \(snapshot.info.reference + 1)" : ""
+        _ = try runSequenceCommand(location, command: "register \(name) -2pass -selected -transf=\(options.transform.rawValue) -minpairs=\(options.minimumPairs) -maxstars=\(options.maximumStars) -layer=\(layer)" + restoreReference, title: "原版两遍星点配准与质量测量", options: options)
         let measured = try inspectSequence(location, layer: layer)
         guard measured.frames.filter({ $0.included && $0.native.has_registration != 0 }).count >= 2 else { throw EngineError.failed("原版未测得足够的参与帧配准数据，请检查星点检测和运行日志。") }
     }
