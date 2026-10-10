@@ -220,14 +220,10 @@ struct ContentView: View {
                     ZoomableImageCanvas(image: image, samples: [], imageWidth: Double(activeFile?.width ?? 1),
                         imageHeight: Double(activeFile?.height ?? 1), region: imageSelection, onTap: nil)
                         .background(.black)
-                    HStack {
-                        Button("撤销", systemImage: "arrow.uturn.backward") { stepHistory(redo: false) }
-                            .disabled(!files.contains { $0.id == activeFile?.parentID })
-                        Button("重做", systemImage: "arrow.uturn.forward") { stepHistory(redo: true) }.disabled(history.future.isEmpty)
-                        Button("图像处理", systemImage: "slider.horizontal.3") { showTools = true }
-                        Button("背景提取") { showBackground = true }
-                        Button("统计 / 直方图") { analysisTab = 0; showAnalysis = true }
-                    }.disabled(busy).padding(.top, 8)
+                    ViewThatFits(in: .horizontal) {
+                        HStack { undoActions; imageActions }.fixedSize(horizontal: true, vertical: false)
+                        VStack(spacing: 12) { undoActions; imageActions }
+                    }.disabled(busy).padding(.top, 8).padding(.horizontal)
                     if let previewURL { ShareLink("导出 FITS", item: previewURL).padding() }
                 } else {
                     ContentUnavailableView("导入天文图像", systemImage: "sparkles",
@@ -239,8 +235,10 @@ struct ContentView: View {
                 Button("导入", systemImage: "plus") { showImporter = true }.disabled(busy)
                 Button("处理", systemImage: "slider.horizontal.3") { showProcessing = true }.disabled(busy)
                 Button("记录", systemImage: "clock.arrow.circlepath") { showHistory = true }.disabled(busy)
+                Button("删除与存储", systemImage: "trash") { showStorage = true }.disabled(busy)
             }
         }
+        .navigationSplitViewStyle(.balanced)
         .sheet(isPresented: $showAbout) { AboutView() }
         .fullScreenCover(isPresented: $showBackground) {
             if let file = activeFile {
@@ -319,6 +317,21 @@ struct ContentView: View {
                     showAnalysis = true
                 }
             }
+        }
+    }
+
+    private var undoActions: some View {
+        HStack {
+            Button("撤销", systemImage: "arrow.uturn.backward") { stepHistory(redo: false) }
+                .disabled(!files.contains { $0.id == activeFile?.parentID })
+            Button("重做", systemImage: "arrow.uturn.forward") { stepHistory(redo: true) }.disabled(history.future.isEmpty)
+        }
+    }
+    private var imageActions: some View {
+        HStack {
+            Button("图像处理", systemImage: "slider.horizontal.3") { showTools = true }
+            Button("背景提取") { showBackground = true }
+            Button("统计 / 直方图") { analysisTab = 0; showAnalysis = true }
         }
     }
 
