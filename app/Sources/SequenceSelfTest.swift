@@ -150,15 +150,36 @@ extension SirilEngine {
         try require(metadata.info.count == 3 && metadata.info.width == 512 && metadata.info.height == 512 && metadata.info.reference == 1, "output dimensions/count/reference mapping: \(metadata.info.width)x\(metadata.info.height), count \(metadata.info.count), reference \(metadata.info.reference)")
         try require(metadata.frames.map { Int($0.native.file_number) } == [1, 3, 4], "excluded middle frame exported")
         let reader = ImageAnalysisEngine()
+        func floats(_ url: URL, channels: Int = 3) throws -> [Float] {
+            let data = try Data(contentsOf: url)
+            var end = 0
+            while end + 80 <= data.count {
+                if String(data: data[end..<(end + 8)], encoding: .ascii)?.trimmingCharacters(in: .whitespaces) == "END" { break }
+                end += 80
+            }
+            let start = ((end + 80 + 2879) / 2880) * 2880, count = 512 * 512 * channels
+            guard start + count * 4 <= data.count else { throw EngineError.failed("Truncated float FITS fixture") }
+            return (0..<count).map { i in
+                let offset = start + i * 4
+                return Float(bitPattern: data[offset..<(offset + 4)].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) })
+            }
+        }
         func centroid(_ url: URL) async throws -> (Double, Double) {
             let details = try await reader.open(url)
             try require(details.width == 512 && details.height == 512, "actual FITS size")
+            // Locate the fixture's uniquely brightest star from the stored
+            // pixels. Registration can change FITS row orientation; do not
+            // assume a top-down display coordinate for a raw data plane.
+            let values = try floats(url, channels: 1)
+            guard let peak = values.indices.max(by: { values[$0] < values[$1] }) else { throw EngineError.failed("Empty registration output") }
+            let peakX = peak % 512, peakY = peak / 512
+            try require(abs(peakX - 63) <= 5 && peakY > 12 && peakY < 500, "scaled brightest-star position: \(peakX),\(peakY)")
             var flux = 0.0, xSum = 0.0, ySum = 0.0
-            for y in 49..<73 { for x in 51..<76 {
-                let value = max(0, Double(try await reader.pixel(x: x, y: y).values[0]) - 0.004)
+            for y in (peakY - 12)..<(peakY + 13) { for x in (peakX - 12)..<(peakX + 13) {
+                let value = max(0, Double(values[y * 512 + x]) - 0.004)
                 flux += value; xSum += Double(x) * value; ySum += Double(y) * value
             } }
-            try require(flux > 1, "star disappeared from interpolated output")
+            try require(flux > 1, "star disappeared from interpolated output: flux \(flux)")
             return (xSum / flux, ySum / flux)
         }
         let generatedURLs = try FileManager.default.contentsOfDirectory(at: process, includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix(first.base) && $0.pathExtension == "fit" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
@@ -187,31 +208,27 @@ extension SirilEngine {
         let weightBytes = try weights.map { try Data(contentsOf: $0) }
         // Independent FITS decoding checks the native weighted stack, rather
         // than comparing generated script text or native statistics caches.
-        func floats(_ url: URL) throws -> [Float] {
-            let data = try Data(contentsOf: url)
-            var end = 0
-            while end + 80 <= data.count {
-                if String(data: data[end..<(end + 8)], encoding: .ascii)?.trimmingCharacters(in: .whitespaces) == "END" { break }
-                end += 80
-            }
-            let start = ((end + 80 + 2879) / 2880) * 2880, count = 512 * 512 * 3
-            guard start + count * 4 <= data.count else { throw EngineError.failed("Truncated float FITS fixture") }
-            return (0..<count).map { i in
-                let offset = start + i * 4
-                return Float(bitPattern: data[offset..<(offset + 4)].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) })
-            }
-        }
+
         let outputURLs = try FileManager.default.contentsOfDirectory(at: process, includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix(drizzled.base) && $0.pathExtension == "fit" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
         let weightURLs = weights.sorted { $0.lastPathComponent < $1.lastPathComponent }
-        let outputValues = try outputURLs.map(floats), weightValues = try weightURLs.map(floats)
+        let outputValues = try outputURLs.map { try floats($0) }, weightValues = try weightURLs.map { try floats($0) }
         let stacked = try stackSequence(drizzled, options: options, layer: 1)
         let actual = try floats(stacked)
-        for channel in 0..<3 { for y in 100..<106 { for x in 100..<106 {
+        for channel in 0..<3 {
+            var covered = 0
+            for y in 100..<106 { for x in 100..<106 {
             let i = channel * 512 * 512 + y * 512 + x
             var sum = 0.0, weight = 0.0
             for frame in 0..<3 { sum += Double(outputValues[frame][i]) * Double(weightValues[frame][i]); weight += Double(weightValues[frame][i]) }
-            try require(weight > 0 && abs(Double(actual[i]) - sum / weight) < 2e-5, "weighted Drizzle stack channel \(channel)")
-        } } }
+            if weight > 0 {
+                covered += 1
+                try require(abs(Double(actual[i]) - sum / weight) < 2e-5, "weighted Drizzle stack channel \(channel)")
+            } else {
+                try require(actual[i] == 0, "uncovered Drizzle pixel was not zero")
+            }
+        } }
+            try require(covered >= 16, "insufficient Bayer weight coverage in channel \(channel)")
+        }
         for (i, url) in sourceURLs.enumerated() { try require(try Data(contentsOf: url) == sourceBytes[i], "application changed source pixels") }
         try require(try Data(contentsOf: flat.url) == flatBytes, "Drizzle altered gallery flat")
         var impossible = options
