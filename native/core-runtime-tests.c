@@ -346,10 +346,11 @@ int main(int argc, char **argv) {
         .scale = 5, .smoothness = 1, .protect = 1, .protect_threshold = 0.05,
         .protect_amount = 0.5, .simplified = 0, .auto_degree = 1, .downsample = 4
     };
-    for (int method = 0; method < 4; method++) {
-        bg_options.method = method == 3;
+    for (int method = 0; method < 5; method++) {
+        bg_options.method = method >= 3;
         bg_options.interpolation = method == 1 ? 0 : 1;
         bg_options.correction = method == 2 ? 1 : 0;
+        bg_options.simplified = method == 4;
         CHECK(siril_background_compute(background, &bg_options, error, sizeof error));
         CHECK(siril_background_preview(background, 1, -1, 1, &preview));
         siril_preview_free(&preview);
@@ -367,15 +368,36 @@ int main(int argc, char **argv) {
         for (int y = 16; y < 240; y++) for (int x = 16; x < 48; x++) {
             left_mean += aligned[y * 256 + x]; right_mean += aligned[y * 256 + x + 192];
         }
-        CHECK(fabs(left_mean - right_mean) / (224 * 32) < 0.03);
+        double residual_gradient = fabs(left_mean - right_mean) / (224 * 32);
+        printf("Background variant %d residual left/right difference: %.6f\n", method, residual_gradient);
+        if (method != 3) CHECK(residual_gradient < 0.03);
         CHECK(aligned[128 * 256 + 128] > aligned[128 * 256 + 100] + 0.2f);
         for (int i = 0; i < 256 * 256; i++) CHECK(isfinite(aligned[i]));
+        if (method >= 3) {
+            // Default automatic modelling need not perfectly fit this fixture's
+            // plane. Its contract is fidelity to the original command, including
+            // that residual; the optional simplified plane removes it explicitly.
+            char reference[4096];
+            snprintf(reference, sizeof reference, "%s/upstream-auto-%d.fits", argv[1], method);
+            snprintf(script, sizeof script, "load %s\nsubsky -auto -scale=5 -smoothness=1 -protect_threshold=0.05 -protect_amount=0.5 -degree=1 -downsample=4 -mode=subtract%s\nsave %s\nclose\n",
+                     gradient, method == 4 ? " -simplified" : "", reference);
+            CHECK(siril_run_commands(process, script, error, sizeof error));
+            float *comparison = malloc(256 * 256 * sizeof(float));
+            CHECK(comparison);
+            status = 0;
+            fits_open_file(&file, reference, READONLY, &status);
+            fits_read_img(file, TFLOAT, 1, 256 * 256, NULL, comparison, &any_null, &status);
+            fits_close_file(file, &status);
+            CHECK(status == 0);
+            for (int i = 0; i < 256 * 256; i++) CHECK(fabsf(aligned[i] - comparison[i]) < 1e-6f);
+            free(comparison);
+        }
     }
     CHECK(siril_background_remove(background, 0));
     CHECK(!siril_background_preview(background, 1, -1, 1, &preview));
     bg_options.method = 0; bg_options.degree = 4;
     CHECK(!siril_background_compute(background, &bg_options, error, sizeof error));
     siril_background_free(background);
-    puts("PASS: interactive samples, selected coordinates/medians, invalidation and protected export; original polynomial/RBF/automatic models and subtract/divide preserved a star and removed gradients");
+    puts("PASS: interactive samples, coordinate/median mapping, invalidation and protected export; polynomial/RBF/subtract/divide and simplified automatic model removed gradients while preserving a star; both automatic modes matched original commands pixel-for-pixel");
     return 0;
 }
