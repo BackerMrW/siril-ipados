@@ -32,7 +32,7 @@ enum EngineError: LocalizedError {
 
 // All upstream calls stay on one actor and its C ABI serializes global state.
 actor SirilEngine {
-    private func read(_ url: URL) throws -> OpaquePointer {
+    func read(_ url: URL) throws -> OpaquePointer {
         var error = [CChar](repeating: 0, count: 512)
         let capacity = error.count
         guard let image = url.path.withCString({ siril_image_read($0, &error, capacity) }) else {
@@ -87,11 +87,11 @@ actor SirilEngine {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("library.json")
     }
 
-    func preview(_ url: URL) throws -> PreviewBytes {
+    func preview(_ url: URL, channel: Int = -1, automatic: Bool = true) throws -> PreviewBytes {
         let image = try read(url)
         defer { siril_image_free(image) }
         var preview = SirilPreview()
-        guard siril_image_preview(image, 1024, &preview) != 0, let bytes = preview.rgba else {
+        guard siril_image_preview_display(image, 2048, Int32(channel), automatic ? 1 : 0, &preview) != 0, let bytes = preview.rgba else {
             throw EngineError.failed("Siril 无法生成自动拉伸预览")
         }
         defer { siril_preview_free(&preview) }
@@ -121,6 +121,11 @@ struct ContentView: View {
     @State private var showProcessing = false
     @State private var previewURL: URL?
     @State private var selected: Set<UUID> = []
+    @State private var activeFile: FITSRecord?
+    @State private var displayChannel = -1
+    @State private var autoDisplay = true
+    @State private var showBackground = false
+    @State private var showTools = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columns) {
@@ -188,14 +193,28 @@ struct ContentView: View {
         } detail: {
             VStack {
                 if let image {
-                    Image(uiImage: image).resizable().scaledToFit().padding().background(.black)
+                    HStack {
+                        Picker("通道", selection: $displayChannel) {
+                            Text("RGB / 灰度").tag(-1)
+                            if activeFile?.channels == 3 {
+                                Text("红 R").tag(0); Text("绿 G").tag(1); Text("蓝 B").tag(2)
+                            }
+                        }.pickerStyle(.segmented)
+                        Toggle("自动拉伸显示", isOn: $autoDisplay)
+                    }.padding(.horizontal)
+                    ZoomableImageCanvas(image: image, samples: [], onTap: nil)
+                        .background(.black)
+                    HStack {
+                        Button("图像处理", systemImage: "slider.horizontal.3") { showTools = true }
+                        Button("背景提取") { showBackground = true }
+                    }.disabled(busy).padding(.top, 8)
                     if let previewURL { ShareLink("导出 FITS", item: previewURL).padding() }
                 } else {
                     ContentUnavailableView("导入天文图像", systemImage: "sparkles",
                                            description: Text("可同时导入多张文件，在图库中勾选本次处理的图像。"))
                 }
             }
-            .navigationTitle("图像预览")
+            .navigationTitle(activeFile?.displayName ?? "图像工作区")
             .toolbar {
                 Button("导入", systemImage: "plus") { showImporter = true }.disabled(busy)
                 Button("处理", systemImage: "slider.horizontal.3") { showProcessing = true }.disabled(busy)
@@ -203,6 +222,17 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showAbout) { AboutView() }
+        .sheet(isPresented: $showBackground) {
+            if let file = activeFile {
+                BackgroundExtractionView(file: file, onPreview: importResult)
+            }
+        }
+        .sheet(isPresented: $showTools) {
+            ToolInventoryView(onBackground: { showTools = false; showBackground = true },
+                              onProcessing: { showTools = false; showProcessing = true })
+        }
+        .onChange(of: displayChannel) { _, _ in refreshDisplay() }
+        .onChange(of: autoDisplay) { _, _ in refreshDisplay() }
         .sheet(isPresented: $showHistory) {
             JobHistoryView(engine: engine, onPreview: importResult)
         }
@@ -293,7 +323,31 @@ struct ContentView: View {
                 throw EngineError.failed("Bundled open-source notices missing")
             }
             guard String(cString: siril_command_catalog()).contains("register\t") else { throw EngineError.failed("Command catalog missing") }
-            try "PASS: Swift actor imported FITS, generated master bias/dark/flat, calibrated and stacked lights with original Siril commands, restored its library and job history, executed the native manual MTF tool, and rendered the result through automatic MTF in SwiftUI.\n"
+            guard UpstreamInventory.bundled.count >= 100,
+                  let gradient = Bundle.main.url(forResource: "gradient", withExtension: "fits") else {
+                throw EngineError.failed("Original feature inventory / background fixture missing")
+            }
+            let backgroundFile = try await engine.importFile(gradient)
+            let background = BackgroundEngine()
+            try await background.open(backgroundFile.url)
+            var settings = BackgroundSettings()
+            settings.perLine = 8
+            try await background.generate(settings)
+            let samples = try await background.samples()
+            guard samples.count > 6 else { throw EngineError.failed("Native sample generation failed") }
+            try await background.remove(0)
+            let fewer = try await background.samples()
+            guard fewer.count == samples.count - 1 else { throw EngineError.failed("Native sample deletion failed") }
+            try await background.add(x: 50, y: 50, descent: false)
+            try await background.compute(settings)
+            guard try await background.preview(view: 2, channel: -1, automatic: true).uiImage != nil else {
+                throw EngineError.failed("Native background model preview failed")
+            }
+            let corrected = try await background.save(file: backgroundFile, settings: settings)
+            guard FileManager.default.fileExists(atPath: corrected.path) else { throw EngineError.failed("Native background export failed") }
+            await loadPreview(backgroundFile)
+            showBackground = true
+            try "PASS: Swift actor imported FITS, calibrated and stacked lights with original Siril commands, restored library/history, ran manual MTF, and tested native background sample generation/deletion/addition, original RBF compute, model preview and persistent FITS export. Bundled original feature inventory and notices were verified.\n"
                 .write(to: report, atomically: true, encoding: .utf8)
         } catch {
             try? ("FAIL: " + error.localizedDescription + "\n" + String(SirilEngine.processingLog().suffix(16000)))
@@ -319,12 +373,20 @@ struct ContentView: View {
         if !failures.isEmpty { errors = failures.joined(separator: "\n") }
     }
 
+    @MainActor private func refreshDisplay() {
+        guard let activeFile else { return }
+        previewTask?.cancel()
+        previewTask = Task { await loadPreview(activeFile) }
+    }
+
     @MainActor private func loadPreview(_ record: FITSRecord) async {
         busy = true
         progress = "Siril 正在自动拉伸"
         defer { busy = false; progress = "" }
         do {
-            let p = try await engine.preview(record.url)
+            if activeFile?.id != record.id { displayChannel = -1 }
+            activeFile = record
+            let p = try await engine.preview(record.url, channel: displayChannel, automatic: autoDisplay)
             guard !Task.isCancelled, let provider = CGDataProvider(data: p.data as CFData),
                   let cg = CGImage(width: p.width, height: p.height, bitsPerComponent: 8, bitsPerPixel: 32,
                                    bytesPerRow: p.width * 4, space: CGColorSpaceCreateDeviceRGB(),

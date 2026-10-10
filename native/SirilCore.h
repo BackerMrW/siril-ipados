@@ -7,6 +7,18 @@
 extern "C" {
 #endif
 typedef struct SirilImage SirilImage;
+typedef struct SirilBackground SirilBackground;
+typedef struct {
+    double x, y, median[3]; /* displayed coordinates, origin at top left */
+    uint32_t size;
+} SirilBackgroundSample;
+typedef struct {
+    int method, interpolation, degree, correction; /* samples/auto, RBF/poly, 1..4, subtract/divide */
+    double smoothing;
+    int dither;
+    double scale, smoothness, protect_threshold, protect_amount;
+    int protect, simplified, auto_degree, downsample;
+} SirilBackgroundOptions;
 typedef struct {
     uint32_t width, height, channels;
     int32_t working_bitpix, gain, offset; /* loaded representation; imports are normalized float */
@@ -24,6 +36,7 @@ void siril_image_free(SirilImage *image);
 int siril_image_info(const SirilImage *image, SirilImageInfo *info);
 /* Display-only RGBA using upstream Siril's linked automatic MTF stretch. */
 int siril_image_preview(SirilImage *image, uint32_t max_dimension, SirilPreview *preview);
+int siril_image_preview_display(SirilImage *image, uint32_t max_dimension, int channel, int automatic, SirilPreview *preview);
 void siril_preview_free(SirilPreview *preview);
 /* These call upstream Siril imoper/soper, not replacement arithmetic. */
 int siril_image_add(SirilImage *destination, const SirilImage *source);
@@ -40,6 +53,21 @@ void siril_copy_processing_log(char *buffer, size_t capacity);
 void siril_cancel_processing(void);
 /* Runtime catalog from the configured upstream command table: name<TAB>usage. */
 const char *siril_command_catalog(void);
+/* Interactive background extraction uses the same upstream GUI image hook.
+ * A session owns an unchanged original, its samples, and a computed result.
+ * Invalidating/editing samples discards the preview; no import is overwritten. */
+SirilBackground *siril_background_open(const char *path, char *error, size_t capacity);
+void siril_background_free(SirilBackground *session);
+int siril_background_generate(SirilBackground *session, int per_line, double tolerance,
+    int randomize, int gradient_descent, double border, int border_percent, char *error, size_t capacity);
+size_t siril_background_samples(SirilBackground *session, SirilBackgroundSample *samples, size_t capacity);
+int siril_background_add(SirilBackground *session, double x, double y, int gradient_descent);
+int siril_background_remove(SirilBackground *session, size_t index);
+void siril_background_clear(SirilBackground *session);
+int siril_background_compute(SirilBackground *session, const SirilBackgroundOptions *options, char *error, size_t capacity);
+/* view: 0 original, 1 corrected, 2 background model; channel: -1 RGB or 0..2. */
+int siril_background_preview(SirilBackground *session, int view, int channel, int automatic, SirilPreview *preview);
+int siril_background_write(SirilBackground *session, const char *path);
 #ifdef __cplusplus
 }
 #endif

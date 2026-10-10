@@ -6,10 +6,14 @@ on:
         description: Successful iphoneos build run ID
         required: true
         type: string
+      simulator_run:
+        description: Successful simulator regression run ID
+        required: true
+        type: string
       tag:
         description: Test release tag
         required: true
-        default: v0.3.1
+        default: v0.4.0
         type: string
 permissions:
   contents: write
@@ -22,6 +26,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ inputs.tag }}
       BUILD_RUN: ${{ inputs.build_run }}
+      SIMULATOR_RUN: ${{ inputs.simulator_run }}
     steps:
       - uses: actions/checkout@v4
       - name: Verify device build and matching App source
@@ -29,6 +34,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" > /tmp/device-run.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SIMULATOR_RUN" > /tmp/simulator-run.json
           python3 - <<'PY'
           import json, os, re, subprocess
           version = os.environ["RELEASE_TAG"].removeprefix("v")
@@ -39,6 +45,13 @@ jobs:
           revision = run['head_sha']
           subprocess.run(['git', 'fetch', '--depth', '1', 'origin', revision], check=True)
           subprocess.run(['git', 'diff', '--exit-code', revision, 'HEAD', '--', 'app', 'native',
+                          'tools/build-ipados-deps.py', 'tools/embed-siril.py', 'tools/package-siril.py',
+                          '.github/workflows/ipados-preflight.yml'], check=True)
+          simulator = json.load(open('/tmp/simulator-run.json'))
+          assert simulator['conclusion'] == 'success', 'Simulator checks did not pass'
+          assert simulator['path'] == '.github/workflows/ipados-preflight.yml'
+          subprocess.run(['git', 'fetch', '--depth', '1', 'origin', simulator['head_sha']], check=True)
+          subprocess.run(['git', 'diff', '--exit-code', simulator['head_sha'], 'HEAD', '--', 'app', 'native',
                           'tools/build-ipados-deps.py', 'tools/embed-siril.py', 'tools/package-siril.py',
                           '.github/workflows/ipados-preflight.yml'], check=True)
           with open(os.environ['GITHUB_ENV'], 'a') as env:
@@ -79,7 +92,7 @@ jobs:
               '\nDevice App source: ' + os.environ['DEVICE_REVISION'] +
               '\nApp, engine and native build code match the verified device build.\n' +
               'Device build: https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + os.environ['BUILD_RUN'] + '\n' +
-              'Simulator checks: https://github.com/BackerMrW/siril-ipados/actions/runs/38007295829\n' +
+              'Simulator checks: https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + os.environ['SIMULATOR_RUN'] + '\n' +
               'Verified: calibrated pixel values, RGGB color reconstruction/RGB round-trip, default star registration/rejection stacking,\n' +
               'background extraction/denoising with star preservation, crop/Asinh/MTF/saturation/rotation, Swift job history/manual MTF and notices.\n' +
               'Physical iPad/file-picker/large real-camera datasets still require device testing.\n')
@@ -93,7 +106,9 @@ jobs:
           from pathlib import Path
           Path('/tmp/release-notes.md').write_text(
               'Native iPadOS test release using the original pinned Siril engine. Processing runs locally on the iPad.\n\n' +
-              '- Fixed: the App folder is exposed in Files under On My iPad, with document sharing explicitly enabled.\n' +
+              '- Interactive background extraction: sample placement/deletion/inspection, original RBF/polynomial/automatic models, subtract/divide, original/model/result views and preserved-source FITS export.\n' +
+              '- Image workspace: pinch zoom and pan, RGB/R/G/B display, linear/automatic display stretch, and an inventory of original tools with explicit incomplete statuses.\n' +
+              '- This release does not complete desktop Siril parity. See docs/FUNCTIONAL-PARITY.md for missing parameters, interactions, formats and modules.\n' +
               '- Multi-FITS import; light/dark/flat/bias/flat-dark roles; calibration, CFA debayering, star registration and stacking.\n' +
               '- Native background extraction, denoising, automatic/Asinh/manual MTF stretch, RGB saturation, crop and rotation.\n' +
               '- Siril scripts, command catalog, logs, cancellation, FITS export and persistent processing history.\n' +
@@ -102,7 +117,7 @@ jobs:
               'Free Apple ID signatures usually last seven days. Keep the App in the foreground while processing.\n\n' +
               'This remains a test release: desktop GTK windows, online catalogs, external executables and some optional formats are not fully ported. ' +
               'Physical iPad and large real-camera datasets need further testing.\n\n' +
-              '[Simulator validation](https://github.com/BackerMrW/siril-ipados/actions/runs/38007295829) · ' +
+              '[Simulator validation](https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + os.environ['SIMULATOR_RUN'] + ') · ' +
               '[Device build](https://github.com/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + os.environ['BUILD_RUN'] + ')\n')
           PY
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then

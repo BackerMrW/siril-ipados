@@ -319,5 +319,63 @@ int main(int argc, char **argv) {
     CHECK(aligned[128 * 256 + 128] > aligned[128 * 256 + 100] + 0.25f);
     for (int i = 0; i < 256 * 256; i++) CHECK(isfinite(aligned[i]));
     puts("PASS: original polynomial background extraction and denoising removed a synthetic gradient while retaining its bright star");
+    SirilBackground *background = siril_background_open(gradient, error, sizeof error);
+    CHECK(background);
+    CHECK(siril_background_generate(background, 8, 3, 0, 0, 5, 1, error, sizeof error));
+    size_t generated_count = siril_background_samples(background, NULL, 0);
+    CHECK(generated_count > 6);
+    CHECK(siril_background_remove(background, 0));
+    CHECK(siril_background_samples(background, NULL, 0) == generated_count - 1);
+    CHECK(!siril_background_add(background, 0, 0, 0));
+    siril_background_clear(background);
+    CHECK(siril_background_samples(background, NULL, 0) == 0);
+    for (int y = 32; y <= 224; y += 96) for (int x = 32; x <= 224; x += 96) {
+        if (x == 128 && y == 128) continue;
+        CHECK(siril_background_add(background, x, y, 0));
+    }
+    CHECK(!siril_background_add(background, 32, 32, 0));
+    SirilBackgroundSample samples[8];
+    CHECK(siril_background_samples(background, samples, 8) == 8);
+    CHECK(samples[0].x == 32 && samples[0].y == 32 && samples[0].size == 25);
+    CHECK(siril_background_preview(background, 0, -1, 0, &preview));
+    size_t sample_pixel = (32 * preview.width + 32) * 4;
+    CHECK(fabs(samples[0].median[0] - preview.rgba[sample_pixel] / 255.0) < 0.01);
+    siril_preview_free(&preview);
+    SirilBackgroundOptions bg_options = {
+        .method = 0, .interpolation = 1, .degree = 1, .correction = 0, .smoothing = 0.5,
+        .scale = 5, .smoothness = 1, .protect = 1, .protect_threshold = 0.05,
+        .protect_amount = 0.5, .simplified = 1, .auto_degree = 1, .downsample = 2
+    };
+    for (int method = 0; method < 4; method++) {
+        bg_options.method = method == 3;
+        bg_options.interpolation = method == 1 ? 0 : 1;
+        bg_options.correction = method == 2 ? 1 : 0;
+        CHECK(siril_background_compute(background, &bg_options, error, sizeof error));
+        CHECK(siril_background_preview(background, 1, -1, 1, &preview));
+        siril_preview_free(&preview);
+        CHECK(siril_background_preview(background, 2, -1, 1, &preview));
+        siril_preview_free(&preview);
+        snprintf(path, sizeof path, "%s/interactive-background-%d.fits", argv[1], method);
+        CHECK(siril_background_write(background, path));
+        CHECK(!siril_background_write(background, path));
+        status = 0;
+        fits_open_file(&file, path, READONLY, &status);
+        fits_read_img(file, TFLOAT, 1, 256 * 256, NULL, aligned, &any_null, &status);
+        fits_close_file(file, &status);
+        CHECK(status == 0);
+        left_mean = right_mean = 0;
+        for (int y = 16; y < 240; y++) for (int x = 16; x < 48; x++) {
+            left_mean += aligned[y * 256 + x]; right_mean += aligned[y * 256 + x + 192];
+        }
+        CHECK(fabs(left_mean - right_mean) / (224 * 32) < 0.03);
+        CHECK(aligned[128 * 256 + 128] > aligned[128 * 256 + 100] + 0.2f);
+        for (int i = 0; i < 256 * 256; i++) CHECK(isfinite(aligned[i]));
+    }
+    CHECK(siril_background_remove(background, 0));
+    CHECK(!siril_background_preview(background, 1, -1, 1, &preview));
+    bg_options.method = 0; bg_options.degree = 4;
+    CHECK(!siril_background_compute(background, &bg_options, error, sizeof error));
+    siril_background_free(background);
+    puts("PASS: interactive samples, selected coordinates/medians, invalidation and protected export; original polynomial/RBF/automatic models and subtract/divide preserved a star and removed gradients");
     return 0;
 }

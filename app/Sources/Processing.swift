@@ -169,6 +169,7 @@ struct ProcessingView: View {
     @State private var logTask: Task<Void, Never>?
     @State private var showCommands = false
     @State private var tools = ImageToolOptions()
+    @State private var showBackground = false
 
     var body: some View {
         NavigationStack {
@@ -193,6 +194,8 @@ struct ProcessingView: View {
                     Text("在图库中只勾选一张亮场或处理结果，然后生成后期脚本。输出另存为新的 FITS。")
                         .font(.caption).foregroundStyle(.secondary)
                     ImageToolControls(options: $tools)
+                    Button("打开交互式背景提取（在图像上选点）") { showBackground = true }
+                        .disabled(files.count != 1)
                     Button("生成单张处理脚本") {
                         do {
                             script = try ImageToolScript.make(files: files, options: tools)
@@ -245,6 +248,11 @@ struct ProcessingView: View {
             .sheet(isPresented: $showCommands) {
                 CommandBrowser { name in
                     script += (script.hasSuffix("\n") || script.isEmpty ? "" : "\n") + name + "\n"
+                }
+            }
+            .sheet(isPresented: $showBackground) {
+                if let file = files.first, files.count == 1 {
+                    BackgroundExtractionView(file: file) { result in dismiss(); onPreview(result) }
                 }
             }
             .fileImporter(isPresented: $importingScript, allowedContentTypes: [.item]) { selection in

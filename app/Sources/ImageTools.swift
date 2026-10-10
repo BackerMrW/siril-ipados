@@ -73,7 +73,7 @@ enum ImageToolScript {
 struct ImageToolControls: View {
     @Binding var options: ImageToolOptions
     var body: some View {
-        Toggle("背景提取", isOn: $options.background)
+        Toggle("自动背景提取（脚本）", isOn: $options.background)
         if options.background {
             Stepper("多项式阶数：\(options.degree)", value: $options.degree, in: 1...4)
             Stepper("每行采样点：\(options.samples)", value: $options.samples, in: 5...50, step: 5)
