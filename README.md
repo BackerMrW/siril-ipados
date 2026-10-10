@@ -26,10 +26,12 @@ Apple 账号只用于本地签名，云端构建不需要 Apple 密码。
 
 已验证：
 
-- [0.2 真机目标构建](https://github.com/BackerMrW/siril-ipados/actions/runs/37982952528)：完整内核链接、原生 App 编译、未签名 IPA 生成。
-- [0.2 iPad 模拟器运行](https://github.com/BackerMrW/siril-ipados/actions/runs/37982956515)：FITS 信息与读写、16 位像素归一化、原始命令转换序列、暗场与非均匀主平场校准、精确叠加像素数值、全局星点平移配准、自动 MTF 像素导出及错误停止。
-- 同一模拟器中，Swift actor 运行界面生成的主偏置 / 主暗场 / 主平场、亮场校准与叠加脚本，恢复保存的图库，并在 SwiftUI 中显示结果。
-- 物理 iPad、系统文件选择器、多张真实相机大图、CFA 去马赛克和全部命令仍需进一步实机验证；背景提取、降噪入口目前完成编译与接线，未逐项完成数值回归。
+- [0.3 真机目标构建](https://github.com/BackerMrW/siril-ipados/actions/runs/38006883556)：完整内核链接、原生 App 编译、未签名 IPA 生成。
+- [0.3 iPad 模拟器运行](https://github.com/BackerMrW/siril-ipados/actions/runs/38006113862)：FITS 读写、16 位像素归一化、精确暗场与非均匀主平场校准、默认全局星点配准和 Winsorized 叠加、自动 MTF 像素导出及错误停止。
+- RGGB 16 位 CFA 序列经原始校准 / 去马赛克 / 叠加，得到预期 RGB 数值；RGB 三个通道在读取、预览、导出后保持一致。
+- 原始裁剪、Asinh、手动 MTF、饱和度和旋转命令完成 RGB 处理；原始一阶背景提取和 NL-Bayes 降噪处理合成渐变与噪声，保留亮星。日志中的背景噪声估计由 `1.741e-3` 降至 `1.710e-5`。
+- 同一模拟器中，Swift actor 运行界面生成的主偏置 / 主暗场 / 主平场、校准与叠加脚本，恢复图库和任务记录，运行手动 MTF 界面生成的脚本，并在 SwiftUI 中显示结果。
+- 物理 iPad、系统文件选择器、多张真实相机大图和全部命令仍需进一步实机验证。
 
 真机内存预算来自 `os_proc_available_memory`，当前处理使用可用预算的一半。
 Apple 模拟器该 API 返回 0，回归测试改用保守的 512 MiB 可用预算，实际叠加预算为 256 MiB。
@@ -53,9 +55,15 @@ iPad 存储检查使用可用容量，而不依赖桌面文件系统类型说明
 脚本初始工作目录包含 `lights`、`darks`、`flats`、`biases`、`flatdarks`、`results` 和 `process`；
 外部 `.ssf` 的文件路径需要对应这些目录。`exit`、后台实时叠加和 `@` 启动脱离管理的脚本不在嵌入入口开放。
 
+下载 0.3：
+
+[版本与安装包](https://github.com/BackerMrW/siril-ipados/releases/tag/v0.3.0)。
+`SirilPad-0.3.0-unsigned.ipa` 用于安装；源码 ZIP 包含移植代码、固定版本上游源码、子模块和依赖源码。
+App 的“关于与源码”提供项目链接和随包许可文本。
+
 安装真机测试版：
 
-1. 打开成功的真机目标构建，在页面底部下载 **SirilPad-unsigned**，解压取得 `.ipa`。
+1. 从版本页面下载 `.ipa`；也可打开成功的真机目标构建，在页面底部下载 **SirilPad-unsigned**，解压取得 `.ipa`。
 2. 在 Windows 安装 Sideloadly，用 USB 连接 iPad 并选择“信任此电脑”。
 3. 把 `.ipa` 拖进 Sideloadly，选择 iPad，使用自己的 Apple ID 本地签名安装。
 4. 按 iPad 提示信任开发者；如提示需要开发者模式，在“设置 → 隐私与安全 → 开发者模式”开启并重启。
@@ -76,6 +84,7 @@ iPad 存储检查使用可用容量，而不依赖桌面文件系统类型说明
 - `tools/build-ipados-deps.py`：固定版本目标依赖与 Apple 框架适配。
 - `tools/embed-siril.py`：把 C 接口及完整链接检查接入上游构建。
 - `tools/package-siril.py`：把实际参与链接的目标静态库打包为 XCFramework。
+- `tools/source-bundle.py`：收集固定版本源代码、子模块、依赖和构建脚本，用于版本发布。
 - `app/`：调用内核的原生 iPad 界面。
 
 新增接口及界面使用 GPL-3.0-or-later，Siril 和第三方依赖保留各自原有许可证。
