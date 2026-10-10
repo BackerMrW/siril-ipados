@@ -135,7 +135,7 @@ enum SirilWorkflow {
                 // Upstream refuses a one-image regular sequence. Its single
                 // calibration command writes a prefixed basename in the CWD.
                 lines += ["cd process", "calibrate_single ../flats/frame_00001.fits \(calibration)\(isCFA ? " -cfa" : "") -prefix=pf_",
-                          "load pf_frame_00001.fits", "save master_flat.fits", "close"]
+                          "load pf_frame_00001", "save master_flat.fits", "close"]
             } else {
                 convert(.flats, "flat")
                 lines += ["calibrate flat \(calibration)\(isCFA ? " -cfa" : "") -prefix=pp_",
