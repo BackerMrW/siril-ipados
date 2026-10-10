@@ -11,6 +11,7 @@ struct FITSRecord: Identifiable, Sendable, Codable {
     let channels: Int
     let exposure: Double
     var role: FrameRole = .lights
+    var parentID: UUID? = nil
     var displayName: String {
         let name = url.lastPathComponent
         return name.count > 37 && UUID(uuidString: String(name.prefix(36))) != nil ? String(name.dropFirst(37)) : name
@@ -130,6 +131,10 @@ struct ContentView: View {
     @State private var showAnalysis = false
     @State private var analysisTab = 0
     @State private var imageSelection: ImageSelection?
+    @State private var showStorage = false
+    @State private var deleteIDs: Set<UUID> = []
+    @State private var confirmDelete = false
+    @State private var history = WorkspaceHistory()
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columns) {
@@ -170,7 +175,9 @@ struct ContentView: View {
                         }
                     }
                     Button("只选择这张") { selected = [file.id] }
+                    Button("删除", role: .destructive) { deleteIDs = [file.id]; confirmDelete = true }
                 }.disabled(busy)
+                .swipeActions { Button("删除", role: .destructive) { deleteIDs = [file.id]; confirmDelete = true }.disabled(busy) }
                   }
                 }
               }
@@ -183,12 +190,15 @@ struct ContentView: View {
                 Menu("选择", systemImage: "checklist") {
                     Button("选中拍摄帧") { selected = Set(files.filter { $0.role != .results }.map(\.id)) }
                     Button("取消全选") { selected.removeAll() }
+                    Button("删除勾选的图像", role: .destructive) { deleteIDs = selected; confirmDelete = true }.disabled(selected.isEmpty)
+                    Button("删除与存储") { showStorage = true }
                 }.disabled(busy)
             }
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 5) {
                     Text(String(cString: siril_core_version())).font(.caption)
                     if busy { ProgressView(progress) }
+                    Button("删除与存储", systemImage: "trash") { showStorage = true }.font(.caption).disabled(busy)
                     Button("关于与源码") { showAbout = true }.font(.caption)
                     Text("原生 Siril · 本地处理")
                         .font(.caption2).foregroundStyle(.secondary)
@@ -210,6 +220,9 @@ struct ContentView: View {
                         imageHeight: Double(activeFile?.height ?? 1), region: imageSelection, onTap: nil)
                         .background(.black)
                     HStack {
+                        Button("撤销", systemImage: "arrow.uturn.backward") { stepHistory(redo: false) }
+                            .disabled(!files.contains { $0.id == activeFile?.parentID })
+                        Button("重做", systemImage: "arrow.uturn.forward") { stepHistory(redo: true) }.disabled(history.future.isEmpty)
                         Button("图像处理", systemImage: "slider.horizontal.3") { showTools = true }
                         Button("背景提取") { showBackground = true }
                         Button("统计 / 直方图") { analysisTab = 0; showAnalysis = true }
@@ -230,7 +243,7 @@ struct ContentView: View {
         .sheet(isPresented: $showAbout) { AboutView() }
         .fullScreenCover(isPresented: $showBackground) {
             if let file = activeFile {
-                BackgroundExtractionView(file: file, onPreview: importResult)
+                BackgroundExtractionView(file: file) { result in importResult(result, parent: file.id) }
             }
         }
         .fullScreenCover(isPresented: $showAnalysis) {
@@ -251,10 +264,16 @@ struct ContentView: View {
         .onChange(of: displayChannel) { _, _ in refreshDisplay() }
         .onChange(of: autoDisplay) { _, _ in refreshDisplay() }
         .sheet(isPresented: $showHistory) {
-            JobHistoryView(engine: engine, onPreview: importResult)
+            JobHistoryView(engine: engine) { result in importResult(result, parent: nil) }
         }
         .sheet(isPresented: $showProcessing) {
-            ProcessingView(engine: engine, files: files.filter { selected.contains($0.id) }, onPreview: importResult)
+            ProcessingView(engine: engine, files: files.filter { selected.contains($0.id) }) { result, parent in importResult(result, parent: parent) }
+        }
+        .sheet(isPresented: $showStorage) {
+            StorageManagementView(engine: engine, onLibraryChanged: updateLibrary)
+        }
+        .confirmationDialog("删除 \(deleteIDs.count) 张图像？可在最近删除中恢复。", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("移入最近删除", role: .destructive) { Task { await deleteSelected() } }
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             switch result {
@@ -269,8 +288,26 @@ struct ContentView: View {
             if ProcessInfo.processInfo.environment["SIRIL_SELF_TEST"] == "1" {
                 await runSimulatorCheck()
             } else {
+                do { try await engine.recoverTrashTransactions() } catch { errors = error.localizedDescription }
                 files = await engine.loadLibrary()
+                history = await engine.loadWorkspace()
                 selected = Set(files.filter { $0.role != .results }.map(\.id))
+                if ProcessInfo.processInfo.environment["SIRIL_STORAGE_VIEW_CHECK"] == "1", let source = Bundle.main.url(forResource: "light", withExtension: "fits") {
+                    do {
+                        let fixture = try await engine.importFile(source)
+                        try await engine.saveLibrary(files + [fixture])
+                        files = try await engine.moveToTrash(ids: [fixture.id])
+                        showStorage = true
+                    } catch { errors = error.localizedDescription }
+                }
+                if ProcessInfo.processInfo.environment["SIRIL_WORKSPACE_VIEW_CHECK"] == "1", files.count >= 2 {
+                    files[1].parentID = files[0].id
+                    try? await engine.saveLibrary(files)
+                    await loadPreview(files[1])
+                    let marker = await engine.documents.appendingPathComponent("simulator-workspace-ready.txt")
+                    try? "PASS: FITS workspace loaded processing undo controls.\n".write(to: marker, atomically: true, encoding: .utf8)
+                }
+                if let current = files.first(where: { $0.id == history.current }) { await loadPreview(current, navigation: false) }
                 if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1", let file = files.last {
                     await loadPreview(file)
                     imageSelection = ImageSelection(x: 24, y: 32, width: 80, height: 64)
@@ -281,15 +318,45 @@ struct ContentView: View {
         }
     }
 
-    @MainActor private func importResult(_ result: URL) {
+    @MainActor private func importResult(_ result: URL, parent: UUID?) {
         Task {
             do {
-                let record = try await engine.importFile(result, role: .results)
+                var record = try await engine.importFile(result, role: .results)
+                record.parentID = parent
                 files.append(record)
                 selected = [record.id]
                 try await engine.saveLibrary(files)
                 await loadPreview(record)
             } catch { errors = error.localizedDescription }
+        }
+    }
+
+    @MainActor private func updateLibrary(_ records: [FITSRecord]) {
+        files = records
+        selected.formIntersection(Set(records.map(\.id)))
+        if let activeFile, !records.contains(where: { $0.id == activeFile.id }) {
+            previewTask?.cancel()
+            image = nil; previewURL = nil; self.activeFile = nil; imageSelection = nil
+            history = WorkspaceHistory()
+        }
+        history.future.removeAll { id in !records.contains(where: { $0.id == id }) }
+        Task { do { try await engine.saveWorkspace(history) } catch { errors = error.localizedDescription } }
+    }
+
+    @MainActor private func deleteSelected() async {
+        busy = true
+        defer { busy = false }
+        do { updateLibrary(try await engine.moveToTrash(ids: deleteIDs)) }
+        catch { errors = error.localizedDescription }
+    }
+
+    @MainActor private func stepHistory(redo: Bool) {
+        guard let record = redo ? history.redo(in: files) : history.undo(in: files) else { return }
+        selected = [record.id]
+        previewTask?.cancel()
+        previewTask = Task {
+            do { try await engine.saveWorkspace(history) } catch { errors = error.localizedDescription }
+            await loadPreview(record, navigation: false)
         }
     }
 
@@ -383,10 +450,13 @@ struct ContentView: View {
             }
             let corrected = try await background.save(file: backgroundFile, settings: settings)
             guard FileManager.default.fileExists(atPath: corrected.path) else { throw EngineError.failed("Native background export failed") }
+            try await engine.storageSelfTest(baseline: [record, processed, backgroundFile], source: source,
+                                             editedSource: toolOutputs.first { $0.lastPathComponent == "result.fits" }!)
+            files = [record, processed, backgroundFile]
             await loadPreview(backgroundFile)
-            try await engine.saveLibrary([record, processed, backgroundFile])
+            try await engine.saveLibrary(files)
             showBackground = true
-            try "PASS: Swift actor imported FITS, calibrated and stacked lights with original Siril commands, restored library/history, ran manual MTF, tested native background samples/RBF/model/FITS export, and verified original full/selected statistics and histogram counts, full-resolution pixel reads and complete FITS header. Bundled original feature inventory and notices were verified.\n"
+            try "PASS: Swift actor imported FITS, calibrated and stacked lights with original Siril commands, restored library/history, ran manual MTF, tested native background samples/RBF/model/FITS export, and verified original full/selected statistics and histogram counts, full-resolution pixel reads and complete FITS header. Batch/trash deletion, interrupted restore recovery, persistent FITS undo/redo/branching, permanent storage cleanup, task restoration and symlink safety passed. Bundled original feature inventory and notices were verified.\n"
                 .write(to: report, atomically: true, encoding: .utf8)
         } catch {
             try? ("FAIL: " + error.localizedDescription + "\n" + String(SirilEngine.processingLog().suffix(16000)))
@@ -415,16 +485,17 @@ struct ContentView: View {
     @MainActor private func refreshDisplay() {
         guard let activeFile else { return }
         previewTask?.cancel()
-        previewTask = Task { await loadPreview(activeFile) }
+        previewTask = Task { await loadPreview(activeFile, navigation: false) }
     }
 
-    @MainActor private func loadPreview(_ record: FITSRecord) async {
+    @MainActor private func loadPreview(_ record: FITSRecord, navigation: Bool = true) async {
         busy = true
         progress = "Siril 正在自动拉伸"
         defer { busy = false; progress = "" }
         do {
             if activeFile?.id != record.id { displayChannel = -1; imageSelection = nil }
             activeFile = record
+            if navigation { history.open(record.id); try await engine.saveWorkspace(history) }
             let p = try await engine.preview(record.url, channel: displayChannel, automatic: autoDisplay)
             guard !Task.isCancelled, let provider = CGDataProvider(data: p.data as CFData),
                   let cg = CGImage(width: p.width, height: p.height, bitsPerComponent: 8, bitsPerPixel: 32,

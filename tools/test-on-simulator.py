@@ -117,3 +117,30 @@ for tab, screenshot in ((0, "native-analysis-simulator.png"), (1, "native-histog
     time.sleep(1)
     subprocess.run(["xcrun", "simctl", "io", udid, "screenshot",
                     str(root / "diagnostics" / screenshot)], check=True, timeout=30)
+
+# Load deletion/restore controls and the processing undo workspace in the real App.
+for feature in ("workspace", "storage"):
+    subprocess.run(["xcrun", "simctl", "terminate", udid, "com.backermrw.sirilpad"], check=True, timeout=30)
+    ready = container / f"Documents/simulator-{feature}-ready.txt"
+    ready.unlink(missing_ok=True)
+    environment = dict(os.environ, SIMCTL_CHILD_SIRIL_SELF_TEST="0", SIMCTL_CHILD_SIRIL_ANALYSIS_VIEW_CHECK="0")
+    environment["SIMCTL_CHILD_SIRIL_" + feature.upper() + "_VIEW_CHECK"] = "1"
+    launch = subprocess.Popen(["xcrun", "simctl", "launch", udid, "com.backermrw.sirilpad"],
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=environment)
+    deadline = time.monotonic() + 90
+    while not ready.exists() and time.monotonic() < deadline:
+        if launch.poll() is not None and launch.returncode != 0:
+            break
+        time.sleep(1)
+    try:
+        output, _ = launch.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        launch.terminate()
+        output, _ = launch.communicate(timeout=10)
+    print(output, flush=True)
+    if not ready.exists() or not ready.read_text().startswith("PASS:"):
+        raise RuntimeError(f"Native {feature} view failed to load")
+    (root / f"diagnostics/{feature}-view-check.txt").write_text(ready.read_text())
+    time.sleep(1)
+    subprocess.run(["xcrun", "simctl", "io", udid, "screenshot",
+                    str(root / f"diagnostics/native-{feature}-simulator.png")], check=True, timeout=30)

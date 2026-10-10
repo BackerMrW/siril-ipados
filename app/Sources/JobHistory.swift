@@ -13,6 +13,7 @@ struct JobRecord: Identifiable, Sendable {
     let folder: URL
     let info: JobState
     let results: [URL]
+    let bytes: Int64
     var id: String { folder.lastPathComponent }
 }
 
@@ -37,7 +38,7 @@ extension SirilEngine {
                 JobState(created: created, updated: created, state: "旧版本任务", inputCount: 0, message: "")
             // App relaunch cannot resume an interrupted upstream worker.
             if info.state == "运行中" { info.state = "处理被中断" }
-            return JobRecord(folder: folder, info: info, results: (try? resultFiles(in: folder)) ?? [])
+            return JobRecord(folder: folder, info: info, results: (try? resultFiles(in: folder)) ?? [], bytes: directoryBytes(folder))
         }.sorted { $0.info.created > $1.info.created }
     }
 }
@@ -48,6 +49,9 @@ struct JobHistoryView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var jobs: [JobRecord] = []
     @State private var loading = true
+    @State private var deleting: JobRecord?
+    @State private var confirmDelete = false
+    @State private var error = ""
     var body: some View {
         NavigationStack {
             List {
@@ -61,14 +65,29 @@ struct JobHistoryView: View {
                     } label: {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(job.info.created.formatted(date: .abbreviated, time: .shortened))
-                            Text("\(job.info.state) · \(job.info.inputCount) 张输入 · \(job.results.count) 个 FITS")
+                            Text("\(job.info.state) · \(job.info.inputCount) 张输入 · \(job.results.count) 个 FITS · \(StorageSummary.format(job.bytes))")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
+                    .swipeActions { Button("删除", role: .destructive) { deleting = job; confirmDelete = true } }
+                    .contextMenu { Button("删除整个任务", role: .destructive) { deleting = job; confirmDelete = true } }
                 }
+                Section { Text("删除任务会移走该任务的输入副本、结果和中间文件。已导入图库的结果副本会保留。到删除与存储中永久删除，才能释放空间。").font(.caption) }
             }
+            .disabled(loading)
             .navigationTitle("处理记录")
             .toolbar { Button("完成") { dismiss() } }
+            .confirmationDialog("删除整个处理任务？可以在最近删除中恢复。", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("移入最近删除", role: .destructive) {
+                    guard let job = deleting else { return }
+                    loading = true
+                    Task {
+                        do { try await engine.trashJob(job) } catch { self.error = error.localizedDescription }
+                        jobs = await engine.jobHistory(); loading = false
+                    }
+                }
+            }
+            .alert("删除失败", isPresented: Binding(get: { !error.isEmpty }, set: { if !$0 { error = "" } })) { Button("好") { error = "" } } message: { Text(error) }
             .task { jobs = await engine.jobHistory(); loading = false }
         }
     }

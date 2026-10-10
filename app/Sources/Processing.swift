@@ -156,7 +156,7 @@ extension SirilEngine {
 struct ProcessingView: View {
     let engine: SirilEngine
     let files: [FITSRecord]
-    let onPreview: (URL) -> Void
+    let onPreview: (URL, UUID?) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var options = BatchOptions()
     @State private var script = ""
@@ -234,7 +234,7 @@ struct ProcessingView: View {
                         ShareLink("导出日志", item: folder.appendingPathComponent("processing.log"))
                         ForEach(results, id: \.self) { result in
                             HStack {
-                                Button(result.lastPathComponent) { dismiss(); onPreview(result) }
+                                Button(result.lastPathComponent) { dismiss(); onPreview(result, files.count == 1 ? files.first?.id : nil) }
                                 Spacer()
                                 ShareLink(item: result) { Image(systemName: "square.and.arrow.up") }
                             }
@@ -252,7 +252,7 @@ struct ProcessingView: View {
             }
             .fullScreenCover(isPresented: $showBackground) {
                 if let file = files.first, files.count == 1 {
-                    BackgroundExtractionView(file: file) { result in dismiss(); onPreview(result) }
+                    BackgroundExtractionView(file: file) { result in dismiss(); onPreview(result, files.count == 1 ? files.first?.id : nil) }
                 }
             }
             .fileImporter(isPresented: $importingScript, allowedContentTypes: [.item]) { selection in
