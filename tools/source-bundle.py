@@ -66,7 +66,7 @@ def main():
         for name, url, revision, local in GIT_SOURCES:
             print("Collecting", name, flush=True)
             candidate = args.workspace / local if local else None
-            source = candidate if candidate and candidate.exists() else work / name
+            source = candidate if candidate and candidate.exists() and candidate.resolve() != root else work / name
             if not source.exists():
                 source.mkdir()
                 run("git", "init", source)
@@ -74,7 +74,7 @@ def main():
             try:
                 run("git", "-C", source, "cat-file", "-e", revision + "^{commit}")
             except subprocess.CalledProcessError:
-                run("git", "-C", source, "fetch", "--depth", "1", "origin", revision)
+                run("git", "-C", source, "fetch", "--depth", "1", url, revision)
             body = run("git", "-C", source, "archive", "--format=tar.gz", "--prefix=" + name + "/", revision)
             add_source(name, body, name + ".tar.gz", revision, url)
             if name == "Siril":
