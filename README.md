@@ -46,6 +46,8 @@ Apple 账号只用于本地签名，云端构建不需要 Apple 密码。
 
 已验证：
 
+- [0.5 完整验证记录](docs/VALIDATION-0.5.0.md)：整图/选区/CFA 原版统计、直方图、原始像素和文件头，以及三种原生分析界面。
+
 - [0.3 真机目标构建](https://github.com/BackerMrW/siril-ipados/actions/runs/38006883556)：完整内核链接、原生 App 编译、未签名 IPA 生成。
 - [0.3 iPad 模拟器运行](https://github.com/BackerMrW/siril-ipados/actions/runs/38006113862)：FITS 读写、16 位像素归一化、精确暗场与非均匀主平场校准、默认全局星点配准和 Winsorized 叠加、自动 MTF 像素导出及错误停止。
 - RGGB 16 位 CFA 序列经原始校准 / 去马赛克 / 叠加，得到预期 RGB 数值；RGB 三个通道在读取、预览、导出后保持一致。
