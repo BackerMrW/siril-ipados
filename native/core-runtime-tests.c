@@ -321,7 +321,9 @@ static int sequence_checks(const char *registered, const char *combinations) {
     CHECK(writeseqfile(original) == 0);
     free_sequence(original, TRUE);
     CHECK(siril_sequence_inspect(combinations, "combination_.seq", 0, &info, frames, 3, error, sizeof error) == 3);
-    CHECK(isnan(frames[0].mean) && isnan(frames[0].sigma) && fabs(frames[0].median - 0.115) < 2e-5);
+    // Siril's histogram median uses the upper middle pixel for even counts.
+    printf("Partial sequence stats: mean=%g median=%g sigma=%g\n", frames[0].mean, frames[0].median, frames[0].sigma);
+    CHECK(isnan(frames[0].mean) && isnan(frames[0].sigma) && fabs(frames[0].median - 0.12) < 2e-5);
     CHECK(siril_run_commands(combinations, "seqstat combination sequence-statistics.csv main\n", error, sizeof error));
     snprintf(path, sizeof path, "%s/combination_00003.fit", combinations);
     CHECK(read_pixels(path, pixels, 4) == 0);
