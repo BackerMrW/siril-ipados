@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
+import SirilCore
 
 struct TrashEntry: Codable, Identifiable, Sendable {
     let id: UUID
@@ -75,6 +76,7 @@ extension SirilEngine {
         let payload = try trashFolder(entry.id).appendingPathComponent("payload")
         // Validate the complete batch before moving anything.
         let sources = try removed.map { try owned($0.url.lastPathComponent, under: documents.appendingPathComponent("FITS")) }
+        siril_release_workspace()
         try manifest(entry)
         var moved: [URL] = []
         do {
@@ -97,6 +99,7 @@ extension SirilEngine {
         guard !activeJobIDs.contains(job.id) else { throw EngineError.failed("任务正在处理，不能删除") }
         guard UUID(uuidString: job.id) != nil else { throw EngineError.failed("无效的任务目录") }
         let source = try owned(job.id, under: documents.appendingPathComponent("Jobs"))
+        siril_release_workspace()
         let entry = TrashEntry(id: UUID(), deleted: Date(), records: [], jobName: job.id)
         try manifest(entry)
         do { try FileManager.default.moveItem(at: source, to: try trashFolder(entry.id).appendingPathComponent("payload").appendingPathComponent(job.id)) }
@@ -122,6 +125,7 @@ extension SirilEngine {
     }
 
     func permanentlyDeleteTrash(_ ids: Set<UUID>) throws {
+        siril_release_workspace()
         try recoverTrashTransactions()
         for entry in trashEntries() where ids.contains(entry.id) {
             try FileManager.default.removeItem(at: try trashFolder(entry.id))

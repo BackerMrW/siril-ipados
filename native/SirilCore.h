@@ -69,6 +69,9 @@ int siril_run_commands(const char *directory, const char *script, char *error, s
 /* Independent of the engine lock, so UI can read logs and cancel a running job. */
 void siril_copy_processing_log(char *buffer, size_t capacity);
 void siril_cancel_processing(void);
+/* Close original command workspace and sequence caches, without changing owned
+ * image/background sessions or deleting saved FITS files. Waits for any worker. */
+void siril_release_workspace(void);
 /* Runtime catalog from the configured upstream command table: name<TAB>usage. */
 const char *siril_command_catalog(void);
 /* Interactive background extraction uses the same upstream GUI image hook.

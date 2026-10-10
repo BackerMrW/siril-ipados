@@ -21,6 +21,7 @@
 #include "core/siril_log.h"
 #include "core/OS_utils.h"
 #include "io/sequence.h"
+#include "io/single_image.h"
 #include "io/conversion.h"
 #include <gsl/gsl_errno.h>
 #include <fftw3.h>
@@ -489,6 +490,15 @@ void siril_copy_processing_log(char *buffer, size_t capacity) {
 void siril_cancel_processing(void) {
     g_atomic_int_set(&cancel_requested, 1);
     processing_request_cancel();
+}
+
+void siril_release_workspace(void) {
+    g_mutex_lock(&engine_mutex);
+    if (initialized) {
+        close_sequence(FALSE);
+        close_single_image();
+    }
+    g_mutex_unlock(&engine_mutex);
 }
 
 int siril_run_commands(const char *directory, const char *script, char *error, size_t capacity) {

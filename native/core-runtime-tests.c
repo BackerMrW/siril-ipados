@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /* Executes against the real upstream engine on an Apple iPad simulator. */
 #include "SirilCore.h"
+#include "core/siril.h"
+#include "io/sequence.h"
+#include "io/single_image.h"
 #include "algos/statistics.h"
 #include "io/image_format_fits.h"
 #include <fitsio.h>
@@ -494,5 +497,22 @@ int main(int argc, char **argv) {
     CHECK(!siril_background_compute(background, &bg_options, error, sizeof error));
     siril_background_free(background);
     puts("PASS: interactive samples, coordinate/median mapping, invalidation and protected export; polynomial/RBF/subtract/divide and simplified automatic model removed gradients while preserving a star; both automatic modes matched original commands pixel-for-pixel");
+    snprintf(script, sizeof script, "load %s\n", light);
+    CHECK(siril_run_commands(process, script, error, sizeof error));
+    CHECK(gfit->data || gfit->fdata);
+    image = siril_image_read(light, error, sizeof error);
+    CHECK(image);
+    float saved_pixel[3], retained_pixel[3];
+    CHECK(siril_image_pixel(image, 0, 0, saved_pixel));
+    siril_release_workspace();
+    CHECK(!gfit->data && !gfit->fdata && !sequence_is_loaded() && !single_image_is_loaded());
+    CHECK(siril_image_pixel(image, 0, 0, retained_pixel));
+    CHECK(saved_pixel[0] == retained_pixel[0]);
+    siril_release_workspace(); // idempotent
+    CHECK(siril_run_commands(process, script, error, sizeof error));
+    CHECK(gfit->data || gfit->fdata);
+    siril_release_workspace();
+    siril_image_free(image);
+    puts("PASS: native workspace release freed command image/sequence state, preserved independent image sessions, and allowed subsequent commands");
     return 0;
 }
