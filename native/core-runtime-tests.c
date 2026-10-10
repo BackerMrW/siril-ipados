@@ -180,7 +180,13 @@ int main(int argc, char **argv) {
     CHECK(analysis_reference(light, &upper_row, 0) == 0);
     SirilChannelStatistics simple_stats[3];
     CHECK(siril_image_statistics(image, NULL, 0, simple_stats) == 1);
-    CHECK(fabs(simple_stats[0].mean - 0.35) < 1e-7 && fabs(simple_stats[0].median - 0.35) < 1e-7);
+    /* Original findMinMaxPercentile uses four histogram bins for four samples;
+     * its interpolated median is 0.4 here, not the exact order-statistic 0.35.
+     * Preserve this desktop behavior. All eight fields are also compared with
+     * independent upstream calls above, to avoid replacing its approximation. */
+    printf("Original tiny-image stats: mean=%.9g median=%.9g MAD=%.9g\n",
+        simple_stats[0].mean, simple_stats[0].median, simple_stats[0].mad);
+    CHECK(fabs(simple_stats[0].mean - 0.35) < 1e-7 && fabs(simple_stats[0].median - 0.4) < 1e-7);
     CHECK(fabs(simple_stats[0].mad - 0.1) < 1e-7 && fabs(simple_stats[0].average_deviation - 0.1) < 1e-7);
     CHECK(siril_image_statistics(image, &upper_row, 0, simple_stats) == 1 && fabs(simple_stats[0].mean - 0.45) < 1e-7);
     printf("PASS: original eight statistics, selected displayed row, pixel orientation, histogram bins and complete FITS header\n");
