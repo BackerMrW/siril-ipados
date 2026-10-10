@@ -130,12 +130,17 @@ enum SirilWorkflow {
             }
         }
         if has(.flats) {
-            convert(.flats, "flat")
             let calibration = has(.flatdarks) ? "-dark=master_flatdark.fits" : "-bias=master_bias.fits"
-            lines += ["calibrate flat \(calibration)\(isCFA ? " -cfa" : "") -prefix=pp_"]
             if groups[.flats]!.count == 1 {
-                lines += ["load pp_flat_00001.fits", "save master_flat.fits", "close"]
-            } else { lines += ["stack pp_flat median -norm=mul -out=master_flat.fits"] }
+                // Upstream refuses a one-image regular sequence. Its single
+                // calibration command writes a prefixed basename in the CWD.
+                lines += ["cd process", "calibrate_single ../flats/frame_00001.fits \(calibration)\(isCFA ? " -cfa" : "") -prefix=pf_",
+                          "load pf_frame_00001.fits", "save master_flat.fits", "close"]
+            } else {
+                convert(.flats, "flat")
+                lines += ["calibrate flat \(calibration)\(isCFA ? " -cfa" : "") -prefix=pp_",
+                          "stack pp_flat median -norm=mul -out=master_flat.fits"]
+            }
             lines += ["cd .."]
         }
         convert(.lights, "light")
