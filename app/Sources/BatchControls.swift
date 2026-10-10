@@ -22,6 +22,16 @@ enum RegistrationFraming: String, BatchChoice {
     case current, min, max, cog
     var title: String { switch self { case .current: return "参考帧范围"; case .min: return "共同重叠范围"; case .max: return "全部图像范围"; case .cog: return "图像中心" } }
 }
+enum DrizzleKernel: String, BatchChoice {
+    case point, turbo, square, gaussian, lanczos2, lanczos3
+    var title: String { switch self { case .point: return "Point"; case .turbo: return "Turbo"; case .square: return "Square"; case .gaussian: return "Gaussian"; case .lanczos2: return "Lanczos-2"; case .lanczos3: return "Lanczos-3" } }
+}
+struct DrizzleOptions: Codable, Sendable {
+    var enabled = false
+    var kernel: DrizzleKernel = .square
+    var pixelFraction = 1.0
+    var useFlat = false
+}
 enum StackMethod: String, BatchChoice {
     case mean, median, sum, min, max
     var title: String { switch self { case .mean: return "平均值"; case .median: return "中位数"; case .sum: return "求和"; case .min: return "最小值"; case .max: return "最大值" } }
@@ -80,6 +90,12 @@ struct BatchOptions: Codable, Sendable {
     var scale = 1.0
     var framing: RegistrationFraming = .current
     var referenceID: UUID?
+    // Optional storage keeps 0.7 JSON readable without discarding saved settings.
+    var drizzle: DrizzleOptions?
+    var drizzleOptions: DrizzleOptions {
+        get { drizzle ?? DrizzleOptions() }
+        set { drizzle = newValue }
+    }
     var method: StackMethod = .mean
     var rejection: StackRejection = .winsorized
     var low = 3.0
@@ -148,8 +164,10 @@ struct BatchControls: View {
                     ForEach(lights) { Text($0.displayName).tag(Optional($0.id)) }
                 }
                 BatchPicker(title: "变换模型", value: $options.transform)
-                BatchPicker(title: "插值", value: $options.interpolation)
-                if options.interpolation.supportsClamp { Toggle("插值钳位", isOn: $options.clamp) }
+                if !options.drizzleOptions.enabled {
+                    BatchPicker(title: "插值", value: $options.interpolation)
+                    if options.interpolation.supportsClamp { Toggle("插值钳位", isOn: $options.clamp) }
+                }
                 Stepper("最少匹配星对：\(options.minimumPairs)", value: $options.minimumPairs, in: 4...2000)
                 Stepper("最多检测星点：\(options.maximumStars)", value: $options.maximumStars, in: 100...2000, step: 100)
                 Picker("检测通道", selection: $options.layer) {
@@ -161,6 +179,20 @@ struct BatchControls: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }.id("batch-registration")
+        Section("Drizzle / Bayer Drizzle") {
+            Toggle("使用 Drizzle 应用配准", isOn: $options.drizzleOptions.enabled)
+            if options.drizzleOptions.enabled {
+                BatchPicker(title: "Drizzle 核", value: $options.drizzleOptions.kernel)
+                BatchNumber(title: "像素比例（0.1–10）", value: $options.drizzleOptions.pixelFraction)
+                Toggle("主平场用于初始像素权重", isOn: $options.drizzleOptions.useFlat)
+                Text("输出倍率使用上方配准设置（0.1–3）。原版像素比例默认 1；通常可从倍率的倒数开始尝试。主平场仍正常用于校准，此开关额外用于像素权重。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("单色使用普通 Drizzle；带 BAYERPAT 的单通道 Bayer 数据由原版自动生成 RGB。Bayer 模式请开启 CFA、关闭校准后去马赛克。RGB 与 X-Trans 输入不能使用此流程。建议用平均值或求和叠加，以利用像素权重。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("提高倍率会增加输出及权重文件占用；例如 2 倍生成约 4 倍像素。权重保存在任务 process/drizztmp 中，删除整份任务时一并处理。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }.id("batch-drizzle").disabled(!options.register)
         Section("叠加") {
             BatchPicker(title: "合成方法", value: $options.method)
             if options.method == .mean {

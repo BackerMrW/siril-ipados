@@ -35,7 +35,7 @@ static int read_pixels(const char *path, float *pixels, long count) {
     fits_close_file(file, &status);
     return status;
 }
-static int star_fixture(const char *path, int dx, int dy) {
+static int star_fixture(const char *path, double dx, double dy) {
     const int side = 256;
     float *pixels = calloc(side * side, sizeof(float));
     if (!pixels) return 1;
@@ -68,6 +68,103 @@ static int star_fixture(const char *path, int dx, int dy) {
     fits_close_file(file, &status);
     free(pixels);
     return status;
+}
+static int drizzle_fixture(const char *path, double dx, double dy, int bayer) {
+    if (star_fixture(path, dx, dy)) return 1;
+    float pixels[256 * 256];
+    if (read_pixels(path, pixels, 256 * 256)) return 1;
+    for (int y = 0; y < 256; y++) for (int x = 0; x < 256; x++) {
+        float color = !bayer ? 1.f : (!(y % 2) && !(x % 2)) ? 1.f : (y % 2 && x % 2) ? 0.25f : 0.5f;
+        pixels[y * 256 + x] *= 0.2f * color;
+    }
+    fitsfile *file = NULL;
+    int status = 0;
+    fits_open_file(&file, path, READWRITE, &status);
+    if (bayer) fits_update_key(file, TSTRING, "BAYERPAT", "RGGB", NULL, &status);
+    fits_update_key(file, TSTRING, "ROWORDER", "TOP-DOWN", NULL, &status);
+    fits_write_img(file, TFLOAT, 1, 256 * 256, pixels, &status);
+    fits_close_file(file, &status);
+    return status;
+}
+static int drizzle_checks(const char *root) {
+    char source[4096], process[4096], path[4096], script[4096], error[512];
+    const double dx[] = {0, 0.7, 1.5, -0.4}, dy[] = {0, 1.1, -0.6, 1.6};
+    const char *kernels[] = {"point", "turbo", "square", "gaussian", "lanczos2", "lanczos3"};
+    for (int bayer = 0; bayer < 2; bayer++) {
+        snprintf(source, sizeof source, "%s/drizzle%d", root, bayer);
+        snprintf(process, sizeof process, "%s/drizzleprocess%d", root, bayer);
+        CHECK(mkdir(source, 0700) == 0 && mkdir(process, 0700) == 0);
+        for (int i = 0; i < 4; i++) {
+            snprintf(path, sizeof path, "%s/frame%d.fits", source, i);
+            CHECK(drizzle_fixture(path, dx[i], dy[i], bayer) == 0);
+        }
+        CHECK(siril_run_commands(source, bayer ? "convert drizzle -out=../drizzleprocess1\n" : "convert drizzle -out=../drizzleprocess0\n", error, sizeof error));
+        CHECK(siril_run_commands(process, "setref drizzle 1\nregister drizzle -2pass -transf=shift -minpairs=4 -maxstars=100 -layer=0\n", error, sizeof error));
+        for (int k = 0; k < (bayer ? 1 : 7); k++) {
+            const int side = 512, channels = bayer ? 3 : 1;
+            const size_t count = (size_t)side * side * channels;
+            // Bayer uses Square; the six mono cases cover all native kernels.
+            snprintf(script, sizeof script,
+                "seqapplyreg drizzle -drizzle -scale=2 -pixfrac=%s -kernel=%s -framing=current -prefix=d%d_\n"
+                "stack d%d_drizzle mean none 3 3 -nonorm -32b -out=drizzle%d.fits\n", k == 6 ? "0.5" : "1", bayer || k == 6 ? "square" : kernels[k], k, k, k);
+            CHECK(siril_run_commands(process, script, error, sizeof error));
+            snprintf(path, sizeof path, "%s/drizzle%d.fits", process, k);
+            SirilImage *image = siril_image_read(path, error, sizeof error);
+            SirilImageInfo info;
+            CHECK(image && siril_image_info(image, &info) && info.width == side && info.height == side && info.channels == channels);
+            siril_image_free(image);
+            float *result = malloc(count * sizeof(float)), *input = malloc(count * sizeof(float)), *weight = malloc(count * sizeof(float));
+            double *numerator = calloc(count, sizeof(double)), *denominator = calloc(count, sizeof(double));
+            CHECK(result && input && weight && numerator && denominator && read_pixels(path, result, count) == 0);
+            for (int frame = 1; frame <= 4; frame++) {
+                snprintf(path, sizeof path, "%s/d%d_drizzle_%05d.fit", process, k, frame);
+                CHECK(read_pixels(path, input, count) == 0);
+                snprintf(path, sizeof path, "%s/drizztmp/d%d_drizzle_%05d.fit", process, k, frame);
+                CHECK(read_pixels(path, weight, count) == 0);
+                for (size_t p = 0; p < count; p++) if (input[p] != 0 && weight[p] != 0) {
+                    numerator[p] += input[p] * (double)weight[p];
+                    denominator[p] += weight[p];
+                }
+            }
+            int checked = 0;
+            float peak = 0;
+            for (size_t p = 0; p < count; p++) {
+                CHECK(isfinite(result[p]));
+                if (result[p] > peak) peak = result[p];
+                if (denominator[p] > 0) {
+                    CHECK(fabs(result[p] - numerator[p] / denominator[p]) < 2e-5);
+                    checked++;
+                }
+            }
+            CHECK(checked > side * side / 2 && peak > 0.25f);
+            if (k == 0) {
+                CHECK(siril_run_commands(process, "stack d0_drizzle sum -32b -out=drizzlesum.fits\n", error, sizeof error));
+                snprintf(path, sizeof path, "%s/drizzlesum.fits", process);
+                CHECK(read_pixels(path, input, count) == 0);
+                for (size_t p = 0; p < count; p++) if (denominator[p] > 0) CHECK(fabs(input[p] - numerator[p] / denominator[p]) < 2e-5);
+            }
+            if (k == 6) {
+                snprintf(path, sizeof path, "%s/drizztmp/d2_drizzle_00001.fit", process);
+                CHECK(read_pixels(path, input, count) == 0);
+                snprintf(path, sizeof path, "%s/drizztmp/d6_drizzle_00001.fit", process);
+                CHECK(read_pixels(path, weight, count) == 0);
+                int changed = 0;
+                for (size_t p = 0; p < count; p++) if (input[p] != weight[p]) changed++;
+                CHECK(changed > side * side / 4);
+            }
+            if (bayer) {
+                double total[3] = {0}; int used[3] = {0};
+                for (int c = 0; c < 3; c++) for (int y = 24; y < 40; y++) for (int x = 24; x < 40; x++) {
+                    float value = result[c * side * side + y * side + x];
+                    if (value > 0) { total[c] += value; used[c]++; }
+                }
+                for (int c = 0; c < 3; c++) CHECK(used[c] > 64 && fabs(total[c] / used[c] - 0.016 * (c == 0 ? 1 : c == 1 ? 0.5 : 0.25)) < 0.0001);
+            }
+            free(result); free(input); free(weight); free(numerator); free(denominator);
+        }
+    }
+    puts("PASS: real subpixel-dither Drizzle with six kernels and two-pass application; pixel-fraction changes alter weight maps; 2x dimensions, finite pixels, preserved star and independent mean/sum per-pixel weight arithmetic; Bayer RGB background levels preserved");
+    return 0;
 }
 static int gradient_fixture(const char *path) {
     float pixels[256 * 256];
@@ -394,6 +491,7 @@ int main(int argc, char **argv) {
         siril_image_free(image);
     }
     puts("PASS: real two-pass registration/application, four transforms, six interpolators, output scaling, four normalizations/weights and five quality filters preserved translated star photometry");
+    CHECK(drizzle_checks(argv[1]) == 0);
     snprintf(path, sizeof path, "%s/postprocessed.fits", argv[1]);
     snprintf(script, sizeof script, "load %s\nautostretch -linked\nsave %s\nclose\n", light, path);
     CHECK(siril_run_commands(frames, script, error, sizeof error));

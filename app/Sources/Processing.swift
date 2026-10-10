@@ -31,6 +31,7 @@ enum SirilWorkflow {
             throw EngineError.failed("至少勾选两张亮场；每次处理使用勾选的文件。")
         }
         let first = lights[0]
+        let drizzle = options.drizzleOptions
         let isCFA = options.cfa || options.debayer
         if isCFA && lights.contains(where: { $0.channels != 1 }) {
             throw EngineError.failed("CFA 去马赛克只适用于单通道彩色相机原始图像；RGB 图像请关闭此选项。")
@@ -65,13 +66,22 @@ enum SirilWorkflow {
         if options.method == .mean && options.weight == .noise && options.normalization == .none {
             throw EngineError.failed("噪声权重需要启用输入归一化。")
         }
+        if drizzle.enabled {
+            guard options.register, first.channels == 1, !options.debayer, !options.fixXTrans else {
+                throw EngineError.failed("Drizzle 需要启用配准并使用单通道单色或 Bayer 原始图像；请关闭校准后去马赛克和 X-Trans 修复。Bayer RGB 由 Drizzle 直接生成。")
+            }
+            guard drizzle.pixelFraction.isFinite, (0.1...10).contains(drizzle.pixelFraction) else {
+                throw EngineError.failed("Drizzle 像素比例须在原版界面的 0.1–10 范围内。")
+            }
+            if drizzle.useFlat && !has(.flats) { throw EngineError.failed("Drizzle 主平场权重需要勾选平场以及匹配的偏置或暗平场。") }
+        }
         if options.register {
             guard (4...2000).contains(options.minimumPairs), (100...2000).contains(options.maximumStars),
                   options.minimumPairs <= options.maximumStars, (0...2).contains(options.layer),
                   options.scale.isFinite, (0.1...3).contains(options.scale) else {
                 throw EngineError.failed("请检查配准星对、星数、通道和输出倍率范围。")
             }
-            if options.interpolation == .none && (options.transform != .shift || options.scale != 1) {
+            if !drizzle.enabled && options.interpolation == .none && (options.transform != .shift || options.scale != 1) {
                 throw EngineError.failed("不插值只支持仅平移、输出倍率为 1 的配准。")
             }
             if let id = options.referenceID, !lights.contains(where: { $0.id == id }) {
@@ -161,8 +171,14 @@ enum SirilWorkflow {
         }
         if options.register {
             if let index = lights.firstIndex(where: { $0.id == options.referenceID }) { lines += ["setref \(sequence) \(index + 1)"] }
-            let outputOptions = "-interp=\(options.interpolation.rawValue) -scale=\(number(options.scale))" +
-                (options.interpolation.supportsClamp && !options.clamp ? " -noclamp" : "")
+            let outputOptions: String
+            if drizzle.enabled {
+                outputOptions = "-drizzle -scale=\(number(options.scale)) -pixfrac=\(number(drizzle.pixelFraction)) -kernel=\(drizzle.kernel.rawValue)" +
+                    (drizzle.useFlat ? " -flat=master_flat.fits" : "")
+            } else {
+                outputOptions = "-interp=\(options.interpolation.rawValue) -scale=\(number(options.scale))" +
+                    (options.interpolation.supportsClamp && !options.clamp ? " -noclamp" : "")
+            }
             let layer = first.channels == 1 && !options.debayer ? 0 : options.layer
             let registration = "-transf=\(options.transform.rawValue) -minpairs=\(options.minimumPairs) -maxstars=\(options.maximumStars) -layer=\(layer)"
             if options.twoPass {
@@ -178,7 +194,7 @@ enum SirilWorkflow {
             if options.outputNormalization { stack += ["-output_norm"] }
             if options.normalization != .none {
                 if options.fastNormalization { stack += ["-fastnorm"] }
-                if options.equalizeRGB && (first.channels == 3 || options.debayer) { stack += ["-rgb_equal"] }
+                if options.equalizeRGB && (first.channels == 3 || options.debayer || drizzle.enabled) { stack += ["-rgb_equal"] }
             }
         }
         if options.method == .mean {
@@ -349,6 +365,7 @@ struct ProcessingView: View {
                     let section = ProcessInfo.processInfo.environment["SIRIL_BATCH_SECTION"] ?? "batch"
                     options.twoPass = true
                     options.cosmetic = true
+                    if section == "batch-drizzle" { options.drizzleOptions.enabled = true; options.cfa = true }
                     try? await Task.sleep(for: .milliseconds(500))
                     proxy.scrollTo(section == "batch" ? "calibration" : section, anchor: .top)
                     try? await Task.sleep(for: .milliseconds(300))

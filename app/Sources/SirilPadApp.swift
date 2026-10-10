@@ -415,6 +415,7 @@ struct ContentView: View {
             }
             let processed = try await engine.importFile(result, role: .results)
             try await engine.batchSelfTest(files: batch)
+            try await engine.drizzleSelfTest()
             guard processed.width == 2 && processed.height == 2 else { throw EngineError.failed("Batch output dimensions changed") }
             await loadPreview(processed)
             try await engine.saveLibrary([record, processed])
@@ -482,7 +483,7 @@ struct ContentView: View {
             await loadPreview(backgroundFile)
             try await engine.saveLibrary(files)
             showBackground = true
-            try "PASS: Swift actor imported FITS, calibrated and stacked lights with original Siril commands, verified advanced batch settings and exact exposure-scaled calibration with single/multiple calibration inputs, restored library/history, ran manual MTF, tested native background samples/RBF/model/FITS export, and verified original full/selected statistics and histogram counts, full-resolution pixel reads and complete FITS header. Batch/trash deletion, interrupted restore recovery, persistent FITS undo/redo/branching, permanent storage cleanup, task restoration and symlink safety passed. Bundled original feature inventory and notices were verified.\n"
+            try "PASS: Swift actor imported FITS, calibrated and stacked lights with original Siril commands, verified advanced batch settings and exact exposure-scaled calibration with single/multiple calibration inputs, real one/two-pass Bayer Drizzle with nonuniform-flat calibration, RGB photometry and weight-map delete/restore/permanent cleanup, compatible old settings, restored library/history, ran manual MTF, tested native background samples/RBF/model/FITS export, and verified original full/selected statistics and histogram counts, full-resolution pixel reads and complete FITS header. Batch/trash deletion, interrupted restore recovery, persistent FITS undo/redo/branching, permanent storage cleanup, task restoration and symlink safety passed. Bundled original feature inventory and notices were verified.\n"
                 .write(to: report, atomically: true, encoding: .utf8)
         } catch {
             try? ("FAIL: " + error.localizedDescription + "\n" + String(SirilEngine.processingLog().suffix(16000)))
