@@ -6,7 +6,14 @@ targets:
   SirilPad:
     type: application
     platform: iOS
-    sources: [Sources, TestAssets]
+    sources:
+      - path: Sources
+      - path: TestAssets
+      - path: ../LICENSE.md
+        buildPhase: resources
+      - path: ../ThirdPartyLicenses
+        type: folder
+        buildPhase: resources
     dependencies:
       - framework: ../dist/SirilCore.xcframework
         embed: false
@@ -23,5 +30,5 @@ targets:
         INFOPLIST_KEY_UIApplicationSupportsDocumentBrowser: YES
         INFOPLIST_KEY_UIFileSharingEnabled: YES
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
-        MARKETING_VERSION: "0.2.0"
-        CURRENT_PROJECT_VERSION: "2"
+        MARKETING_VERSION: "0.3.0"
+        CURRENT_PROJECT_VERSION: "3"

@@ -55,6 +55,44 @@ static int star_fixture(const char *path, int dx, int dy) {
     free(pixels);
     return status;
 }
+static int gradient_fixture(const char *path) {
+    float pixels[256 * 256];
+    unsigned state = 321;
+    for (int y = 0; y < 256; y++) for (int x = 0; x < 256; x++) {
+        state = state * 1664525u + 1013904223u;
+        double noise = ((state >> 8) / 16777215.0 - 0.5) * 0.006;
+        double xx = x - 128, yy = y - 128;
+        pixels[y * 256 + x] = 0.1 + 0.15 * x / 255 + 0.08 * y / 255 + noise +
+            0.5 * exp(-(xx * xx + yy * yy) / 18);
+    }
+    fitsfile *file = NULL;
+    int status = 0;
+    long axes[] = {256, 256};
+    fits_create_file(&file, path, &status);
+    fits_create_img(file, FLOAT_IMG, 2, axes, &status);
+    fits_write_img(file, TFLOAT, 1, 256 * 256, pixels, &status);
+    fits_close_file(file, &status);
+    return status;
+}
+// RGGB sensor data with distinct color levels: verifies pattern and row handling.
+static int cfa_fixture(const char *path) {
+    const int side = 64;
+    unsigned short pixels[64 * 64];
+    for (int y = 0; y < side; y++) for (int x = 0; x < side; x++) {
+        double base = (y % 2 == 0 && x % 2 == 0) ? 0.6 : ((y % 2 && x % 2) ? 0.1 : 0.3);
+        pixels[y * side + x] = (unsigned short)((base + 0.02 * x / side) * 65535);
+    }
+    fitsfile *file = NULL;
+    int status = 0;
+    long axes[] = {side, side};
+    fits_create_file(&file, path, &status);
+    fits_create_img(file, USHORT_IMG, 2, axes, &status);
+    fits_update_key(file, TSTRING, "BAYERPAT", "RGGB", NULL, &status);
+    fits_update_key(file, TSTRING, "ROWORDER", "TOP-DOWN", NULL, &status);
+    fits_write_img(file, TUSHORT, 1, side * side, pixels, &status);
+    fits_close_file(file, &status);
+    return status;
+}
 int main(int argc, char **argv) {
     CHECK(argc == 2);
     char light[4096], dark[4096], output[4096], missing[4096];
@@ -156,7 +194,7 @@ int main(int argc, char **argv) {
     }
     CHECK(siril_run_commands(stars,
         "convert stars -out=../registered\ncd ../registered\nsetref stars 1\n"
-        "register stars -transf=shift\nstack r_stars median -nonorm -out=aligned.fits\n", error, sizeof error));
+        "register stars\nstack r_stars rej w 3 3 -norm=addscale -output_norm -out=aligned.fits\n", error, sizeof error));
     snprintf(path, sizeof path, "%s/aligned.fits", registered);
     float aligned[256 * 256];
     status = 0;
@@ -166,10 +204,10 @@ int main(int argc, char **argv) {
     fits_close_file(file, &status);
     CHECK(status == 0);
     // Without registration the median suppresses this displaced bright star.
-    CHECK(aligned[31 * 256 + 30] > 0.65f);
+    CHECK(aligned[31 * 256 + 30] > 0.6f);
     CHECK(aligned[31 * 256 + 30] > aligned[26 * 256 + 38] + 0.5f);
     CHECK(strstr(siril_command_catalog(), "calibrate\t") && strstr(siril_command_catalog(), "register\t"));
-    puts("PASS: upstream global star registration aligned translated synthetic star fields and preserved the reference star in the median stack");
+    puts("PASS: upstream global star registration aligned translated synthetic star fields and preserved the reference star in the default Winsorized stack");
     snprintf(path, sizeof path, "%s/postprocessed.fits", argv[1]);
     snprintf(script, sizeof script, "load %s\nautostretch -linked\nsave %s\nclose\n", light, path);
     CHECK(siril_run_commands(frames, script, error, sizeof error));
@@ -206,5 +244,80 @@ int main(int argc, char **argv) {
     for (int i = 0; i < 4; i++) CHECK(fabsf(actual[i] - raw[i] / 65535.f) < 1e-6f);
     siril_image_free(image);
     puts("PASS: upstream Siril FITS metadata, missing-file handling, subtraction/addition, scalar division, float FITS round-trip, unsigned 16-bit normalization, overwrite refusal, and automatic MTF preview");
+    char cfa[4096], color_output[4096];
+    snprintf(cfa, sizeof cfa, "%s/cfa", argv[1]);
+    CHECK(mkdir(cfa, 0700) == 0);
+    for (int i = 0; i < 3; i++) {
+        snprintf(path, sizeof path, "%s/frame%d.fits", cfa, i);
+        CHECK(cfa_fixture(path) == 0);
+    }
+    CHECK(siril_run_commands(cfa,
+        "set32bits\nconvert cfa -out=../process\ncd ../process\n"
+        "calibrate cfa -cfa -debayer -prefix=pp_\n"
+        "stack pp_cfa median -nonorm -out=color.fits\n", error, sizeof error));
+    snprintf(color_output, sizeof color_output, "%s/color.fits", process);
+    float color[64 * 64 * 3];
+    long color_axes[3] = {0};
+    status = 0;
+    fits_open_file(&file, color_output, READONLY, &status);
+    fits_get_img_size(file, 3, color_axes, &status);
+    fits_read_img(file, TFLOAT, 1, 64 * 64 * 3, NULL, color, &any_null, &status);
+    fits_close_file(file, &status);
+    CHECK(status == 0 && color_axes[0] == 64 && color_axes[1] == 64 && color_axes[2] == 3);
+    const int center = 32 * 64 + 32;
+    CHECK(fabsf(color[center] - 0.61f) < 0.015f);
+    CHECK(fabsf(color[64 * 64 + center] - 0.31f) < 0.015f);
+    CHECK(fabsf(color[2 * 64 * 64 + center] - 0.11f) < 0.015f);
+    image = siril_image_read(color_output, error, sizeof error);
+    CHECK(image && siril_image_info(image, &info) && info.channels == 3);
+    CHECK(siril_image_preview(image, 64, &preview));
+    CHECK(preview.rgba && preview.width == 64 && preview.height == 64);
+    siril_preview_free(&preview);
+    snprintf(path, sizeof path, "%s/color-roundtrip.fits", argv[1]);
+    CHECK(siril_image_write(image, path));
+    siril_image_free(image);
+    float roundtrip[64 * 64 * 3];
+    status = 0;
+    fits_open_file(&file, path, READONLY, &status);
+    fits_read_img(file, TFLOAT, 1, 64 * 64 * 3, NULL, roundtrip, &any_null, &status);
+    fits_close_file(file, &status);
+    CHECK(status == 0);
+    for (int i = 0; i < 64 * 64 * 3; i++) CHECK(fabsf(roundtrip[i] - color[i]) < 1e-6f);
+    puts("PASS: original CFA calibration/debayer/stack pipeline reconstructed RGGB colors from unsigned 16-bit FITS, previewed RGB and preserved all RGB planes on export");
+    // New native controls must execute real transforms and retain RGB channels.
+    snprintf(path, sizeof path, "%s/color-tools.fits", argv[1]);
+    snprintf(script, sizeof script,
+        "load %s\ncrop 8 8 32 24\nasinh 5 0\nmtf 0 0.25 1\nsatu 0.2 0\nrotate 90 -nocrop\nsave %s\nclose\n", color_output, path);
+    CHECK(siril_run_commands(process, script, error, sizeof error));
+    status = 0;
+    fits_open_file(&file, path, READONLY, &status);
+    fits_get_img_size(file, 3, color_axes, &status);
+    fits_close_file(file, &status);
+    CHECK(status == 0 && color_axes[0] == 24 && color_axes[1] == 32 && color_axes[2] == 3);
+    image = siril_image_read(path, error, sizeof error);
+    CHECK(image && siril_image_preview(image, 64, &preview));
+    siril_preview_free(&preview);
+    siril_image_free(image);
+    puts("PASS: upstream crop, Asinh, manual MTF, saturation and rotation commands processed and exported an RGB image");
+    char gradient[4096];
+    snprintf(gradient, sizeof gradient, "%s/gradient.fits", argv[1]);
+    CHECK(gradient_fixture(gradient) == 0);
+    snprintf(path, sizeof path, "%s/gradient-processed.fits", argv[1]);
+    snprintf(script, sizeof script, "load %s\nsubsky 1 -samples=10 -tolerance=3\ndenoise\nsave %s\nclose\n", gradient, path);
+    CHECK(siril_run_commands(process, script, error, sizeof error));
+    status = 0;
+    fits_open_file(&file, path, READONLY, &status);
+    fits_read_img(file, TFLOAT, 1, 256 * 256, NULL, aligned, &any_null, &status);
+    fits_close_file(file, &status);
+    CHECK(status == 0);
+    double left_mean = 0, right_mean = 0;
+    for (int y = 16; y < 240; y++) for (int x = 16; x < 48; x++) {
+        left_mean += aligned[y * 256 + x];
+        right_mean += aligned[y * 256 + x + 192];
+    }
+    CHECK(fabs(left_mean - right_mean) / (224 * 32) < 0.02);
+    CHECK(aligned[128 * 256 + 128] > aligned[128 * 256 + 100] + 0.25f);
+    for (int i = 0; i < 256 * 256; i++) CHECK(isfinite(aligned[i]));
+    puts("PASS: original polynomial background extraction and denoising removed a synthetic gradient while retaining its bright star");
     return 0;
 }
