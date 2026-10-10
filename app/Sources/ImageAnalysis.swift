@@ -302,7 +302,7 @@ struct ImageAnalysisView: View {
             details = try await engine.open(file.url)
             image = try await engine.preview(channel: channel, automatic: automatic).uiImage
             snapshot = try await engine.analyze(region: selection, perCFA: perCFA)
-            if ProcessInfo.processInfo.environment["SIRIL_SELF_TEST"] == "1" {
+            if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1" {
                 let report = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-analysis-ready.txt")
                 guard image != nil, snapshot != nil else { throw EngineError.failed("Analysis view did not load") }
                 try "PASS: native analysis workspace tab \(tab) loaded the image, original statistics, histogram and header.\n".write(to: report, atomically: true, encoding: .utf8)
