@@ -358,6 +358,7 @@ struct ContentView: View {
             let partial = try await analysis.analyze(region: area, perCFA: false)
             let pixel = try await analysis.pixel(x: 24, y: 32)
             guard metadata.header.contains("BITPIX"), metadata.width == 256,
+                  metadata.temperature == nil, metadata.gain == nil, metadata.offset == nil,
                   full.statistics.count == 1, full.statistics[0].total == 65536,
                   full.histograms[0].reduce(0, +) == 65536,
                   partial.statistics[0].total == 5120, partial.histograms[0].reduce(0, +) == 5120,

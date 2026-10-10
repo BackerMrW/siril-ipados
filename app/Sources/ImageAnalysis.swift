@@ -7,8 +7,9 @@ extension ImageSelection {
 }
 
 struct ImageDetails: Sendable {
-    let width: Int, height: Int, channels: Int, bitpix: Int, gain: Int, offset: Int
-    let exposure: Double, temperature: Double
+    let width: Int, height: Int, channels: Int, bitpix: Int
+    let gain: Int?, offset: Int?
+    let exposure: Double, temperature: Double?
     let object: String, bayer: String, header: String
     var hasCFA: Bool { channels == 1 && !bayer.isEmpty }
 }
@@ -51,8 +52,9 @@ actor ImageAnalysisEngine {
             throw EngineError.failed("无法读取完整 FITS 文件头")
         }
         return ImageDetails(width: Int(info.width), height: Int(info.height), channels: Int(info.channels),
-            bitpix: Int(info.working_bitpix), gain: Int(info.gain), offset: Int(info.offset),
-            exposure: info.exposure, temperature: info.temperature, object: object, bayer: bayer,
+            bitpix: Int(info.working_bitpix), gain: info.gain == Int32.max ? nil : Int(info.gain),
+            offset: info.offset == Int32.max ? nil : Int(info.offset), exposure: info.exposure,
+            temperature: info.temperature == -999 || !info.temperature.isFinite ? nil : info.temperature, object: object, bayer: bayer,
             header: String(cString: header))
     }
     func preview(channel: Int, automatic: Bool) throws -> PreviewBytes {
@@ -196,9 +198,9 @@ struct ImageAnalysisView: View {
             if let details {
                 Section("文件信息") {
                     Text("\(details.width) × \(details.height) · \(details.channels) 通道 · 工作 BITPIX \(details.bitpix)")
-                    LabeledContent("曝光", value: String(format: "%.3g 秒", details.exposure))
-                    LabeledContent("温度", value: String(format: "%.3g ℃", details.temperature))
-                    LabeledContent("增益 / 偏置", value: "\(details.gain) / \(details.offset)")
+                    LabeledContent("曝光", value: details.exposure == -999 || !details.exposure.isFinite ? "未记录" : String(format: "%.3g 秒", details.exposure))
+                    LabeledContent("温度", value: details.temperature.map { String(format: "%.3g ℃", $0) } ?? "未记录")
+                    LabeledContent("增益 / 偏置", value: (details.gain.map { String($0) } ?? "未记录") + " / " + (details.offset.map { String($0) } ?? "未记录"))
                     if !details.object.isEmpty { LabeledContent("目标", value: details.object) }
                     if details.hasCFA { LabeledContent("CFA", value: details.bayer) }
                 }.font(.caption)
@@ -211,7 +213,7 @@ struct ImageAnalysisView: View {
         }
     }
     private var statisticsControls: some View {
-        Section("Statistics · 原版 STATS_MAIN") {
+        Section("Statistics · 图像统计") {
             Toggle("归一化实数 [0, 1]", isOn: $normalized).disabled(busy)
             Toggle("按 CFA 通道统计", isOn: $perCFA).disabled(busy || details?.hasCFA != true)
             if let snapshot {
@@ -303,6 +305,8 @@ struct ImageAnalysisView: View {
             image = try await engine.preview(channel: channel, automatic: automatic).uiImage
             snapshot = try await engine.analyze(region: selection, perCFA: perCFA)
             if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1" {
+                selecting = true
+                pixel = try await engine.pixel(x: selection?.x ?? file.width / 2, y: selection?.y ?? file.height / 2)
                 let report = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-analysis-ready.txt")
                 guard image != nil, snapshot != nil else { throw EngineError.failed("Analysis view did not load") }
                 try "PASS: native analysis workspace tab \(tab) loaded the image, original statistics, histogram and header.\n".write(to: report, atomically: true, encoding: .utf8)
