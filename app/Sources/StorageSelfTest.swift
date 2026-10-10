@@ -7,6 +7,8 @@ extension SirilEngine {
         let first = try importFile(source, role: .lights)
         var second = try importFile(editedSource, role: .results)
         second.parentID = first.id
+        let firstBytes = try Data(contentsOf: first.url)
+        let secondBytes = try Data(contentsOf: second.url)
         try saveLibrary(baseline + [first, second])
         let initial = storageSummary()
         var history = WorkspaceHistory()
@@ -34,6 +36,8 @@ extension SirilEngine {
         guard restored.count == baseline.count + 2,
               restored.first(where: { $0.id == second.id })?.parentID == first.id,
               restored.first(where: { $0.id == second.id })?.role == .results,
+              try Data(contentsOf: first.url) == firstBytes,
+              try Data(contentsOf: second.url) == secondBytes,
               trashEntries().isEmpty else { throw EngineError.failed("Trash restore metadata failed") }
         _ = try moveToTrash(ids: [first.id, second.id])
         try permanentlyDeleteTrash(Set(trashEntries().map(\.id)))
@@ -45,6 +49,11 @@ extension SirilEngine {
         guard let task = jobHistory().first(where: { $0.id == job.folder.lastPathComponent }), task.bytes > 0 else {
             throw EngineError.failed("Task size failed")
         }
+        activeJobIDs.insert(task.id)
+        var runningRejected = false
+        do { try trashJob(task) } catch { runningRejected = true }
+        activeJobIDs.remove(task.id)
+        guard runningRejected, manager.fileExists(atPath: task.folder.path) else { throw EngineError.failed("Active task deletion was allowed") }
         try trashJob(task)
         guard !manager.fileExists(atPath: job.folder.path), let deletedJob = trashEntries().first,
               manager.fileExists(atPath: baseline[0].url.path) else { throw EngineError.failed("Job deletion affected gallery") }

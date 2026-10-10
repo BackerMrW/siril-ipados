@@ -33,6 +33,7 @@ enum EngineError: LocalizedError {
 
 // All upstream calls stay on one actor and its C ABI serializes global state.
 actor SirilEngine {
+    var activeJobIDs: Set<String> = []
     func read(_ url: URL) throws -> OpaquePointer {
         var error = [CChar](repeating: 0, count: 512)
         let capacity = error.count
@@ -253,7 +254,10 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showTools, onDismiss: {
             if pendingTool == 0 { showBackground = true }
-            if pendingTool == 1 { showProcessing = true }
+            if pendingTool == 1 {
+                if let activeFile { selected = [activeFile.id] }
+                showProcessing = true
+            }
             if let pendingTool, pendingTool >= 2 { analysisTab = pendingTool - 2; showAnalysis = true }
             pendingTool = nil
         }) {
@@ -320,6 +324,8 @@ struct ContentView: View {
 
     @MainActor private func importResult(_ result: URL, parent: UUID?) {
         Task {
+            busy = true
+            defer { busy = false }
             do {
                 var record = try await engine.importFile(result, role: .results)
                 record.parentID = parent

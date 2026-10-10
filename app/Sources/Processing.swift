@@ -122,6 +122,8 @@ extension SirilEngine {
     }
 
     func run(_ job: ProcessingJob) throws -> [URL] {
+        activeJobIDs.insert(job.folder.lastPathComponent)
+        defer { activeJobIDs.remove(job.folder.lastPathComponent) }
         try writeJobState(job.folder, state: "运行中")
         var error = [CChar](repeating: 0, count: 4096)
         let capacity = error.count

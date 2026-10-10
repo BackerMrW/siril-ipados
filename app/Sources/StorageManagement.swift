@@ -35,7 +35,7 @@ struct WorkspaceHistory: Codable, Sendable {
 }
 
 extension SirilEngine {
-    var documents: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0] }
+    var documents: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].standardizedFileURL.resolvingSymlinksInPath() }
     private var trashRoot: URL { documents.appendingPathComponent("Trash", isDirectory: true) }
 
     // Reject traversal and symbolic links, including symlinks in parent directories.
@@ -94,6 +94,7 @@ extension SirilEngine {
     }
 
     func trashJob(_ job: JobRecord) throws {
+        guard !activeJobIDs.contains(job.id) else { throw EngineError.failed("任务正在处理，不能删除") }
         guard UUID(uuidString: job.id) != nil else { throw EngineError.failed("无效的任务目录") }
         let source = try owned(job.id, under: documents.appendingPathComponent("Jobs"))
         let entry = TrashEntry(id: UUID(), deleted: Date(), records: [], jobName: job.id)
@@ -128,10 +129,12 @@ extension SirilEngine {
     }
 
     func recoverTrashTransactions() throws {
+        let entries = trashEntries()
+        guard !entries.isEmpty else { return }
         var records = (try? JSONDecoder().decode([FITSRecord].self, from: Data(contentsOf: documents.appendingPathComponent("library.json")))) ?? []
         var completed: [UUID] = []
         var updated: [TrashEntry] = []
-        for entry in trashEntries() {
+        for entry in entries {
             let payload = (try? trashFolder(entry.id))?.appendingPathComponent("payload")
             if let job = entry.jobName {
                 if let source = try? owned(job, under: documents.appendingPathComponent("Jobs")),
