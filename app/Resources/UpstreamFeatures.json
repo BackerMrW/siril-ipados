@@ -455,13 +455,13 @@
       "id": "win.fits-header",
       "title": "FITS Header...",
       "group": "root",
-      "status": "待移植或待逐项验证"
+      "status": "完整文件头查看与搜索已接入（编辑仍待接入）"
     },
     {
       "id": "win.image-information",
       "title": "Image Information...",
       "group": "root",
-      "status": "待移植或待逐项验证"
+      "status": "只读元数据已接入（原版编辑仍待接入）"
     },
     {
       "id": "win.astrometry",
@@ -479,7 +479,7 @@
       "id": "win.statistics",
       "title": "Statistics...",
       "group": "analysis",
-      "status": "待移植或待逐项验证"
+      "status": "原版单张/选区/CFA 统计已接入（序列浏览仍待接入）"
     },
     {
       "id": "win.evaluate-noise",
@@ -557,7 +557,7 @@
       "id": "win.histo_display",
       "title": "Show/hide histogram overlay",
       "group": "工作区与分析",
-      "status": "待移植或待逐项验证"
+      "status": "直方图分析窗口已接入（工作区叠加仍待接入）"
     },
     {
       "id": "win.annotate-object",

@@ -283,6 +283,89 @@ int siril_image_info(const SirilImage *image, SirilImageInfo *info) {
     g_mutex_unlock(&engine_mutex);
     return 1;
 }
+static int displayed_region(fits *fit, const SirilRegion *input, rectangle *area) {
+    memset(area, 0, sizeof *area);
+    if (!input) return 1;
+    if (input->x < 0 || input->y < 0 || input->width <= 0 || input->height <= 0 ||
+        input->x >= fit->rx || input->y >= fit->ry ||
+        input->width > fit->rx - input->x || input->height > fit->ry - input->y) return 0;
+    area->x = input->x; area->w = input->width; area->h = input->height;
+    /* Upstream stats/histogram selection extraction always uses ry-y-h,
+     * while our display respects ROWORDER. Map exactly once at this boundary. */
+    area->y = fit->top_down ? fit->ry - input->y - input->height : input->y;
+    return 1;
+}
+int siril_image_statistics(SirilImage *image, const SirilRegion *region, int per_cfa,
+        SirilChannelStatistics results[3]) {
+    if (!image || !results) return 0;
+    memset(results, 0, 3 * sizeof *results);
+    g_mutex_lock(&engine_mutex);
+    fits *fit = &image->fit;
+    rectangle area;
+    int channels = 0;
+    if (!displayed_region(fit, region, &area)) goto end;
+    gboolean cfa = per_cfa && fit->naxes[2] == 1 && fit->keywords.bayer_pattern[0] &&
+        (!region || (region->width >= 2 && region->height >= 2));
+    channels = cfa ? 3 : fit->naxes[2];
+    for (int c = 0; c < channels; c++) {
+        imstats *stat = statistics(NULL, -1, fit, cfa ? -c - 1 : c, &area, STATS_MAIN, MULTI_THREADED);
+        if (!stat) { channels = 0; break; }
+        results[c] = (SirilChannelStatistics){
+            .total = stat->total, .good = stat->ngoodpix, .mean = stat->mean, .median = stat->median,
+            .sigma = stat->sigma, .average_deviation = stat->avgDev, .mad = stat->mad,
+            .sqrt_bwmv = stat->sqrtbwmv, .minimum = stat->min, .maximum = stat->max, .norm = stat->normValue
+        };
+        free_stats(stat);
+    }
+end:
+    g_mutex_unlock(&engine_mutex);
+    return channels;
+}
+int siril_image_histogram(SirilImage *image, const SirilRegion *region, int channel,
+        double *counts, size_t buckets) {
+    if (!image || !counts || !buckets || buckets > 65536 || 65536 % buckets) return 0;
+    g_mutex_lock(&engine_mutex);
+    fits *fit = &image->fit;
+    rectangle area;
+    int ok = 0;
+    if (channel < 0 || channel >= fit->naxes[2] || !displayed_region(fit, region, &area)) goto end;
+    gsl_histogram *histogram = region ? computeHisto_Selection(fit, channel, &area) : computeHisto(fit, channel);
+    if (!histogram) goto end;
+    memset(counts, 0, buckets * sizeof *counts);
+    for (size_t i = 0; i < histogram->n; i++) {
+        size_t target = i * buckets / histogram->n;
+        counts[target] += gsl_histogram_get(histogram, i);
+    }
+    gsl_histogram_free(histogram);
+    ok = 1;
+end:
+    g_mutex_unlock(&engine_mutex);
+    return ok;
+}
+int siril_image_pixel(SirilImage *image, int32_t x, int32_t y, float values[3]) {
+    if (!image || !values) return 0;
+    g_mutex_lock(&engine_mutex);
+    fits *fit = &image->fit;
+    int channels = 0;
+    if (x >= 0 && y >= 0 && x < fit->rx && y < fit->ry && fit->type == DATA_FLOAT) {
+        int row = fit->top_down ? y : fit->ry - 1 - y;
+        size_t offset = (size_t)row * fit->rx + x;
+        channels = fit->naxes[2];
+        memset(values, 0, 3 * sizeof *values);
+        for (int c = 0; c < channels; c++) values[c] = fit->fpdata[c][offset];
+    }
+    g_mutex_unlock(&engine_mutex);
+    return channels;
+}
+size_t siril_image_copy_header(SirilImage *image, char *buffer, size_t capacity) {
+    if (!image) return 0;
+    g_mutex_lock(&engine_mutex);
+    const char *header = image->fit.header ? image->fit.header : "";
+    size_t required = strlen(header) + 1;
+    if (buffer && capacity >= required) memcpy(buffer, header, required);
+    g_mutex_unlock(&engine_mutex);
+    return required;
+}
 static int preview_locked(fits *fit, uint32_t max_dimension, int selected_channel, int automatic, SirilPreview *preview) {
     if (!fit || !preview || !max_dimension || max_dimension > 2048 || selected_channel < -1 || selected_channel >= fit->naxes[2]) return 0;
     memset(preview, 0, sizeof *preview);

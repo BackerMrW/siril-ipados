@@ -29,6 +29,24 @@ typedef struct {
     uint32_t width, height;
     uint8_t *rgba;
 } SirilPreview;
+typedef struct {
+    int32_t x, y, width, height; /* displayed top-left coordinates; NULL = full image */
+} SirilRegion;
+typedef struct {
+    uint64_t total, good;
+    double mean, median, sigma, average_deviation, mad, sqrt_bwmv, minimum, maximum, norm;
+} SirilChannelStatistics;
+/* Original STATS_MAIN and CFA channel extraction, without changing image pixels.
+ * Returns 1/3 channels, or zero on failure. CFA falls back to mono for <2px regions. */
+int siril_image_statistics(SirilImage *image, const SirilRegion *region, int per_cfa,
+    SirilChannelStatistics results[3]);
+/* Aggregates original computeHisto[_Selection] bins for display, without a new algorithm.
+ * buckets must divide 65536. Zero/out-of-range behavior follows the original functions. */
+int siril_image_histogram(SirilImage *image, const SirilRegion *region, int channel,
+    double *counts, size_t buckets);
+int siril_image_pixel(SirilImage *image, int32_t x, int32_t y, float values[3]);
+/* Required UTF-8 buffer size including NUL; a short buffer is never partially filled. */
+size_t siril_image_copy_header(SirilImage *image, char *buffer, size_t capacity);
 const char *siril_core_version(void);
 /* All operations are serialized because upstream Siril uses global state. */
 SirilImage *siril_image_read(const char *path, char *error, size_t error_size);

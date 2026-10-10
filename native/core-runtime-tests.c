@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /* Executes against the real upstream engine on an Apple iPad simulator. */
 #include "SirilCore.h"
+#include "algos/statistics.h"
+#include "io/image_format_fits.h"
 #include <fitsio.h>
 #include <math.h>
 #include <stdio.h>
@@ -93,6 +95,68 @@ static int cfa_fixture(const char *path) {
     fits_close_file(file, &status);
     return status;
 }
+static int analysis_reference(const char *path, const SirilRegion *region, int cfa) {
+    char error[512];
+    SirilImage *image = siril_image_read(path, error, sizeof error);
+    CHECK(image);
+    fits original = {0};
+    CHECK(readfits(path, &original, NULL, TRUE) == 0);
+    rectangle area = {0};
+    if (region) {
+        area.x = region->x; area.w = region->width; area.h = region->height;
+        area.y = original.top_down ? original.ry - region->y - region->height : region->y;
+    }
+    SirilChannelStatistics values[3];
+    int channels = siril_image_statistics(image, region, cfa, values);
+    int use_cfa = cfa && original.naxes[2] == 1 && original.keywords.bayer_pattern[0] &&
+        (!region || (region->width >= 2 && region->height >= 2));
+    CHECK(channels == (use_cfa ? 3 : original.naxes[2]));
+    for (int c = 0; c < channels; c++) {
+        imstats *reference = statistics(NULL, -1, &original, use_cfa ? -c - 1 : c, &area, STATS_MAIN, MULTI_THREADED);
+        CHECK(reference && values[c].total == reference->total && values[c].good == reference->ngoodpix);
+        double actual[] = {values[c].mean, values[c].median, values[c].sigma, values[c].average_deviation,
+            values[c].mad, values[c].sqrt_bwmv, values[c].minimum, values[c].maximum, values[c].norm};
+        double expected[] = {reference->mean, reference->median, reference->sigma, reference->avgDev,
+            reference->mad, reference->sqrtbwmv, reference->min, reference->max, reference->normValue};
+        for (int i = 0; i < 9; i++) CHECK((isnan(actual[i]) && isnan(expected[i])) || fabs(actual[i] - expected[i]) < 1e-10);
+        free_stats(reference);
+    }
+    for (int c = 0; c < original.naxes[2]; c++) {
+        double bins[512];
+        CHECK(siril_image_histogram(image, region, c, bins, 512));
+        gsl_histogram *reference = region ? computeHisto_Selection(&original, c, &area) : computeHisto(&original, c);
+        CHECK(reference);
+        double expected[512] = {0};
+        for (size_t i = 0; i < reference->n; i++) expected[i * 512 / reference->n] += gsl_histogram_get(reference, i);
+        for (int i = 0; i < 512; i++) CHECK(bins[i] == expected[i]);
+        gsl_histogram_free(reference);
+    }
+    for (int y = 0; y < original.ry; y += original.ry > 2 ? original.ry / 2 : 1) {
+        float pixel[3];
+        int x = y % original.rx;
+        CHECK(siril_image_pixel(image, x, y, pixel) == original.naxes[2]);
+        int row = original.top_down ? y : original.ry - 1 - y;
+        for (int c = 0; c < original.naxes[2]; c++) CHECK(pixel[c] == original.fpdata[c][row * original.rx + x]);
+    }
+    CHECK(!siril_image_pixel(image, -1, 0, (float[3]){0}));
+    CHECK(!siril_image_pixel(image, original.rx, 0, (float[3]){0}));
+    SirilRegion bad = {original.rx - 1, 0, 2, 1};
+    CHECK(!siril_image_statistics(image, &bad, 0, values));
+    CHECK(!siril_image_histogram(image, &bad, 0, (double[512]){0}, 512));
+    CHECK(!siril_image_histogram(image, NULL, original.naxes[2], (double[512]){0}, 512));
+    CHECK(!siril_image_histogram(image, NULL, 0, (double[512]){0}, 511));
+    size_t size = siril_image_copy_header(image, NULL, 0);
+    CHECK(size > 1);
+    char *header = malloc(size);
+    CHECK(header && siril_image_copy_header(image, header, size) == size);
+    CHECK(strstr(header, "BITPIX") && strlen(header) + 1 == size && strcmp(header, original.header) == 0);
+    char short_buffer[] = "unchanged";
+    CHECK(siril_image_copy_header(image, short_buffer, sizeof short_buffer) == size && !strcmp(short_buffer, "unchanged"));
+    free(header);
+    clearfits(&original);
+    siril_image_free(image);
+    return 0;
+}
 int main(int argc, char **argv) {
     CHECK(argc == 2);
     char light[4096], dark[4096], output[4096], missing[4096];
@@ -111,6 +175,15 @@ int main(int argc, char **argv) {
     CHECK(siril_image_info(image, &info));
     CHECK(info.width == 2 && info.height == 2 && info.channels == 1);
     CHECK(info.working_bitpix == FLOAT_IMG && fabs(info.exposure - 120) < 1e-8);
+    CHECK(analysis_reference(light, NULL, 0) == 0);
+    SirilRegion upper_row = {0, 0, 2, 1};
+    CHECK(analysis_reference(light, &upper_row, 0) == 0);
+    SirilChannelStatistics simple_stats[3];
+    CHECK(siril_image_statistics(image, NULL, 0, simple_stats) == 1);
+    CHECK(fabs(simple_stats[0].mean - 0.35) < 1e-7 && fabs(simple_stats[0].median - 0.35) < 1e-7);
+    CHECK(fabs(simple_stats[0].mad - 0.1) < 1e-7 && fabs(simple_stats[0].average_deviation - 0.1) < 1e-7);
+    CHECK(siril_image_statistics(image, &upper_row, 0, simple_stats) == 1 && fabs(simple_stats[0].mean - 0.45) < 1e-7);
+    printf("PASS: original eight statistics, selected displayed row, pixel orientation, histogram bins and complete FITS header\n");
     CHECK(siril_image_subtract(image, calibration));
     CHECK(siril_image_add(image, calibration));
     CHECK(!siril_image_divide_scalar(image, 0));
@@ -250,6 +323,19 @@ int main(int argc, char **argv) {
     for (int i = 0; i < 3; i++) {
         snprintf(path, sizeof path, "%s/frame%d.fits", cfa, i);
         CHECK(cfa_fixture(path) == 0);
+        if (!i) {
+            CHECK(analysis_reference(path, NULL, 1) == 0);
+            SirilRegion cfa_region = {1, 3, 7, 9};
+            CHECK(analysis_reference(path, &cfa_region, 1) == 0);
+            CHECK(analysis_reference(path, &cfa_region, 0) == 0);
+            SirilImage *raw_image = siril_image_read(path, error, sizeof error);
+            CHECK(raw_image && siril_image_statistics(raw_image, &cfa_region, 1, simple_stats) == 3);
+            CHECK(simple_stats[0].mean > 0.6 && simple_stats[0].mean < 0.61);
+            CHECK(simple_stats[1].mean > 0.3 && simple_stats[1].mean < 0.31);
+            CHECK(simple_stats[2].mean > 0.1 && simple_stats[2].mean < 0.11);
+            siril_image_free(raw_image);
+            puts("PASS: top-down unsigned CFA and odd-origin selected CFA statistics match original R/G/B filters");
+        }
     }
     CHECK(siril_run_commands(cfa,
         "set32bits\nconvert cfa -out=../process\ncd ../process\n"
@@ -269,6 +355,9 @@ int main(int argc, char **argv) {
     CHECK(fabsf(color[64 * 64 + center] - 0.31f) < 0.015f);
     CHECK(fabsf(color[2 * 64 * 64 + center] - 0.11f) < 0.015f);
     image = siril_image_read(color_output, error, sizeof error);
+    CHECK(analysis_reference(color_output, NULL, 0) == 0);
+    SirilRegion rgb_region = {3, 7, 19, 15};
+    CHECK(analysis_reference(color_output, &rgb_region, 0) == 0);
     CHECK(image && siril_image_info(image, &info) && info.channels == 3);
     CHECK(siril_image_preview(image, 64, &preview));
     CHECK(preview.rgba && preview.width == 64 && preview.height == 64);

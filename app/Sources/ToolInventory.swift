@@ -20,6 +20,7 @@ struct UpstreamInventory: Decodable {
 struct ToolInventoryView: View {
     let onBackground: () -> Void
     let onProcessing: () -> Void
+    let onAnalysis: (Int) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     private let features = UpstreamInventory.bundled
@@ -32,6 +33,9 @@ struct ToolInventoryView: View {
                 Section("已接入的入口") {
                     Button("背景提取 · Background Extraction") { dismiss(); onBackground() }
                     Button("批处理与单张工具") { dismiss(); onProcessing() }
+                    Button("统计 · Statistics") { dismiss(); onAnalysis(0) }
+                    Button("直方图与像素读数") { dismiss(); onAnalysis(1) }
+                    Button("FITS 文件头 · FITS Header") { dismiss(); onAnalysis(2) }
                 }
                 Section("原版功能对应情况") {
                     Text("下面按所移植的 Siril 1.5 源码列出原版动作。当前版本仍在移植，未完成的工具会显示真实状态。")

@@ -2,7 +2,7 @@
 
 目标是原版功能、参数、图像交互和文件格式完整对应。当前 App 尚未达到该目标。
 
-固定原版源码：`6c0f8f3207b9cb712f7e04249217123a8ca66915`（1.5 开发版）。不是与用户电脑上的任意版本自动一致。
+固定原版源码：`6c0f8f3207b9cb712f7e04249217123a8ca66915`（1.5 开发版）。目标采用最新开发版；2026-10-10 核对上游 HEAD 与此提交一致。
 
 从原版主窗口提取 102 个不同动作，扫描 73 个 UI 文件；控件、信号、范围和默认值记录在 `app/Resources/UpstreamFeatures.json`。
 这是自动发现的基线，不能替代代码路径、插件、脚本、序列以及实际交互核对。
@@ -11,7 +11,7 @@
 
 - 原版工作区：颜色通道、显示模式、直方图、像素读数、矩形/多边形选择、ROI、撤销重做、蒙版及对比预览。
 - 序列：浏览/排除帧、质量图、全部配准模式与参数、叠加方法/归一化/剔除和校准高级参数。
-- 颜色与分析：PCC/SPCC、星表/联网、解算与标注、测光与光变、PSF、像差/倾斜及图像统计。
+- 颜色与分析：PCC/SPCC、星表/联网、解算与标注、测光与光变、PSF、像差/倾斜；单张/选区/CFA 图像统计已接入，序列浏览仍待接入。
 - 完整单张工具：原版每个工具的参数、交互输入、应用/取消、作用于序列、蒙版和预览。
 - 格式和依赖：RAW、TIFF、JPEG、PNG、HEIF、JPEG XL、XISF、FFmpeg/FFMS2、curl/SQLite。当前对应 Siril 构建选项关闭。
 - 平台接口：StarNet 等外部程序、Python/插件、在线下载、文件权限、内存、后台生命周期。需要真正适配，不能把空按钮算完成。
@@ -95,11 +95,11 @@
 | win.clipboard | Copy to clipboard | 待移植或待逐项验证 |
 | win.icc-tool | Color Management... | 待移植或待逐项验证 |
 | win.ccm-processing | Color Conversion Matrix... | 待移植或待逐项验证 |
-| win.fits-header | FITS Header... | 待移植或待逐项验证 |
-| win.image-information | Image Information... | 待移植或待逐项验证 |
+| win.fits-header | FITS Header... | 完整文件头查看与搜索已接入（编辑仍待接入） |
+| win.image-information | Image Information... | 只读元数据已接入（原版编辑仍待接入） |
 | win.astrometry | Image Plate Solver... | 待移植或待逐项验证 |
 | win.annotate-dialog | Annotate... | 待移植或待逐项验证 |
-| win.statistics | Statistics... | 待移植或待逐项验证 |
+| win.statistics | Statistics... | 原版单张/选区/CFA 统计已接入（序列浏览仍待接入） |
 | win.evaluate-noise | Noise Estimation | 待移植或待逐项验证 |
 | win.ccd-inspector | Aberration Inspector | 待移植或待逐项验证 |
 | win.show-tilt | Show Tilt | 待移植或待逐项验证 |
@@ -112,7 +112,7 @@
 | win.panel | Hide the control panel to show only the image panel (toggle). | 待移植或待逐项验证 |
 | win.negative-view | Switch to normal and negative view | 待移植或待逐项验证 |
 | win.color-map | Switch to normal and rainbow colormap (false color rendering) | 待移植或待逐项验证 |
-| win.histo_display | Show/hide histogram overlay | 待移植或待逐项验证 |
+| win.histo_display | Show/hide histogram overlay | 直方图分析窗口已接入（工作区叠加仍待接入） |
 | win.annotate-object | Left-click to show object names if WCS information is available. Right-click to display a list of astro catalogs to choose from. | 待移植或待逐项验证 |
 | win.wcs-grid | Show celestial grid if WCS information is available | 待移植或待逐项验证 |
 | win.photometry | Switch to PSF/photometry mode. If a sequence is loaded, a right click on the displayed image applies the PSF/Photometry on the whole sequence. | 待移植或待逐项验证 |
@@ -126,4 +126,6 @@
 ## 完成标准
 
 每项需有原版入口对应、参数与默认值对应、真实算法输出校验、原生交互校验和 iPad 验证记录。未通过者保持未完成。
+共享分析工作区已接入矩形选区、完整分辨率像素读数、原版 STATS_MAIN 八项统计及归一化/CFA 开关、原版整图/选区直方图和完整文件头查看/搜索/复制。选区目前用于分析；处理 ROI、蒙版、多边形选择、关键字编辑、文件信息编辑和直方图变换仍待移植。
+
 背景提取已接入原版采样和图像 hook：增删/选择采样、自动/随机采样、RBF/1–4 阶多项式、减法/除法、抖动、自动渐变完整参数、原图/模型/结果预览与另存。序列应用、拖动采样点和共享撤销仍待补齐。

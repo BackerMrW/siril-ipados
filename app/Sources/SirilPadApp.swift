@@ -127,6 +127,9 @@ struct ContentView: View {
     @State private var showBackground = false
     @State private var showTools = false
     @State private var pendingTool: Int?
+    @State private var showAnalysis = false
+    @State private var analysisTab = 0
+    @State private var imageSelection: ImageSelection?
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columns) {
@@ -203,11 +206,13 @@ struct ContentView: View {
                         }.pickerStyle(.segmented)
                         Toggle("自动拉伸显示", isOn: $autoDisplay)
                     }.padding(.horizontal)
-                    ZoomableImageCanvas(image: image, samples: [], onTap: nil)
+                    ZoomableImageCanvas(image: image, samples: [], imageWidth: Double(activeFile?.width ?? 1),
+                        imageHeight: Double(activeFile?.height ?? 1), region: imageSelection, onTap: nil)
                         .background(.black)
                     HStack {
                         Button("图像处理", systemImage: "slider.horizontal.3") { showTools = true }
                         Button("背景提取") { showBackground = true }
+                        Button("统计 / 直方图") { analysisTab = 0; showAnalysis = true }
                     }.disabled(busy).padding(.top, 8)
                     if let previewURL { ShareLink("导出 FITS", item: previewURL).padding() }
                 } else {
@@ -228,13 +233,20 @@ struct ContentView: View {
                 BackgroundExtractionView(file: file, onPreview: importResult)
             }
         }
+        .fullScreenCover(isPresented: $showAnalysis) {
+            if let file = activeFile {
+                ImageAnalysisView(file: file, selection: $imageSelection, initialTab: analysisTab)
+            }
+        }
         .sheet(isPresented: $showTools, onDismiss: {
             if pendingTool == 0 { showBackground = true }
             if pendingTool == 1 { showProcessing = true }
+            if let pendingTool, pendingTool >= 2 { analysisTab = pendingTool - 2; showAnalysis = true }
             pendingTool = nil
         }) {
             ToolInventoryView(onBackground: { pendingTool = 0; showTools = false },
-                              onProcessing: { pendingTool = 1; showTools = false })
+                              onProcessing: { pendingTool = 1; showTools = false },
+                              onAnalysis: { tab in pendingTool = tab + 2; showTools = false })
         }
         .onChange(of: displayChannel) { _, _ in refreshDisplay() }
         .onChange(of: autoDisplay) { _, _ in refreshDisplay() }
@@ -259,6 +271,12 @@ struct ContentView: View {
             } else {
                 files = await engine.loadLibrary()
                 selected = Set(files.filter { $0.role != .results }.map(\.id))
+                if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1", let file = files.last {
+                    await loadPreview(file)
+                    imageSelection = ImageSelection(x: 24, y: 32, width: 80, height: 64)
+                    analysisTab = 0
+                    showAnalysis = true
+                }
             }
         }
     }
@@ -333,6 +351,20 @@ struct ContentView: View {
                 throw EngineError.failed("Original feature inventory / background fixture missing")
             }
             let backgroundFile = try await engine.importFile(gradient)
+            let analysis = ImageAnalysisEngine()
+            let metadata = try await analysis.open(backgroundFile.url)
+            let full = try await analysis.analyze(region: nil, perCFA: true)
+            let area = ImageSelection(x: 24, y: 32, width: 80, height: 64)
+            let partial = try await analysis.analyze(region: area, perCFA: false)
+            let pixel = try await analysis.pixel(x: 24, y: 32)
+            guard metadata.header.contains("BITPIX"), metadata.width == 256,
+                  full.statistics.count == 1, full.statistics[0].total == 65536,
+                  full.histograms[0].reduce(0, +) == 65536,
+                  partial.statistics[0].total == 5120, partial.histograms[0].reduce(0, +) == 5120,
+                  partial.statistics[0].values[0] != full.statistics[0].values[0],
+                  pixel.values.count == 1, pixel.values[0] > 0 else {
+                throw EngineError.failed("Native workspace statistics / histogram / pixel / header failed")
+            }
             let background = BackgroundEngine()
             try await background.open(backgroundFile.url)
             var settings = BackgroundSettings()
@@ -351,8 +383,9 @@ struct ContentView: View {
             let corrected = try await background.save(file: backgroundFile, settings: settings)
             guard FileManager.default.fileExists(atPath: corrected.path) else { throw EngineError.failed("Native background export failed") }
             await loadPreview(backgroundFile)
+            try await engine.saveLibrary([record, processed, backgroundFile])
             showBackground = true
-            try "PASS: Swift actor imported FITS, calibrated and stacked lights with original Siril commands, restored library/history, ran manual MTF, and tested native background sample generation/deletion/addition, original RBF compute, model preview and persistent FITS export. Bundled original feature inventory and notices were verified.\n"
+            try "PASS: Swift actor imported FITS, calibrated and stacked lights with original Siril commands, restored library/history, ran manual MTF, tested native background samples/RBF/model/FITS export, and verified original full/selected statistics and histogram counts, full-resolution pixel reads and complete FITS header. Bundled original feature inventory and notices were verified.\n"
                 .write(to: report, atomically: true, encoding: .utf8)
         } catch {
             try? ("FAIL: " + error.localizedDescription + "\n" + String(SirilEngine.processingLog().suffix(16000)))
@@ -389,7 +422,7 @@ struct ContentView: View {
         progress = "Siril 正在自动拉伸"
         defer { busy = false; progress = "" }
         do {
-            if activeFile?.id != record.id { displayChannel = -1 }
+            if activeFile?.id != record.id { displayChannel = -1; imageSelection = nil }
             activeFile = record
             let p = try await engine.preview(record.url, channel: displayChannel, automatic: autoDisplay)
             guard !Task.isCancelled, let provider = CGDataProvider(data: p.data as CFData),

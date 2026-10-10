@@ -44,7 +44,14 @@ for obj in main.iter("object"):
             names = {p.get("name"): p.text or "" for p in parent.findall("property")}
             group = names.get("name", group)
             break
-    state = "交互界面已接入（序列应用仍待接入）" if action == "win.background-extr-processing" else "简化参数界面，未达到原版完整功能" if action.removeprefix("win.") in partial else "待移植或待逐项验证"
+    connected = {
+        "win.background-extr-processing": "交互界面已接入（序列应用仍待接入）",
+        "win.statistics": "原版单张/选区/CFA 统计已接入（序列浏览仍待接入）",
+        "win.fits-header": "完整文件头查看与搜索已接入（编辑仍待接入）",
+        "win.image-information": "只读元数据已接入（原版编辑仍待接入）",
+        "win.histo_display": "直方图分析窗口已接入（工作区叠加仍待接入）",
+    }
+    state = connected.get(action, "简化参数界面，未达到原版完整功能" if action.removeprefix("win.") in partial else "待移植或待逐项验证")
     entries.append({"id": action, "title": title, "group": group, "status": state})
 
 value = {"upstreamRevision": "6c0f8f3207b9cb712f7e04249217123a8ca66915", "entries": entries,
@@ -53,13 +60,13 @@ out = root / "app/Resources/UpstreamFeatures.json"
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
 lines = ["# Siril iPad 完整移植核对表", "", "目标是原版功能、参数、图像交互和文件格式完整对应。当前 App 尚未达到该目标。", "",
-         "固定原版源码：`" + value["upstreamRevision"] + "`（1.5 开发版）。不是与用户电脑上的任意版本自动一致。", "",
+         "固定原版源码：`" + value["upstreamRevision"] + "`（1.5 开发版）。目标采用最新开发版；2026-10-10 核对上游 HEAD 与此提交一致。", "",
          f"从原版主窗口提取 {len(entries)} 个不同动作，扫描 {len(panels)} 个 UI 文件；控件、信号、范围和默认值记录在 `app/Resources/UpstreamFeatures.json`。",
          "这是自动发现的基线，不能替代代码路径、插件、脚本、序列以及实际交互核对。", "",
          "## 当前必须补齐的跨工具能力", "",
          "- 原版工作区：颜色通道、显示模式、直方图、像素读数、矩形/多边形选择、ROI、撤销重做、蒙版及对比预览。",
          "- 序列：浏览/排除帧、质量图、全部配准模式与参数、叠加方法/归一化/剔除和校准高级参数。",
-         "- 颜色与分析：PCC/SPCC、星表/联网、解算与标注、测光与光变、PSF、像差/倾斜及图像统计。",
+         "- 颜色与分析：PCC/SPCC、星表/联网、解算与标注、测光与光变、PSF、像差/倾斜；单张/选区/CFA 图像统计已接入，序列浏览仍待接入。",
          "- 完整单张工具：原版每个工具的参数、交互输入、应用/取消、作用于序列、蒙版和预览。",
          "- 格式和依赖：RAW、TIFF、JPEG、PNG、HEIF、JPEG XL、XISF、FFmpeg/FFMS2、curl/SQLite。当前对应 Siril 构建选项关闭。",
          "- 平台接口：StarNet 等外部程序、Python/插件、在线下载、文件权限、内存、后台生命周期。需要真正适配，不能把空按钮算完成。",
@@ -67,6 +74,7 @@ lines = ["# Siril iPad 完整移植核对表", "", "目标是原版功能、参�
 for entry in entries:
     lines.append("| " + entry["id"] + " | " + entry["title"].replace("|", "/").replace("\n", " ") + " | " + entry["status"] + " |")
 lines += ["", "## 完成标准", "", "每项需有原版入口对应、参数与默认值对应、真实算法输出校验、原生交互校验和 iPad 验证记录。未通过者保持未完成。",
+          "共享分析工作区已接入矩形选区、完整分辨率像素读数、原版 STATS_MAIN 八项统计及归一化/CFA 开关、原版整图/选区直方图和完整文件头查看/搜索/复制。选区目前用于分析；处理 ROI、蒙版、多边形选择、关键字编辑、文件信息编辑和直方图变换仍待移植。", "",
           "背景提取已接入原版采样和图像 hook：增删/选择采样、自动/随机采样、RBF/1–4 阶多项式、减法/除法、抖动、自动渐变完整参数、原图/模型/结果预览与另存。序列应用、拖动采样点和共享撤销仍待补齐。", ""]
 (root / "docs/FUNCTIONAL-PARITY.md").write_text("\n".join(lines))
 print(f"Inventoried {len(entries)} actions and {len(panels)} UI files")
