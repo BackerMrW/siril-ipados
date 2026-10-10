@@ -103,6 +103,16 @@ static sequence *embedded_sequence(const char *directory, const char *name, char
     }
     return seq;
 }
+int siril_sequence_discover(const char *directory, char *error, size_t error_size) {
+    g_mutex_lock(&engine_mutex);
+    initialize();
+    if (error && error_size) error[0] = 0;
+    gchar *message = NULL;
+    int ok = directory && !siril_change_dir(directory, &message) && !check_seq();
+    if (!ok && error && error_size) snprintf(error, error_size, "Cannot index converted sequence frames");
+    g_mutex_unlock(&engine_mutex);
+    return ok;
+}
 int siril_sequence_inspect(const char *directory, const char *name, int layer,
     SirilSequenceInfo *info, SirilSequenceFrame *frames, size_t capacity, char *error, size_t error_size) {
     g_mutex_lock(&engine_mutex);

@@ -305,6 +305,7 @@ static int sequence_checks(const char *registered, const char *combinations) {
     uint8_t flags[] = {1, 1, 0};
     CHECK(!siril_sequence_select(combinations, "combination_.seq", flags, 3, 2, error, sizeof error));
     CHECK(siril_sequence_select(combinations, "combination_.seq", flags, 3, 0, error, sizeof error));
+    CHECK(siril_sequence_discover(combinations, error, sizeof error));
     CHECK(siril_sequence_inspect(combinations, "combination_.seq", 0, &info, frames, 3, error, sizeof error) == 3);
     CHECK(info.included == 2 && info.reference == 0 && !frames[2].included);
     CHECK(siril_run_commands(combinations, "stack combination mean none 3 3 -nonorm -filter-included -32b -out=subset.fits\nseqstat combination sequence-statistics.csv main\n", error, sizeof error));
@@ -456,6 +457,10 @@ int main(int argc, char **argv) {
         CHECK(fixture(path, values, FLOAT_IMG, TFLOAT) == 0);
     }
     CHECK(siril_run_commands(combinations, "set32bits\nconvert combination -out=../combo-process\n", error, sizeof error));
+    CHECK(siril_sequence_discover(combo_process, error, sizeof error));
+    SirilSequenceInfo converted_info;
+    CHECK(siril_sequence_inspect(combo_process, "combination_.seq", 0, &converted_info, NULL, 0, error, sizeof error) == 3);
+    CHECK(converted_info.included == 3 && converted_info.width == 2);
     const char *methods[] = {"mean none 3 3 -nonorm", "median -nonorm", "min", "max", "sum"};
     const float bases[] = {0.4f, 0.2f, 0.1f, 0.9f};
     for (int method = 0; method < 5; method++) {

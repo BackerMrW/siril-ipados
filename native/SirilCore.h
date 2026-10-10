@@ -19,6 +19,9 @@ typedef struct {
 /* Stateless reads use upstream readseqfile/seq_read_frame. name is an exact
  * .seq basename; index/reference are zero-based (-1 means automatic reference).
  * Returns frame count or -1 on error. NULL frames queries required capacity. */
+/* Run upstream check_seq to index converted frames; existing .seq files are
+ * preserved by upstream buildseqfile(force_recompute=0). */
+int siril_sequence_discover(const char *directory, char *error, size_t error_size);
 int siril_sequence_inspect(const char *directory, const char *name, int layer,
     SirilSequenceInfo *info, SirilSequenceFrame *frames, size_t capacity, char *error, size_t error_size);
 SirilImage *siril_sequence_frame(const char *directory, const char *name, int index, char *error, size_t error_size);

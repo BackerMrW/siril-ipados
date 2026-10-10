@@ -177,6 +177,16 @@ extension SirilEngine {
         guard let first = lights.first, lights.count >= 2, lights.allSatisfy({ $0.width == first.width && $0.height == first.height && $0.channels == first.channels }) else { throw EngineError.failed("建立序列需至少两张尺寸、通道相同的亮场。") }
         let job = try prepareJob(files: lights, script: "set32bits\ncd lights\nconvert light -out=../process\n")
         _ = try run(job)
+        // convert writes numbered FITS; desktop directory scanning creates the
+        // .seq index later. Invoke that original scanner before returning.
+        var error = [CChar](repeating: 0, count: 512)
+        let capacity = error.count
+        let indexed = job.folder.appendingPathComponent("process").path.withCString { siril_sequence_discover($0, &error, capacity) }
+        try? Self.processingLog().write(to: job.folder.appendingPathComponent("processing.log"), atomically: true, encoding: .utf8)
+        guard indexed != 0 else {
+            try? writeJobState(job.folder, state: "序列索引失败", message: String(cString: error))
+            throw EngineError.failed(String(cString: error))
+        }
         return job
     }
     func runSequenceCommand(_ location: SequenceLocation, command: String, title: String) throws -> URL {
