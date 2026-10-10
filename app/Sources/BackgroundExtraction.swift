@@ -170,7 +170,8 @@ struct BackgroundExtractionView: View {
                     VStack(spacing: 0) { imagePanel.frame(height: geometry.size.height * 0.48); controls }
                 }
             }
-            .navigationTitle("背景提取 · Background Extraction")
+            .navigationTitle("背景提取")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("关闭") { dismiss() }.disabled(busy) }
             .interactiveDismissDisabled(busy)
             .task { await perform {

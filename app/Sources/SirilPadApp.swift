@@ -223,7 +223,7 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showAbout) { AboutView() }
-        .sheet(isPresented: $showBackground) {
+        .fullScreenCover(isPresented: $showBackground) {
             if let file = activeFile {
                 BackgroundExtractionView(file: file, onPreview: importResult)
             }

@@ -250,7 +250,7 @@ struct ProcessingView: View {
                     script += (script.hasSuffix("\n") || script.isEmpty ? "" : "\n") + name + "\n"
                 }
             }
-            .sheet(isPresented: $showBackground) {
+            .fullScreenCover(isPresented: $showBackground) {
                 if let file = files.first, files.count == 1 {
                     BackgroundExtractionView(file: file) { result in dismiss(); onPreview(result) }
                 }
