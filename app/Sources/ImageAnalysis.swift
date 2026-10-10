@@ -133,7 +133,7 @@ struct ImageAnalysisView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(busy) } }
             .task {
-                tab = initialTab
+                tab = ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_TAB"].flatMap { Int($0) } ?? initialTab
                 await open()
             }
             .onChange(of: perCFA) { _, _ in Task { await analyze() } }
@@ -305,7 +305,7 @@ struct ImageAnalysisView: View {
             if ProcessInfo.processInfo.environment["SIRIL_SELF_TEST"] == "1" {
                 let report = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-analysis-ready.txt")
                 guard image != nil, snapshot != nil else { throw EngineError.failed("Analysis view did not load") }
-                try "PASS: native analysis workspace loaded the image, original statistics and histogram.\n".write(to: report, atomically: true, encoding: .utf8)
+                try "PASS: native analysis workspace tab \(tab) loaded the image, original statistics, histogram and header.\n".write(to: report, atomically: true, encoding: .utf8)
             }
         } catch { message = error.localizedDescription }
     }

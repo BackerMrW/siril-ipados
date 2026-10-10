@@ -86,29 +86,34 @@ subprocess.run(["xcrun", "simctl", "io", udid, "screenshot",
 # Open the shared analysis workspace on the persisted gradient, with a visible
 # selection. This launch checks its real SwiftUI/Canvas layout separately from
 # the numerical actor checks above, without re-running the processing pipeline.
-subprocess.run(["xcrun", "simctl", "terminate", udid, "com.backermrw.sirilpad"], check=True, timeout=30)
-launch = subprocess.Popen(["xcrun", "simctl", "launch", udid, "com.backermrw.sirilpad"],
-                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                          env=dict(os.environ, SIMCTL_CHILD_SIRIL_SELF_TEST="0", SIMCTL_CHILD_SIRIL_ANALYSIS_VIEW_CHECK="1"))
-ready = container / "Documents/simulator-analysis-ready.txt"
-deadline = time.monotonic() + 90
-while not ready.exists() and time.monotonic() < deadline:
-    if launch.poll() is not None and launch.returncode != 0:
-        break
+for tab, screenshot in ((0, "native-analysis-simulator.png"), (1, "native-histogram-simulator.png"), (2, "native-header-simulator.png")):
+    subprocess.run(["xcrun", "simctl", "terminate", udid, "com.backermrw.sirilpad"], check=True, timeout=30)
+    ready = container / "Documents/simulator-analysis-ready.txt"
+    ready.unlink(missing_ok=True)
+    launch = subprocess.Popen(["xcrun", "simctl", "launch", udid, "com.backermrw.sirilpad"],
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                              env=dict(os.environ, SIMCTL_CHILD_SIRIL_SELF_TEST="0", SIMCTL_CHILD_SIRIL_ANALYSIS_VIEW_CHECK="1",
+                                       SIMCTL_CHILD_SIRIL_ANALYSIS_TAB=str(tab)))
+    deadline = time.monotonic() + 90
+    while not ready.exists() and time.monotonic() < deadline:
+        if launch.poll() is not None and launch.returncode != 0:
+            break
+        time.sleep(1)
+    try:
+        output, _ = launch.communicate(timeout=10)
+    except subprocess.TimeoutExpired:
+        launch.terminate()
+        output, _ = launch.communicate(timeout=10)
+    print(output, flush=True)
+    if not ready.exists():
+        subprocess.run(["xcrun", "simctl", "io", udid, "screenshot",
+                        str(root / "diagnostics/analysis-launch-failure.png")], timeout=30)
+        raise RuntimeError(f"Native selected-image analysis workspace tab {tab} did not load")
+    text = ready.read_text()
+    if not text.startswith(f"PASS: native analysis workspace tab {tab} "):
+        raise RuntimeError(text)
+    print(text, flush=True)
+    (root / f"diagnostics/analysis-workspace-{tab}-check.txt").write_text(text)
     time.sleep(1)
-try:
-    output, _ = launch.communicate(timeout=10)
-except subprocess.TimeoutExpired:
-    launch.terminate()
-    output, _ = launch.communicate(timeout=10)
-print(output, flush=True)
-if not ready.exists():
     subprocess.run(["xcrun", "simctl", "io", udid, "screenshot",
-                    str(root / "diagnostics/analysis-launch-failure.png")], timeout=30)
-    raise RuntimeError("Native selected-image analysis workspace did not load its statistics, histogram and image")
-text = ready.read_text()
-print(text, flush=True)
-(root / "diagnostics/analysis-workspace-check.txt").write_text(text)
-time.sleep(1)
-subprocess.run(["xcrun", "simctl", "io", udid, "screenshot",
-                str(root / "diagnostics/native-analysis-simulator.png")], check=True, timeout=30)
+                    str(root / "diagnostics" / screenshot)], check=True, timeout=30)
