@@ -190,7 +190,10 @@ struct BackgroundExtractionView: View {
             if let image {
                 ZoomableImageCanvas(image: image, samples: settings.method == 0 && view == 0 ? markers : [],
                     imageWidth: Double(file.width), imageHeight: Double(file.height), selected: selected,
-                    onTap: busy || view != 0 || settings.method != 0 ? nil : tapped)
+                    onTap: { x, y in
+                        guard !busy, view == 0, settings.method == 0 else { return }
+                        tapped(x, y)
+                    })
                     .background(.black)
             } else { ProgressView("读取图像").frame(maxWidth: .infinity, maxHeight: .infinity) }
             HStack {
