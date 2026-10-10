@@ -52,7 +52,7 @@ jobs:
           assert simulator['path'] == '.github/workflows/ipados-preflight.yml'
           subprocess.run(['git', 'fetch', '--depth', '1', 'origin', simulator['head_sha']], check=True)
           subprocess.run(['git', 'diff', '--exit-code', simulator['head_sha'], 'HEAD', '--', 'app', 'native',
-                          'tools/build-ipados-deps.py', 'tools/embed-siril.py', 'tools/package-siril.py',
+                          'tools/test-on-simulator.py', 'tools/build-ipados-deps.py', 'tools/embed-siril.py', 'tools/package-siril.py',
                           '.github/workflows/ipados-preflight.yml'], check=True)
           with open(os.environ['GITHUB_ENV'], 'a') as env:
               env.write('DEVICE_REVISION=' + revision + '\n')
@@ -96,7 +96,7 @@ jobs:
               'Verified: calibrated pixel values, RGGB color reconstruction/RGB round-trip, default star registration/rejection stacking,\n' +
               'background extraction/denoising with star preservation, crop/Asinh/MTF/saturation/rotation, Swift job history/manual MTF and notices.\n' +
               'Original eight statistics and per-CFA filters, selected-region row orientation, histogram bins, pixel reads and full FITS header; native selected-image analysis workspace.\n' +
-              'Verified batch deletion/restoration, interrupted restore recovery, permanent gallery/task cleanup, symlink rejection, persistent FITS undo/redo/branch reset, and loaded storage/workspace UI.\n' +
+              'Verified batch deletion/restoration, interrupted restore recovery, permanent gallery/task cleanup, symlink rejection, persistent FITS undo/redo/branch reset, active-task deletion rejection, native image/sequence memory release, and loaded storage/workspace UI.\n' +
               'Physical iPad/file-picker/large real-camera datasets still require device testing.\n')
           PY
       - name: Upload and publish the test release
@@ -108,8 +108,8 @@ jobs:
           from pathlib import Path
           Path('/tmp/release-notes.md').write_text(
               'Native iPadOS test release using the original pinned Siril engine. Processing runs locally on the iPad.\n\n' +
-              '- Gallery single/batch deletion, persistent Recently Deleted restoration, permanent deletion/empty trash, and gallery/job/trash storage sizes. Processing tasks can be deleted with their input copies and intermediate files. Imported gallery copies remain independent.\n' +
-              '- Full-FITS undo/redo for imported single-image processing results, persistent parent links, and redo branch reset. Batch stacking and sample/parameter edits do not yet have undo.\n' +
+              '- Gallery single/batch deletion, persistent Recently Deleted restoration, permanent deletion/empty trash, and gallery/job/trash storage sizes. Processing tasks can be deleted with their input copies and intermediate files. Imported gallery copies remain independent. Deletion closes original command image/sequence caches and deleting the displayed image clears its preview.\n' +
+              '- Full-FITS undo/redo for newly generated single-image processing results, persistent parent links, redo branch reset and adaptive portrait controls. Batch stacking and sample/parameter edits do not yet have undo.\n' +
               '- Interactive background extraction: sample placement/deletion/inspection, original RBF/polynomial/automatic models, subtract/divide, original/model/result views and preserved-source FITS export.\n' +
               '- Shared analysis workspace: rectangular selection, original full-resolution pixel reads, original eight statistics with normalized/CFA options, original whole/selected histograms, and full FITS header viewer/search/copy. Keyword and image-metadata editing remain pending.\n' +
               '- Image workspace: pinch zoom and pan, RGB/R/G/B display, linear/automatic display stretch, and an inventory of original tools with explicit incomplete statuses.\n' +
