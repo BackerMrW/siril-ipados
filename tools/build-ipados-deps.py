@@ -245,7 +245,8 @@ def main():
     cmake("libpng", "https://github.com/pnggroup/libpng.git", "872555f4ba910252783af1507f9e7fe1653be252",
           ["-DPNG_SHARED=OFF", "-DPNG_STATIC=ON", "-DPNG_TESTS=OFF", "-DPNG_TOOLS=OFF"])
     cmake("libjpeg-turbo", "https://github.com/libjpeg-turbo/libjpeg-turbo.git", "4e151a4ad91001b3aa8c2ece2205c15f487ce320",
-          ["-DENABLE_SHARED=OFF", "-DENABLE_STATIC=ON", "-DWITH_SIMD=OFF", "-DWITH_TURBOJPEG=OFF"])
+          ["-DCMAKE_SYSTEM_PROCESSOR=arm64", "-DENABLE_SHARED=OFF", "-DENABLE_STATIC=ON",
+           "-DWITH_SIMD=OFF", "-DWITH_TURBOJPEG=OFF", "-DWITH_TOOLS=OFF", "-DWITH_TESTS=OFF"])
     cmake("libtiff", "https://gitlab.com/libtiff/libtiff.git", "8300e0f79b1599c18dd6dc50caa9ab9200d11889",
           ["-Dtiff-tools=OFF", "-Dtiff-tests=OFF", "-Dtiff-contrib=OFF", "-Dtiff-docs=OFF",
            "-Djpeg=ON", "-Dlerc=OFF", "-Dzstd=OFF", "-Dlzma=OFF", "-Dwebp=OFF", "-Djbig=OFF"])
