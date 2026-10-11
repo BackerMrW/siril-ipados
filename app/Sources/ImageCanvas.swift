@@ -34,44 +34,106 @@ struct ZoomableImageCanvas: UIViewRepresentable {
     var selected: Int? = nil
     var region: ImageSelection? = nil
     var selecting = false
+    var movingSamples = false
+    var onSampleMove: ((Int, Double, Double) -> Void)? = nil
     var onSelection: ((ImageSelection) -> Void)? = nil
     let onTap: ((Double, Double) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> CanvasScrollView {
         let scroll = CanvasScrollView()
-        scroll.delegate = context.coordinator
-        scroll.minimumZoomScale = 1
-        scroll.maximumZoomScale = 12
-        scroll.backgroundColor = .black
-        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
-        scroll.canvas.addGestureRecognizer(tap)
-        let select = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.selectRegion(_:)))
-        select.maximumNumberOfTouches = 1
-        select.isEnabled = selecting
-        scroll.canvas.addGestureRecognizer(select)
-        context.coordinator.selectGesture = select
-        scroll.accessibilityLabel = "图像，可双指缩放和拖动；背景采样模式下轻点选点"
-        context.coordinator.scroll = scroll
+        context.coordinator.install(on: scroll)
         return scroll
     }
     func updateUIView(_ scroll: CanvasScrollView, context: Context) {
         context.coordinator.parent = self
-        scroll.picture.image = image
-        scroll.markers = samples
-        scroll.sourceSize = CGSize(width: imageWidth, height: imageHeight)
-        scroll.selected = selected
-        scroll.region = region
-        context.coordinator.selectGesture?.isEnabled = selecting
-        scroll.panGestureRecognizer.minimumNumberOfTouches = selecting ? 2 : 1
-        scroll.setNeedsLayout()
+        context.coordinator.update(scroll)
     }
-    final class Coordinator: NSObject, UIScrollViewDelegate {
+    final class Coordinator: NSObject, UIScrollViewDelegate, UIGestureRecognizerDelegate {
         var parent: ZoomableImageCanvas
         weak var scroll: CanvasScrollView?
         weak var selectGesture: UIPanGestureRecognizer?
+        weak var moveGesture: UIPanGestureRecognizer?
+        private var moving: (marker: SampleMarker, offset: CGPoint)?
         private var selectionStart: CGPoint?
         init(_ parent: ZoomableImageCanvas) { self.parent = parent }
+        func install(on scroll: CanvasScrollView) {
+            self.scroll = scroll
+            scroll.delegate = self
+            scroll.minimumZoomScale = 1; scroll.maximumZoomScale = 12
+            scroll.backgroundColor = .black
+            let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+            scroll.canvas.addGestureRecognizer(tap)
+            let select = UIPanGestureRecognizer(target: self, action: #selector(selectRegion(_:)))
+            select.maximumNumberOfTouches = 1
+            scroll.canvas.addGestureRecognizer(select); selectGesture = select
+            let move = UIPanGestureRecognizer(target: self, action: #selector(moveSample(_:)))
+            move.maximumNumberOfTouches = 1; move.delegate = self
+            scroll.canvas.addGestureRecognizer(move); moveGesture = move
+            tap.require(toFail: move)
+            scroll.accessibilityLabel = "图像，可双指缩放和拖动；选择移动模式可单指拖动背景采样点"
+            update(scroll)
+        }
+        func update(_ scroll: CanvasScrollView) {
+            scroll.picture.image = parent.image
+            scroll.markers = parent.samples
+            scroll.sourceSize = CGSize(width: parent.imageWidth, height: parent.imageHeight)
+            scroll.selected = parent.selected; scroll.region = parent.region
+            selectGesture?.isEnabled = parent.selecting
+            moveGesture?.isEnabled = parent.movingSamples && !parent.selecting
+            scroll.panGestureRecognizer.minimumNumberOfTouches = parent.selecting || parent.movingSamples ? 2 : 1
+            scroll.setNeedsLayout()
+        }
+        private func sample(at p: CGPoint) -> SampleMarker? {
+            guard let scroll, scroll.canvas.bounds.width > 0, scroll.canvas.bounds.height > 0,
+                  scroll.canvas.bounds.contains(p) else { return nil }
+            let sx = scroll.canvas.bounds.width / parent.imageWidth
+            let sy = scroll.canvas.bounds.height / parent.imageHeight
+            return parent.samples.filter {
+                abs(p.x - $0.x * sx) <= max($0.size * sx / 2, 12 / scroll.zoomScale) &&
+                abs(p.y - $0.y * sy) <= max($0.size * sy / 2, 12 / scroll.zoomScale)
+            }.min { hypot(p.x - $0.x * sx, p.y - $0.y * sy) < hypot(p.x - $1.x * sx, p.y - $1.y * sy) }
+        }
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard gestureRecognizer === moveGesture, let scroll else { return true }
+            return parent.movingSamples && sample(at: gestureRecognizer.location(in: scroll.canvas)) != nil
+        }
+        func beginSampleMove(at p: CGPoint) -> Bool {
+            guard parent.movingSamples, let scroll, let marker = sample(at: p) else { return false }
+            moving = (marker, CGPoint(x: marker.x - p.x / scroll.canvas.bounds.width * parent.imageWidth,
+                                      y: marker.y - p.y / scroll.canvas.bounds.height * parent.imageHeight))
+            scroll.selected = marker.id
+            return true
+        }
+        func updateSampleMove(at p: CGPoint) {
+            guard let scroll, let moving else { return }
+            let x = min(parent.imageWidth - 13, max(12, round(p.x / scroll.canvas.bounds.width * parent.imageWidth + moving.offset.x)))
+            let y = min(parent.imageHeight - 13, max(12, round(p.y / scroll.canvas.bounds.height * parent.imageHeight + moving.offset.y)))
+            scroll.markers = parent.samples.map {
+                $0.id == moving.marker.id ? SampleMarker(id: $0.id, x: x, y: y, size: $0.size, median: $0.median) : $0
+            }
+            scroll.setNeedsLayout()
+        }
+        func finishSampleMove(cancelled: Bool) {
+            guard let scroll, let moving else { return }
+            let moved = scroll.markers.first { $0.id == moving.marker.id }
+            self.moving = nil
+            scroll.markers = parent.samples; scroll.selected = parent.selected; scroll.setNeedsLayout()
+            if !cancelled, let moved, moved.x != moving.marker.x || moved.y != moving.marker.y {
+                parent.onSampleMove?(moved.id, moved.x, moved.y)
+            }
+        }
+        @objc func moveSample(_ gesture: UIPanGestureRecognizer) {
+            guard let scroll else { return }
+            let p = gesture.location(in: scroll.canvas)
+            switch gesture.state {
+            case .began: _ = beginSampleMove(at: p); updateSampleMove(at: p)
+            case .changed: updateSampleMove(at: p)
+            case .ended: updateSampleMove(at: p); finishSampleMove(cancelled: false)
+            case .cancelled, .failed: finishSampleMove(cancelled: true)
+            default: break
+            }
+        }
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { scroll?.canvas }
         @objc func tapped(_ gesture: UITapGestureRecognizer) {
             guard let scroll, let onTap = parent.onTap else { return }

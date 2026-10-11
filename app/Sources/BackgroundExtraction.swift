@@ -65,7 +65,8 @@ actor BackgroundEngine {
     }
     func generate(_ settings: BackgroundSettings) throws {
         let session = try handle()
-        let previous = settings.keepSamples ? try samples() : []
+        let original = try samples()
+        let previous = settings.keepSamples ? original : []
         var error = [CChar](repeating: 0, count: 1024)
         let capacity = error.count
         guard siril_background_generate(session, Int32(settings.perLine), settings.tolerance,
@@ -75,12 +76,30 @@ actor BackgroundEngine {
         }
         let generated = try samples()
         for point in previous where !generated.contains(where: { hypot($0.x - point.x, $0.y - point.y) < 1 }) {
-            _ = siril_background_add(session, point.x, point.y, 0)
+            guard siril_background_add(session, point.x, point.y, 0) != 0 else {
+                try restore(original.map(BackgroundPoint.init))
+                throw EngineError.failed("不能保留全部采样点，已恢复原采样点。")
+            }
         }
     }
     func add(x: Double, y: Double, descent: Bool) throws {
         guard siril_background_add(try handle(), x, y, descent ? 1 : 0) != 0 else {
             throw EngineError.failed("采样框必须完全位于图像内；请离边缘至少 13 像素。")
+        }
+    }
+    func move(index: Int, x: Double, y: Double) throws {
+        guard siril_background_move(try handle(), index, x, y) != 0 else {
+            throw EngineError.failed("不能移动到边缘或已有采样点；原采样点保留。")
+        }
+    }
+    func restore(_ points: [BackgroundPoint]) throws {
+        var values = points.map { point in
+            var value = SirilBackgroundSample(); value.x = point.x; value.y = point.y
+            return value
+        }
+        let count = values.count
+        guard siril_background_restore(try handle(), &values, count) != 0 else {
+            throw EngineError.failed("不能恢复这些采样点；当前采样点保留。")
         }
     }
     func remove(_ index: Int) throws {
@@ -148,6 +167,7 @@ struct BackgroundExtractionView: View {
     let onPreview: (URL) -> Void
     @State private var engine = BackgroundEngine()
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var settings = BackgroundSettings()
     @State private var markers: [SampleMarker] = []
     @State private var image: UIImage?
@@ -160,6 +180,8 @@ struct BackgroundExtractionView: View {
     @State private var editMode = 0
     @State private var selected: Int?
     @State private var output: URL?
+    @State private var history: BackgroundEditHistory?
+    @State private var sliderStart: BackgroundSettings?
 
     var body: some View {
         NavigationStack {
@@ -172,27 +194,36 @@ struct BackgroundExtractionView: View {
             }
             .navigationTitle("背景提取")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { Button("关闭") { dismiss() }.disabled(busy) }
-            .interactiveDismissDisabled(busy)
+            .toolbar { Button("关闭") { dismiss() }.disabled(busy || sliderStart != nil) }
+            .interactiveDismissDisabled(busy || sliderStart != nil)
             .task { await perform {
                 try await engine.open(file.url)
-                if ProcessInfo.processInfo.environment["SIRIL_SELF_TEST"] == "1" {
-                    settings.perLine = 8
-                    try await engine.generate(settings)
+                do {
+                    let loaded = try BackgroundEditHistory.load(for: file)
+                    try await engine.restore(loaded.current.points)
+                    settings = loaded.current.settings; history = loaded
                     markers = try await engine.samples()
+                } catch {
+                    history = BackgroundEditHistory(file: file)
+                    status = "编辑记录无法恢复，原图仍可使用：" + error.localizedDescription
+                }
+                if ProcessInfo.processInfo.environment["SIRIL_SELF_TEST"] == "1" {
+                    editMode = 1; selected = markers.first?.id
                 }
                 try await refresh()
                 if ProcessInfo.processInfo.environment["SIRIL_SELF_TEST"] == "1", image != nil {
                     let ready = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
                         .appendingPathComponent("simulator-background-ready.txt")
-                    try "PASS: interactive background view loaded image and sample overlay\n"
+                    try "PASS: interactive background view restored persisted samples, parameters and undo/redo controls\n"
                         .write(to: ready, atomically: true, encoding: .utf8)
                 }
             } }
+            .onChange(of: scenePhase) { _, phase in
+                if phase != .active, sliderStart != nil { sliderStart = nil; recordEdit() }
+            }
             .onChange(of: view) { _, _ in Task { await perform { try await refresh() } } }
             .onChange(of: channel) { _, _ in Task { await perform { try await refresh() } } }
             .onChange(of: automatic) { _, _ in Task { await perform { try await refresh() } } }
-            .onChange(of: settings) { _, _ in computed = false; output = nil; view = 0 }
         }
     }
     private var imagePanel: some View {
@@ -205,6 +236,8 @@ struct BackgroundExtractionView: View {
             if let image {
                 ZoomableImageCanvas(image: image, samples: settings.method == 0 && view == 0 ? markers : [],
                     imageWidth: Double(file.width), imageHeight: Double(file.height), selected: selected,
+                    movingSamples: !busy && view == 0 && settings.method == 0 && editMode == 1,
+                    onSampleMove: { index, x, y in move(index, x: x, y: y) },
                     onTap: { x, y in
                         guard !busy, view == 0, settings.method == 0 else { return }
                         tapped(x, y)
@@ -225,14 +258,27 @@ struct BackgroundExtractionView: View {
     }
     private var controls: some View {
         Form {
+            Section("背景编辑历史") {
+                HStack {
+                    Button("撤销", systemImage: "arrow.uturn.backward") { replay(redo: false) }
+                        .disabled(busy || sliderStart != nil || history?.past.isEmpty != false)
+                        .keyboardShortcut("z", modifiers: .command)
+                    Spacer()
+                    Button("重做", systemImage: "arrow.uturn.forward") { replay(redo: true) }
+                        .disabled(busy || sliderStart != nil || history?.future.isEmpty != false)
+                        .keyboardShortcut("z", modifiers: [.command, .shift])
+                }.buttonStyle(.bordered)
+                Text("采样点和参数修改保留最近 30 步，关闭后仍可撤销。修改后需重新计算模型。")
+                    .font(.caption)
+            }
             Section("方法与校正") {
-                Picker("建模方法", selection: $settings.method) {
+                Picker("建模方法", selection: setting(\.method)) {
                     Text("采样点").tag(0); Text("自动渐变移除").tag(1)
                 }
-                Picker("校正", selection: $settings.correction) {
+                Picker("校正", selection: setting(\.correction)) {
                     Text("减法 Subtraction").tag(0); Text("除法 Division").tag(1)
                 }
-                Toggle("抖动 Dither", isOn: $settings.dither)
+                Toggle("抖动 Dither", isOn: setting(\.dither))
             }.disabled(busy)
             if settings.method == 0 { sampleControls; interpolationControls }
             else { automaticControls }
@@ -240,8 +286,9 @@ struct BackgroundExtractionView: View {
                 if busy { ProgressView("Siril 正在处理") }
                 Button("计算背景模型") {
                     Task { await perform {
+                        invalidate(); try await refresh()
                         try await engine.compute(settings)
-                        computed = true; view = 1; output = nil
+                        computed = true; view = 1
                         try await refresh()
                         status = "已计算。可比较原图、背景模型和校正结果，再应用。"
                     } }
@@ -263,9 +310,9 @@ struct BackgroundExtractionView: View {
     private var sampleControls: some View {
         Section("采样点：\(markers.count) 个 · 25 × 25 像素") {
             Picker("轻点操作", selection: $editMode) {
-                Text("添加").tag(0); Text("选择").tag(1); Text("删除").tag(2)
+                Text("添加").tag(0); Text("选择 / 移动").tag(1); Text("删除").tag(2)
             }.pickerStyle(.segmented)
-            Text("在原图上轻点，避开星点、星云和图像边缘。可先生成采样点，再选择或删除不合适的点。")
+            Text("添加模式轻点放置；选择 / 移动模式拖动采样框，双指移动图像。避开星点、星云和边缘，移动后重读原图中值。")
                 .font(.caption)
             if let selected, let point = markers.first(where: { $0.id == selected }) {
                 Text("点 \(selected + 1)：X \(Int(point.x))，Y \(Int(point.y))")
@@ -273,13 +320,13 @@ struct BackgroundExtractionView: View {
                     .font(.caption).textSelection(.enabled)
                 Button("删除选中采样点", role: .destructive) { delete(selected) }
             }
-            Stepper("\(settings.randomize ? "内部随机点数" : "每行采样点")：\(settings.perLine)", value: $settings.perLine, in: 5...100)
-            numberSlider("容差", value: $settings.tolerance, range: 0.01...6)
-            Toggle("随机暗区采样", isOn: $settings.randomize)
-            Toggle("优化到附近暗区", isOn: $settings.gradientDescent)
-            Toggle("保留已有采样点", isOn: $settings.keepSamples)
-            numberSlider("排除边缘", value: $settings.border, range: settings.borderPercent ? 0...45 : 0...Double(max(0, min(file.width, file.height) / 2 - 14)))
-            Toggle("边缘按百分比", isOn: $settings.borderPercent)
+            Stepper("\(settings.randomize ? "内部随机点数" : "每行采样点")：\(settings.perLine)", value: setting(\.perLine), in: 5...100)
+            numberSlider("容差", value: setting(\.tolerance), range: 0.01...6)
+            Toggle("随机暗区采样", isOn: setting(\.randomize))
+            Toggle("优化到附近暗区", isOn: setting(\.gradientDescent))
+            Toggle("保留已有采样点", isOn: setting(\.keepSamples))
+            numberSlider("排除边缘", value: setting(\.border), range: settings.borderPercent ? 0...45 : 0...Double(max(0, min(file.width, file.height) / 2 - 14)))
+            Toggle("边缘按百分比", isOn: setting(\.borderPercent))
             Button("生成采样点") {
                 Task { await perform {
                     try await engine.generate(settings)
@@ -294,25 +341,25 @@ struct BackgroundExtractionView: View {
     }
     private var interpolationControls: some View {
         Section("插值") {
-            Picker("插值方法", selection: $settings.interpolation) {
+            Picker("插值方法", selection: setting(\.interpolation)) {
                 Text("RBF 径向基函数").tag(0); Text("多项式").tag(1)
             }
-            if settings.interpolation == 0 { numberSlider("平滑度", value: $settings.smoothing, range: 0...1) }
-            else { Stepper("多项式阶数：\(settings.degree)", value: $settings.degree, in: 1...4) }
+            if settings.interpolation == 0 { numberSlider("平滑度", value: setting(\.smoothing), range: 0...1) }
+            else { Stepper("多项式阶数：\(settings.degree)", value: setting(\.degree), in: 1...4) }
         }.disabled(busy)
     }
     private var automaticControls: some View {
         Section("自动渐变模型") {
-            numberSlider("模型尺度", value: $settings.scale, range: 1...10)
-            numberSlider("额外平滑", value: $settings.smoothness, range: 0...3)
-            Toggle("保护目标结构", isOn: $settings.protect)
+            numberSlider("模型尺度", value: setting(\.scale), range: 1...10)
+            numberSlider("额外平滑", value: setting(\.smoothness), range: 0...3)
+            Toggle("保护目标结构", isOn: setting(\.protect))
             if settings.protect {
-                numberSlider("保护阈值", value: $settings.protectThreshold, range: 0...1)
-                numberSlider("保护范围", value: $settings.protectAmount, range: 0...1)
+                numberSlider("保护阈值", value: setting(\.protectThreshold), range: 0...1)
+                numberSlider("保护范围", value: setting(\.protectAmount), range: 0...1)
             }
-            Toggle("先去除多项式模型", isOn: $settings.simplified)
-            if settings.simplified { Stepper("预处理阶数：\(settings.autoDegree)", value: $settings.autoDegree, in: 1...6) }
-            Picker("内部降采样", selection: $settings.downsample) {
+            Toggle("先去除多项式模型", isOn: setting(\.simplified))
+            if settings.simplified { Stepper("预处理阶数：\(settings.autoDegree)", value: setting(\.autoDegree), in: 1...6) }
+            Picker("内部降采样", selection: setting(\.downsample)) {
                 ForEach([1, 2, 4, 8], id: \.self) { Text("\($0)×").tag($0) }
             }
         }.disabled(busy)
@@ -320,7 +367,13 @@ struct BackgroundExtractionView: View {
     private func numberSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
         VStack(alignment: .leading) {
             LabeledContent(title, value: value.wrappedValue.formatted(.number.precision(.fractionLength(3))))
-            Slider(value: value, in: range)
+            Slider(value: value, in: range, onEditingChanged: { editing in
+                if editing { sliderStart = settings }
+                else if sliderStart != nil {
+                    sliderStart = nil
+                    recordEdit()
+                }
+            })
         }
     }
     @MainActor private func perform(_ action: () async throws -> Void) async {
@@ -333,8 +386,44 @@ struct BackgroundExtractionView: View {
         image = try await engine.preview(view: view, channel: channel, automatic: automatic).uiImage
     }
     @MainActor private func changedSamples() async throws {
-        markers = try await engine.samples(); selected = nil; computed = false; output = nil; view = 0
+        markers = try await engine.samples(); selected = nil
+        recordEdit(); invalidate()
         try await refresh()
+    }
+    private func setting<Value>(_ key: WritableKeyPath<BackgroundSettings, Value>) -> Binding<Value> {
+        Binding(get: { settings[keyPath: key] }, set: { value in
+            settings[keyPath: key] = value
+            invalidate()
+            if sliderStart == nil { recordEdit() }
+        })
+    }
+    @MainActor private func invalidate() { computed = false; output = nil; view = 0 }
+    @MainActor private func recordEdit() {
+        guard var history else { return }
+        history.record(BackgroundEdit(settings: settings, points: markers.map(BackgroundPoint.init)))
+        self.history = history
+        do { try history.save(for: file) }
+        catch { status = "修改已生效，但编辑历史保存失败：" + error.localizedDescription }
+    }
+    @MainActor private func replay(redo: Bool) {
+        guard var next = history else { return }
+        if redo { next.redo() } else { next.undo() }
+        Task { await perform {
+            // Validate and reread medians before changing the UI/history pointer.
+            try await engine.restore(next.current.points)
+            settings = next.current.settings; markers = try await engine.samples()
+            history = next; selected = nil; invalidate()
+            try next.save(for: file)
+            try await refresh()
+            status = redo ? "已重做背景编辑，请重新计算模型。" : "已撤销背景编辑，请重新计算模型。"
+        } }
+    }
+    @MainActor private func move(_ index: Int, x: Double, y: Double) {
+        Task { await perform {
+            try await engine.move(index: index, x: x, y: y)
+            try await changedSamples(); selected = index
+            status = "已移动采样点并重新读取原图中值。"
+        } }
     }
     @MainActor private func tapped(_ x: Double, _ y: Double) {
         let nearest = markers.min { hypot($0.x - x, $0.y - y) < hypot($1.x - x, $1.y - y) }

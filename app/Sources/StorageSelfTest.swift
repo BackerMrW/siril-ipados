@@ -10,6 +10,10 @@ extension SirilEngine {
         let firstBytes = try Data(contentsOf: first.url)
         let secondBytes = try Data(contentsOf: second.url)
         try saveLibrary(baseline + [first, second])
+        let backgroundHistory = BackgroundEditHistory(file: first)
+        try backgroundHistory.save(for: first)
+        let backgroundURL = try BackgroundEditHistory.url(for: first)
+        let backgroundBytes = try Data(contentsOf: backgroundURL)
         let initial = storageSummary()
         var history = WorkspaceHistory()
         history.open(second.id)
@@ -23,7 +27,7 @@ extension SirilEngine {
 
         let remaining = try moveToTrash(ids: [first.id, second.id])
         guard remaining.count == baseline.count, !manager.fileExists(atPath: first.url.path),
-              !manager.fileExists(atPath: second.url.path), manager.fileExists(atPath: source.path),
+              !manager.fileExists(atPath: second.url.path), !manager.fileExists(atPath: backgroundURL.path), manager.fileExists(atPath: source.path),
               let entry = trashEntries().first, entry.records.count == 2 else { throw EngineError.failed("Batch delete/source preservation failed") }
         // Simulate interrupted batch restoration after only one payload has moved.
         let stored = documents.appendingPathComponent("Trash").appendingPathComponent(entry.id.uuidString)
@@ -31,6 +35,7 @@ extension SirilEngine {
         try manager.moveItem(at: stored, to: first.url)
         try recoverTrashTransactions()
         guard loadLibrary().contains(where: { $0.id == first.id }),
+              try Data(contentsOf: backgroundURL) == backgroundBytes,
               trashEntries().first?.records.count == 1 else { throw EngineError.failed("Interrupted restore recovery failed") }
         let restored = try restoreTrash(entry.id)
         guard restored.count == baseline.count + 2,
@@ -43,6 +48,7 @@ extension SirilEngine {
         try permanentlyDeleteTrash(Set(trashEntries().map(\.id)))
         let cleaned = storageSummary()
         guard cleaned.gallery < initial.gallery, cleaned.trash == 0,
+              !manager.fileExists(atPath: backgroundURL.path),
               loadLibrary().count == baseline.count else { throw EngineError.failed("Permanent deletion did not release gallery storage") }
 
         let job = try prepareJob(files: [baseline[0]], script: "# storage fixture\n")

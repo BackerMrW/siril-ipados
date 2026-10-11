@@ -14,6 +14,25 @@
 #include <string.h>
 #include <sys/stat.h>
 #define CHECK(condition) do { if (!(condition)) { fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #condition); return 1; } } while (0)
+static int float_order(const void *a, const void *b) {
+    float x = *(const float *)a, y = *(const float *)b;
+    return (x > y) - (x < y);
+}
+static int check_sample_median(SirilImage *image, const SirilBackgroundSample *sample, int channels) {
+    float box[3][625], pixel[3]; int n = 0;
+    for (int y = sample->y - 12; y <= sample->y + 12; y++)
+        for (int x = sample->x - 12; x <= sample->x + 12; x++) {
+            CHECK(siril_image_pixel(image, x, y, pixel) == channels);
+            for (int c = 0; c < channels; c++) box[c][n] = pixel[c];
+            n++;
+        }
+    CHECK(n == 625);
+    for (int c = 0; c < channels; c++) {
+        qsort(box[c], 625, sizeof(float), float_order);
+        CHECK(fabs(sample->median[c] - box[c][312]) < 1e-6);
+    }
+    return 0;
+}
 static int fixture(const char *path, const void *pixels, int image_type, int pixel_type) {
     fitsfile *file = NULL;
     int status = 0;
@@ -724,6 +743,87 @@ int main(int argc, char **argv) {
         .scale = 5, .smoothness = 1, .protect = 1, .protect_threshold = 0.05,
         .protect_amount = 0.5, .simplified = 0, .auto_degree = 1, .downsample = 4
     };
+    // Move/restore must reread source pixels, preserve ordering and fail atomically.
+    CHECK(siril_background_compute(background, &bg_options, error, sizeof error));
+    snprintf(path, sizeof path, "%s/background-before-edit.fits", argv[1]);
+    CHECK(siril_background_write(background, path));
+    float *before_edit = malloc(256 * 256 * sizeof(float)); CHECK(before_edit);
+    CHECK(read_pixels(path, before_edit, 256 * 256) == 0);
+    CHECK(siril_background_move(background, 0, 52, 64));
+    CHECK(!siril_background_preview(background, 1, -1, 0, &preview));
+    SirilBackgroundSample moved[8];
+    CHECK(siril_background_samples(background, moved, 8) == 8);
+    CHECK(moved[0].x == 52 && moved[0].y == 64);
+    for (int i = 1; i < 8; i++) CHECK(moved[i].x == samples[i].x && moved[i].y == samples[i].y);
+    image = siril_image_read(gradient, error, sizeof error); CHECK(image);
+    CHECK(check_sample_median(image, &moved[0], 1) == 0);
+    CHECK(fabs(moved[0].median[0] - samples[0].median[0]) > 0.001);
+    CHECK(siril_background_compute(background, &bg_options, error, sizeof error));
+    CHECK(!siril_background_move(background, 0, 0, 0));
+    CHECK(!siril_background_move(background, 0, samples[1].x, samples[1].y));
+    CHECK(!siril_background_move(background, 8, 52, 64));
+    CHECK(!siril_background_move(background, 0, NAN, 64));
+    SirilBackgroundSample invalid[8]; memcpy(invalid, samples, sizeof invalid); invalid[7].x = 0;
+    CHECK(!siril_background_restore(background, invalid, 8));
+    invalid[7] = samples[0]; CHECK(!siril_background_restore(background, invalid, 8));
+    CHECK(siril_background_samples(background, invalid, 8) == 8);
+    for (int i = 0; i < 8; i++) CHECK(invalid[i].x == moved[i].x && invalid[i].y == moved[i].y && invalid[i].median[0] == moved[i].median[0]);
+    CHECK(siril_background_preview(background, 1, -1, 0, &preview)); siril_preview_free(&preview);
+    // Deliberately poison cached medians: restoration must ignore them.
+    for (int i = 0; i < 8; i++) invalid[i] = samples[i], invalid[i].median[0] = 999;
+    CHECK(siril_background_restore(background, invalid, 8));
+    CHECK(!siril_background_preview(background, 1, -1, 0, &preview));
+    CHECK(siril_background_samples(background, invalid, 8) == 8);
+    for (int i = 0; i < 8; i++) CHECK(check_sample_median(image, &invalid[i], 1) == 0);
+    CHECK(siril_background_compute(background, &bg_options, error, sizeof error));
+    snprintf(path, sizeof path, "%s/background-restored.fits", argv[1]);
+    CHECK(siril_background_write(background, path)); CHECK(read_pixels(path, aligned, 256 * 256) == 0);
+    for (int i = 0; i < 256 * 256; i++) CHECK(fabsf(aligned[i] - before_edit[i]) < 1e-6f);
+    free(before_edit); siril_image_free(image);
+    puts("PASS: original sample move and atomic restore reread 625-pixel medians, preserve ordering/model on rejected border/duplicate/NaN edits, ignore stale medians, invalidate edited models and recover every corrected FITS pixel");
+    // Repeat the median contract on RGB and explicit TOP-DOWN storage.
+    for (int variant = 0; variant < 2; variant++) {
+        const char *test_source = color_output;
+        if (variant == 1) {
+            snprintf(path, sizeof path, "%s/gradient-top-down.fits", argv[1]);
+            CHECK(gradient_fixture(path) == 0);
+            status = 0; fits_open_file(&file, path, READWRITE, &status);
+            fits_update_key(file, TSTRING, "ROWORDER", "TOP-DOWN", NULL, &status);
+            fits_close_file(file, &status); CHECK(status == 0);
+            test_source = path;
+        }
+        SirilBackground *other = siril_background_open(test_source, error, sizeof error); CHECK(other);
+        image = siril_image_read(test_source, error, sizeof error); CHECK(image);
+        CHECK(siril_background_add(other, 24, 24, 0));
+        CHECK(siril_background_move(other, 0, 36, 40));
+        SirilBackgroundSample rgb_sample;
+        CHECK(siril_background_samples(other, &rgb_sample, 1) == 1);
+        CHECK(rgb_sample.x == 36 && rgb_sample.y == 40);
+        CHECK(check_sample_median(image, &rgb_sample, variant ? 1 : 3) == 0);
+        siril_background_clear(other);
+        CHECK(siril_background_restore(other, &rgb_sample, 1));
+        CHECK(siril_background_samples(other, &rgb_sample, 1) == 1);
+        CHECK(check_sample_median(image, &rgb_sample, variant ? 1 : 3) == 0);
+        siril_image_free(image); siril_background_free(other);
+    }
+    puts("PASS: sample move/restore median mapping matched independent RGB channel pixels and explicit TOP-DOWN FITS rows");
+    snprintf(path, sizeof path, "%s/background-zero.fits", argv[1]);
+    status = 0;
+    float *zeros = calloc(256 * 256, sizeof(float)); CHECK(zeros);
+    long zero_axes[] = {256, 256};
+    fits_create_file(&file, path, &status); fits_create_img(file, FLOAT_IMG, 2, zero_axes, &status);
+    fits_write_img(file, TFLOAT, 1, 256 * 256, zeros, &status); fits_close_file(file, &status);
+    free(zeros); CHECK(status == 0);
+    SirilBackground *zero_background = siril_background_open(path, error, sizeof error); CHECK(zero_background);
+    CHECK(siril_background_add(zero_background, 32, 32, 0));
+    CHECK(siril_background_add(zero_background, 64, 64, 0));
+    CHECK(siril_background_add(zero_background, 96, 96, 0));
+    CHECK(!siril_background_generate(zero_background, 8, 2, 0, 0, 0, 1, error, sizeof error));
+    SirilBackgroundSample zero_samples[3];
+    CHECK(siril_background_samples(zero_background, zero_samples, 3) == 3);
+    for (int i = 0; i < 3; i++) CHECK(zero_samples[i].x == 32 * (i + 1) && zero_samples[i].y == 32 * (i + 1));
+    siril_background_free(zero_background);
+    puts("PASS: failed original sample generation on an all-zero FITS preserved all previous manual samples");
     for (int method = 0; method < 5; method++) {
         bg_options.method = method >= 3;
         bg_options.interpolation = method == 1 ? 0 : 1;

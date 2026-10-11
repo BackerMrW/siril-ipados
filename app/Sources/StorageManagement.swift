@@ -75,7 +75,11 @@ extension SirilEngine {
         let entry = TrashEntry(id: UUID(), deleted: Date(), records: removed, jobName: nil)
         let payload = try trashFolder(entry.id).appendingPathComponent("payload")
         // Validate the complete batch before moving anything.
-        let sources = try removed.map { try owned($0.url.lastPathComponent, under: documents.appendingPathComponent("FITS")) }
+        let sources = try removed.flatMap { record -> [URL] in
+            let source = try owned(record.url.lastPathComponent, under: documents.appendingPathComponent("FITS"))
+            let edits = try owned(source.lastPathComponent + ".background.json", under: documents.appendingPathComponent("FITS"))
+            return FileManager.default.fileExists(atPath: edits.path) ? [source, edits] : [source]
+        }
         siril_release_workspace()
         try manifest(entry)
         var moved: [URL] = []
@@ -117,6 +121,11 @@ extension SirilEngine {
                 let destination = try owned(record.url.lastPathComponent, under: documents.appendingPathComponent("FITS"))
                 let source = try owned(record.url.lastPathComponent, under: payload)
                 if FileManager.default.fileExists(atPath: source.path) { try FileManager.default.moveItem(at: source, to: destination) }
+                let edits = try owned(source.lastPathComponent + ".background.json", under: payload)
+                if FileManager.default.fileExists(atPath: edits.path) {
+                    let target = try owned(edits.lastPathComponent, under: documents.appendingPathComponent("FITS"))
+                    try FileManager.default.moveItem(at: edits, to: target)
+                }
             }
         }
         // Journal is retained until the library index is durably updated.
@@ -150,6 +159,11 @@ extension SirilEngine {
                 guard let original = try? owned(record.url.lastPathComponent, under: documents.appendingPathComponent("FITS")),
                       let payload, let trashed = try? owned(record.url.lastPathComponent, under: payload) else { pending.append(record); continue }
                 if FileManager.default.fileExists(atPath: original.path) {
+                    let edits = try owned(original.lastPathComponent + ".background.json", under: payload)
+                    if FileManager.default.fileExists(atPath: edits.path) {
+                        let target = try owned(edits.lastPathComponent, under: documents.appendingPathComponent("FITS"))
+                        try FileManager.default.moveItem(at: edits, to: target)
+                    }
                     record.url = original
                     if !records.contains(where: { $0.id == record.id }) { records.append(record) }
                 } else {

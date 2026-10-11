@@ -104,6 +104,10 @@ int siril_background_generate(SirilBackground *session, int per_line, double tol
     int randomize, int gradient_descent, double border, int border_percent, char *error, size_t capacity);
 size_t siril_background_samples(SirilBackground *session, SirilBackgroundSample *samples, size_t capacity);
 int siril_background_add(SirilBackground *session, double x, double y, int gradient_descent);
+/* Coordinates are display coordinates. Move keeps sample ordering; restore
+ * rereads original medians in one batch. Failure preserves samples and model. */
+int siril_background_move(SirilBackground *session, size_t index, double x, double y);
+int siril_background_restore(SirilBackground *session, const SirilBackgroundSample *samples, size_t count);
 int siril_background_remove(SirilBackground *session, size_t index);
 void siril_background_clear(SirilBackground *session);
 int siril_background_compute(SirilBackground *session, const SirilBackgroundOptions *options, char *error, size_t capacity);

@@ -250,10 +250,13 @@ int siril_background_generate(SirilBackground *session, int count, double tolera
     GSList *saved_samples = com.grad_samples;
     gfit = fit; com.grad_samples = NULL;
     ok = generate_background_samples(count, tolerance, randomize, descent, &bounds) == 0;
-    free_background_sample_list(session->samples);
-    session->samples = com.grad_samples;
+    GSList *generated = com.grad_samples;
     com.grad_samples = saved_samples; gfit = saved_fit;
-    background_invalidate(session);
+    if (ok) {
+        free_background_sample_list(session->samples);
+        session->samples = generated;
+        background_invalidate(session);
+    } else free_background_sample_list(generated);
     if (!ok && error && capacity) snprintf(error, capacity, "Siril could not place samples: check image brightness, tolerance and sample density");
 end:
     g_mutex_unlock(&engine_mutex);
@@ -278,25 +281,89 @@ size_t siril_background_samples(SirilBackground *session, SirilBackgroundSample 
     g_mutex_unlock(&engine_mutex);
     return count;
 }
+static int background_position(fits *fit, double x, double y, point *pt) {
+    if (!isfinite(x) || !isfinite(y)) return 0;
+    x = round(x); y = round(y);
+    int radius = get_background_sample_radius();
+    if (x < radius || y < radius || x >= fit->rx - radius || y >= fit->ry - radius) return 0;
+    pt->x = x;
+    pt->y = fit->top_down ? fit->ry - 1 - y : y;
+    return 1;
+}
 int siril_background_add(SirilBackground *session, double x, double y, int descent) {
-    if (!session || !isfinite(x) || !isfinite(y)) return 0;
+    if (!session) return 0;
     g_mutex_lock(&engine_mutex);
     fits *fit = &session->original->fit;
-    int radius = get_background_sample_radius();
-    int ok = x >= radius && y >= radius && x < fit->rx - radius && y < fit->ry - radius;
-    double upstream_y = fit->top_down ? fit->ry - 1 - y : y;
+    point pt;
+    int ok = background_position(fit, x, y, &pt);
+    GSList *replacement = ok ? add_background_sample(NULL, fit, pt, descent) : NULL;
+    ok = replacement && replacement->data;
+    background_sample *added = ok ? replacement->data : NULL;
     for (GSList *node = session->samples; ok && node; node = node->next) {
-        background_sample *sample = node->data;
-        if (hypot(sample->position.x - round(x), sample->position.y - round(upstream_y)) < 1) ok = 0;
+        background_sample *s = node->data;
+        if (s->position.x == added->position.x && s->position.y == added->position.y) ok = 0;
     }
     if (ok) {
-        point pt = { .x = round(x), .y = round(fit->top_down ? fit->ry - 1 - y : y) };
-        session->samples = add_background_sample(session->samples, fit, pt, descent);
-        /* Upstream returns a null sample on allocation failure / border rejection. */
-        GSList *last = g_slist_last(session->samples);
-        if (last && !last->data) { session->samples = g_slist_delete_link(session->samples, last); ok = 0; }
+        session->samples = g_slist_concat(session->samples, replacement); replacement = NULL;
         background_invalidate(session);
     }
+    free_background_sample_list(replacement);
+    g_mutex_unlock(&engine_mutex);
+    return ok;
+}
+int siril_background_move(SirilBackground *session, size_t index, double x, double y) {
+    if (!session || index > G_MAXUINT) return 0;
+    g_mutex_lock(&engine_mutex);
+    fits *fit = &session->original->fit;
+    point pt;
+    GSList *target = g_slist_nth(session->samples, (guint)index);
+    int ok = target && background_position(fit, x, y, &pt);
+    for (GSList *node = session->samples; ok && node; node = node->next) {
+        background_sample *s = node->data;
+        if (node != target && s->position.x == pt.x && s->position.y == pt.y) ok = 0;
+    }
+    if (ok) {
+        GSList *replacement = add_background_sample(NULL, fit, pt, FALSE);
+        ok = replacement && replacement->data;
+        if (ok) {
+            g_free(target->data);
+            target->data = replacement->data;
+            replacement->data = NULL;
+            background_invalidate(session);
+        }
+        free_background_sample_list(replacement);
+    }
+    g_mutex_unlock(&engine_mutex);
+    return ok;
+}
+int siril_background_restore(SirilBackground *session, const SirilBackgroundSample *samples, size_t count) {
+    if (!session || (count && !samples) || count > G_MAXUINT) return 0;
+    g_mutex_lock(&engine_mutex);
+    fits *fit = &session->original->fit;
+    point *coords = count ? g_try_new(point, count) : NULL;
+    GSList *pts = NULL, *replacement = NULL;
+    GHashTable *seen = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+    int ok = !count || coords != NULL;
+    for (size_t i = 0; ok && i < count; i++) {
+        ok = background_position(fit, samples[i].x, samples[i].y, &coords[i]);
+        if (!ok) break;
+        char *key = g_strdup_printf("%.0f,%.0f", coords[i].x, coords[i].y);
+        if (g_hash_table_contains(seen, key)) { g_free(key); ok = 0; break; }
+        g_hash_table_add(seen, key);
+        pts = g_slist_prepend(pts, &coords[i]);
+    }
+    if (ok && count) {
+        pts = g_slist_reverse(pts);
+        replacement = add_background_samples(NULL, fit, pts);
+        ok = g_slist_length(replacement) == count;
+    }
+    if (ok) {
+        free_background_sample_list(session->samples);
+        session->samples = replacement; replacement = NULL;
+        background_invalidate(session);
+    }
+    free_background_sample_list(replacement);
+    g_slist_free(pts); g_free(coords); g_hash_table_destroy(seen);
     g_mutex_unlock(&engine_mutex);
     return ok;
 }
