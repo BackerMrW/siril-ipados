@@ -37,7 +37,7 @@ extension SirilEngine {
         // pixels and preserve the original. No fake success from command text.
         for tool in NativeTool.allCases {
             var recipe = NativeToolRecipe(tool: tool, file: file)
-            if tool == .crop { recipe.values["x"] = 16; recipe.values["y"] = 24; recipe.values["width"] = 64; recipe.values["height"] = 48 }
+            if tool == .crop { recipe.values["x"] = 16; recipe.values["y"] = 13; recipe.values["width"] = 64; recipe.values["height"] = 48 }
             if [.ghs, .inverseGHS, .modifiedAsinh, .inverseModifiedAsinh].contains(tool) { recipe.values["D"] = 0.8; recipe.values["SP"] = 0.1 }
             if tool == .linearStretch { recipe.values["BP"] = 0.05 }
             if tool == .asinh { recipe.values["stretch"] = 10 }
@@ -61,7 +61,7 @@ extension SirilEngine {
                 try require(abs(after[1] - min(expected[1], (expected[0] + expected[2]) / 2)) < 2e-6 && after[0] == expected[0] && after[2] == expected[2], "SCNR average-neutral pixels")
             case .crop:
                 let after = try await session.pixel(view: 1, x: 0, y: 0)
-                let corner = (0..<3).map { values[$0 * width * height + 24 * width + 16] }
+                let corner = (0..<3).map { values[$0 * width * height + 13 * width + 16] }
                 try require(info.width == 64 && info.height == 48 && after == corner, "crop selection coordinates or pixels")
             case .mirrorHorizontal, .mirrorVertical, .rotate180:
                 let fromX = tool == .mirrorVertical ? x : width - 1 - x

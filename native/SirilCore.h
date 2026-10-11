@@ -62,6 +62,7 @@ int siril_background_compute_sequence(SirilBackground *session, const SirilBackg
     const SirilBackgroundSampling *sampling, char *error, size_t capacity);
 typedef struct {
     uint32_t width, height, channels;
+    int32_t top_down; /* physical FITS row order, used to map displayed crop coordinates */
     int32_t working_bitpix, gain, offset; /* loaded representation; imports are normalized float */
     double exposure, temperature;
     char object[80], bayer[80];

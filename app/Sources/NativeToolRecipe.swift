@@ -133,7 +133,7 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
             guard mask.number("low") <= mask.number("high"), mask.number("lumLow") <= mask.number("lumHigh") else { throw EngineError.failed("蒙版上下限顺序无效。") }
         }
     }
-    func commands(file: FITSRecord) throws -> String {
+    func commands(file: FITSRecord, topDown: Bool) throws -> String {
         try validate(file: file)
         func n(_ key: String) -> String { Self.format(number(key)) }
         func on(_ key: String) -> Bool { number(key) == 1 }
@@ -169,7 +169,11 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
             command = "atrous \(n("layers")) \(Int(number("type")) + 1) " + (0..<Int(number("layers"))).map { n("c\($0)") }.joined(separator: " ")
             if on("vst") { command += " -anscombe" }
             if on("denoise") { command += " -denoise \(number("method") == 0 ? "-bishrink" : "-threshold") \(on("soft") ? "-soft" : "-hard") -k=\(n("k"))\(on("perband") ? " -perband" : "") " + (0..<Int(number("layers"))).map { "-f\($0 + 1)=\(n("f\($0)"))" }.joined(separator: " ") }
-        case .crop: command = "crop \(n("x")) \(n("y")) \(n("width")) \(n("height"))"
+        case .crop:
+            // The original crop always indexes ry-y-h, while the native canvas
+            // follows the FITS ROWORDER keyword. Convert only at this boundary.
+            let cropY = topDown ? Double(file.height) - number("y") - number("height") : number("y")
+            command = "crop \(n("x")) \(Self.format(cropY)) \(n("width")) \(n("height"))"
         case .rotate: command = "rotate \(n("angle")) -interp=\(interp)\(on("crop") ? "" : " -nocrop")\(on("clamp") ? "" : " -noclamp")"
         case .rotate90: command = "rotate 90 -nocrop"; case .rotate270: command = "rotate -90 -nocrop"; case .rotate180: command = "rotatePi"
         // Siril mirrorx flips rows, mirrory flips columns.

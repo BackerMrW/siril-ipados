@@ -47,7 +47,9 @@ extension SirilEngine {
         for id in [recipe.guideID, recipe.mask.number("mode") == 3 ? recipe.mask.sourceID : nil].compactMap({ $0 }) where !inputs.contains(where: { $0.id == id }) {
             guard let record = library.first(where: { $0.id == id }) else { throw EngineError.failed("蒙版或引导图已删除，请先恢复。") }; inputs.append(record)
         }
-        var script = try recipe.commands(file: file)
+        let image = try read(file.url); defer { siril_image_free(image) }
+        var info = SirilImageInfo(); _ = siril_image_info(image, &info)
+        var script = try recipe.commands(file: file, topDown: info.top_down != 0)
         func copied(_ id: UUID) throws -> String {
             guard let record = inputs.first(where: { $0.id == id }), let index = inputs.filter({ $0.role == record.role }).firstIndex(where: { $0.id == id }) else { throw EngineError.failed("工具输入不完整。") }
             return record.role.rawValue + "/" + String(format: "frame_%05d.fits", index + 1)
@@ -94,7 +96,9 @@ actor NativeToolSession {
     func compute(_ recipe: NativeToolRecipe, library: [FITSRecord]) throws {
         guard let folder, let source else { throw EngineError.failed("工具会话已关闭。") }
         computed = nil
-        let script = try recipe.commands(file: source)
+        guard let original else { throw EngineError.failed("原图已关闭。") }
+        var sourceInfo = SirilImageInfo(); _ = siril_image_info(original, &sourceInfo)
+        let script = try recipe.commands(file: source, topDown: sourceInfo.top_down != 0)
         func copyReference(_ id: UUID, name: String, mask: Bool) throws {
             guard let file = library.first(where: { $0.id == id }), file.width == source.width, file.height == source.height, [1, 3].contains(file.channels) else { throw EngineError.failed(mask ? "蒙版图必须与原图同尺寸。" : "引导图必须与原图同尺寸。") }
             let target = folder.appendingPathComponent(name)
