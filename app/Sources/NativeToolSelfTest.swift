@@ -39,11 +39,15 @@ extension SirilEngine {
         var records = [file]
         var jobs: [ProcessingJob] = []
         var checks: [String] = [], failures: [String] = []
-        defer { try? checks.joined(separator: "\n").write(to: documents.appendingPathComponent("native-tool-tests.log"), atomically: true, encoding: .utf8) }
+        func checkpoint(_ line: String) {
+            checks.append(line)
+            try? checks.joined(separator: "\n").write(to: documents.appendingPathComponent("native-tool-tests.log"), atomically: true, encoding: .utf8)
+        }
         // Every actual native tool must execute, return finite full-resolution
         // pixels and preserve the original. No fake success from command text.
         for tool in NativeTool.allCases {
             do {
+                checkpoint("START: native tool \(tool.rawValue)")
                 var recipe = NativeToolRecipe(tool: tool, file: file)
                 if tool == .crop { recipe.values["x"] = 16; recipe.values["y"] = 13; recipe.values["width"] = 64; recipe.values["height"] = 48 }
                 if [.ghs, .inverseGHS, .modifiedAsinh, .inverseModifiedAsinh].contains(tool) { recipe.values["D"] = 0.8; recipe.values["SP"] = 0.1 }
@@ -89,10 +93,10 @@ extension SirilEngine {
                 default: break
                 }
                 try require(try Data(contentsOf: file.url) == sourceBytes, "tool changed imported original")
-                checks.append("PASS: native tool \(tool.rawValue) executed original worker and preserved source")
+                checkpoint("PASS: native tool \(tool.rawValue) executed original worker and preserved source")
             } catch {
                 let failure = "FAIL: \(tool.rawValue): \(error.localizedDescription)\n" + String(Self.processingLog().suffix(1200))
-                failures.append(failure); checks.append(failure)
+                failures.append(failure); checkpoint(failure)
             }
         }
         try require(failures.isEmpty, failures.joined(separator: "\n"))
@@ -118,6 +122,7 @@ extension SirilEngine {
         try require(bottomCorner == bottomExpected, "bottom-up crop displayed coordinates")
         await bottomSession.close(); try fm.removeItem(at: bottomFile.url)
         for mode in [1, 3, 4, 5] {
+            checkpoint("START: original mask source \(mode)")
             var recipe = NativeToolRecipe(tool: .negative, file: file)
             recipe.mask.values["mode"] = Double(mode)
             if mode == 3 { recipe.mask.sourceID = file.id }
@@ -133,11 +138,13 @@ extension SirilEngine {
             }
         }
         var guide = NativeToolRecipe(tool: .guided, file: file)
+        checkpoint("START: original external guided filter")
         guide.guideID = file.id; guide.values["diameter"] = 2
         try await session.compute(guide, library: records)
         let guided = try await session.pixel(view: 1, x: x, y: y)
         try require(guided.allSatisfy(\.isFinite), "external guide image was not processed")
         for depth in 0..<3 {
+            checkpoint("START: original channel mask bit depth \(depth)")
             var masked = NativeToolRecipe(tool: .negative, file: file)
             masked.mask.values["mode"] = 2; masked.mask.values["depth"] = Double(depth)
             try await session.compute(masked, library: records)
@@ -150,6 +157,7 @@ extension SirilEngine {
             try require(abs(inverted - (1 - mask)) < 2e-5, "mask inversion changed orientation or precision")
         }
         var masked = NativeToolRecipe(tool: .negative, file: file)
+        checkpoint("START: mask operations, inheritance and geometry")
         masked.mask.values["mode"] = 1; masked.mask.values["blur"] = 1; masked.mask.values["threshold"] = 1; masked.mask.values["low"] = 0.1; masked.mask.values["high"] = 0.8
         masked.mask.values["feather"] = 1; masked.mask.values["factor"] = 0.8
         try await session.compute(masked, library: records)
@@ -184,6 +192,7 @@ extension SirilEngine {
         await session.close()
 
         let existingLibrary = loadLibrary()
+        checkpoint("START: tool history and companion trash lifecycle")
         var history = try nativeToolHistory(saved, tool: .resample)
         history.record(inherited); try saveNativeToolHistory(history, file: saved)
         let historyBytes = try Data(contentsOf: saved.url.appendingPathExtension("tools.json"))
@@ -204,6 +213,7 @@ extension SirilEngine {
         try saveLibrary(existingLibrary)
 
         for format in NativeImageFormat.allCases {
+            checkpoint("START: original format \(format.rawValue)")
             let image = try read(file.url); defer { siril_image_free(image) }
             let url = folder.appendingPathComponent(format.rawValue + "." + format.ext)
             try require(url.path.withCString { siril_image_export(image, $0, format.native, format.depth, 100) } != 0, "original \(format.rawValue) export")
@@ -215,7 +225,7 @@ extension SirilEngine {
             let tolerance: Float = format == .jpeg ? 0.035 : format.depth == 8 ? 0.008 : format.depth == 16 ? 0.00004 : 0.000002
             try require(zip(pixel, expected).allSatisfy { abs($0.0 - $0.1) < tolerance }, "\(format.rawValue) imported pixel precision or orientation")
             try fm.removeItem(at: imported.url)
-            checks.append("PASS: original \(format.rawValue) export/import preserved full-size RGB planes at declared precision")
+            checkpoint("PASS: original \(format.rawValue) export/import preserved full-size RGB planes at declared precision")
         }
         for ext in ["jpg", "png", "tif"] {
             let bad = folder.appendingPathComponent("invalid." + ext); try Data("not an image".utf8).write(to: bad)
@@ -229,6 +239,6 @@ extension SirilEngine {
             try permanentlyDeleteTrash(Set(trashEntries().filter { $0.jobName == task.id }.map(\.id)))
         }
         try require(try Data(contentsOf: file.url) == sourceBytes, "exports, masks or cleanup changed source pixels")
-        checks.append("PASS: all mask sources, 8/16/32-bit blending/inversion, inherited/resized masks, stale previews, persistent history, companion restoration/permanent cleanup and malformed-file survival")
+        checkpoint("PASS: all mask sources, 8/16/32-bit blending/inversion, inherited/resized masks, stale previews, persistent history, companion restoration/permanent cleanup and malformed-file survival")
     }
 }

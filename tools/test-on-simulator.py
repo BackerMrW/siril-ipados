@@ -75,6 +75,18 @@ for attempt, seconds in enumerate((90, 180), start=1):
         print("First CoreSimulator launch did not produce a report; retrying the launch client once", flush=True)
 (root / "diagnostics/app-launch-client.log").write_text("\n".join(launch_outputs))
 if not report.exists():
+    progress = container / "Documents/native-tool-tests.log"
+    if progress.exists():
+        (root / "diagnostics/native-tool-tests.log").write_bytes(progress.read_bytes())
+        print(progress.read_text(), flush=True)
+    # Capture actual native stacks on a timeout instead of guessing which
+    # worker or event-loop dependency blocked the application.
+    try:
+        pids = subprocess.check_output(["pgrep", "-x", "SirilPad"], text=True, timeout=10).split()
+        for pid in pids[:2]:
+            subprocess.run(["sample", pid, "3", "1", "-file", str(root / f"diagnostics/app-hang-{pid}.txt")], timeout=15)
+    except (subprocess.SubprocessError, OSError):
+        pass
     subprocess.run(["xcrun", "simctl", "io", udid, "screenshot",
                     str(root / "diagnostics/app-launch-failure.png")], timeout=30)
     for path in (Path.home() / "Library/Logs/DiagnosticReports").glob("SirilPad*.ips"):

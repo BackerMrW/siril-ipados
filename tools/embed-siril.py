@@ -129,9 +129,21 @@ text = formats.read_text()
 start = text.index("int readjpg(")
 end = text.index("int savejpg(", start)
 reader = text[start:end]
+reader = reader.replace("struct jpeg_decompress_struct cinfo;", "struct jpeg_decompress_struct cinfo = {0};")
 reader = reader.replace("struct jpeg_error_mgr jerr;", "struct ipad_jpeg_error jerr = {0};")
 reader = reader.replace("cinfo.err = jpeg_std_error(&jerr);", "cinfo.err = jpeg_std_error(&jerr.manager);\n\tjerr.manager.error_exit = ipad_jpeg_error_exit;\n\tif (setjmp(jerr.recovery)) {\n\t\tjpeg_destroy_decompress(&cinfo); fclose(f); free(jerr.pixels);\n\t\treturn OPEN_IMAGE_ERROR;\n\t}")
 reader = reader.replace("WORD *data = malloc(npixels * sizeof(WORD) * 3);", "WORD *data = malloc(npixels * sizeof(WORD) * 3);\n\tjerr.pixels = data;")
+# The original allocation has exactly three planes. Four-component CMYK must
+# fail before allocation instead of exposing a fourth plane outside the buffer.
+old_start = "\tjpeg_start_decompress(&cinfo);"
+assert reader.count(old_start) == 1
+reader = reader.replace(old_start, old_start + "\n\tif (cinfo.output_components != 1 && cinfo.output_components != 3) {\n\t\tsiril_log_error(\"Unsupported JPEG component layout\\n\");\n\t\tjpeg_destroy_decompress(&cinfo); fclose(f);\n\t\treturn OPEN_IMAGE_ERROR;\n\t}")
+# libjpeg can still consume source bytes during finish. Keep FILE alive until
+# then so the error handler can safely close it exactly once on late failures.
+old_finish = "\tfclose(f);\n\tjpeg_finish_decompress(&cinfo);\n\tjpeg_destroy_decompress(&cinfo);"
+assert reader.count(old_finish) == 1
+reader = reader.replace(old_finish, "\tjpeg_finish_decompress(&cinfo);\n\tjpeg_destroy_decompress(&cinfo);\n\tfclose(f);")
+reader = reader.replace("\t\tPRINT_ALLOC_ERR;\n\t\tfclose(f);", "\t\tPRINT_ALLOC_ERR;\n\t\tjpeg_destroy_decompress(&cinfo);\n\t\tfclose(f);")
 helper = """struct ipad_jpeg_error {
     struct jpeg_error_mgr manager;
     jmp_buf recovery;
