@@ -33,14 +33,21 @@ struct NativeToolView: View {
     @State private var recipe: NativeToolRecipe
     @State private var history: NativeToolHistory?
     @State private var library: [FITSRecord] = []
-    @State private var originalImage: UIImage?, resultImage: UIImage?, maskImage: UIImage?
-    @State private var resultWidth = 1, resultHeight = 1
-    @State private var view = 0, channel = -1
+    @State private var originalImage: UIImage?
+    @State private var resultImage: UIImage?
+    @State private var maskImage: UIImage?
+    @State private var resultWidth = 1
+    @State private var resultHeight = 1
+    @State private var view = 0
+    @State private var channel = -1
     @State private var automatic = false
     @State private var selecting = false
     @State private var region: ImageSelection?
-    @State private var busy = false, loaded = false, validPreview = false
-    @State private var message = "", log = ""
+    @State private var busy = false
+    @State private var loaded = false
+    @State private var validPreview = false
+    @State private var message = ""
+    @State private var log = ""
     @State private var persistTask: Task<Void, Never>?
     @State private var previewTask: Task<Void, Never>?
     @State private var logTask: Task<Void, Never>?
