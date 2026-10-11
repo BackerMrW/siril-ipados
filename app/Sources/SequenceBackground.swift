@@ -27,7 +27,31 @@ struct SequenceBackgroundHistory: Codable, Equatable, Sendable {
     mutating func undo() { if let settings = past.popLast() { future.append(current); current = settings } }
     mutating func redo() { if let settings = future.popLast() { past.append(current); current = settings } }
 }
+struct SequenceBackgroundRecipe: Codable, Sendable {
+    let source: SequenceLocation
+    let output: SequenceLocation
+    let settings: BackgroundSettings
+}
+struct SequenceBackgroundRun: Identifiable, Sendable {
+    let folder: URL
+    let state: JobState
+    let output: SequenceLocation?
+    var id: String { folder.lastPathComponent }
+}
 extension SirilEngine {
+    func sequenceBackgroundRuns(_ location: SequenceLocation) throws -> [SequenceBackgroundRun] {
+        let folder = try owned("SequenceRuns", under: sequenceFolder(location).deletingLastPathComponent())
+        guard FileManager.default.fileExists(atPath: folder.path) else { return [] }
+        return try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil).compactMap { candidate in
+            guard UUID(uuidString: candidate.lastPathComponent) != nil,
+                  let run = try? owned(candidate.lastPathComponent, under: folder),
+                  let recipe = try? JSONDecoder().decode(SequenceBackgroundRecipe.self, from: Data(contentsOf: owned("background.json", under: run))),
+                  recipe.source == location,
+                  let state = try? JSONDecoder().decode(JobState.self, from: Data(contentsOf: owned("job.json", under: run))) else { return nil }
+            return SequenceBackgroundRun(folder: run, state: state, output: state.state == "已完成" ? recipe.output : nil)
+        }.sorted { $0.state.created > $1.state.created }
+    }
+
     private func backgroundHistoryURL(_ location: SequenceLocation) throws -> URL {
         let job = try sequenceFolder(location).deletingLastPathComponent()
         let folder = try owned("SequenceEdits", under: job)
@@ -59,8 +83,7 @@ extension SirilEngine {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let prefix = "b_" + folder.lastPathComponent.replacingOccurrences(of: "-", with: "") + "_"
         let output = SequenceLocation(job: location.job, name: prefix + location.name)
-        struct Recipe: Codable { let source: SequenceLocation; let output: SequenceLocation; let settings: BackgroundSettings }
-        try JSONEncoder().encode(Recipe(source: location, output: output, settings: settings))
+        try JSONEncoder().encode(SequenceBackgroundRecipe(source: location, output: output, settings: settings))
             .write(to: folder.appendingPathComponent("background.json"), options: .atomic)
         try Data(contentsOf: process.appendingPathComponent(location.name))
             .write(to: folder.appendingPathComponent("source.seq"), options: .atomic)
@@ -83,7 +106,7 @@ extension SirilEngine {
             let generated = try inspectSequence(output)
             let selected = snapshot.frames.filter(\.included)
             guard generated.info.count == snapshot.info.included, generated.info.layers == snapshot.info.layers,
-                  generated.frames.allSatisfy({ $0.native.width == snapshot.info.width && $0.native.height == snapshot.info.height }) else {
+                  zip(generated.frames, selected).allSatisfy({ $0.0.native.width == $0.1.native.width && $0.0.native.height == $0.1.native.height }) else {
                 throw EngineError.failed("部分帧处理失败或输出尺寸、通道不符。预期 \(snapshot.info.included) 张，实际 \(generated.info.count) 张；请查看本次日志。")
             }
             // Regular numbered FITS keep original filenum. Containers reindex.
@@ -188,8 +211,8 @@ struct SequenceBackgroundView: View {
                 Text("背景模型").tag(2).disabled(!computed)
             }.pickerStyle(.segmented).padding(.horizontal)
             if let image, let snapshot {
-                ZoomableImageCanvas(image: image, samples: [], imageWidth: Double(snapshot.info.width),
-                    imageHeight: Double(snapshot.info.height), selected: nil, onTap: { _, _ in })
+                ZoomableImageCanvas(image: image, samples: [], imageWidth: Double(snapshot.frames[index].native.width),
+                    imageHeight: Double(snapshot.frames[index].native.height), selected: nil, onTap: { _, _ in })
             } else { ProgressView("读取序列帧").frame(maxWidth: .infinity, maxHeight: .infinity) }
             if snapshot?.info.layers == 3 {
                 Picker("显示通道", selection: $channel) { Text("RGB").tag(-1); Text("R").tag(0); Text("G").tag(1); Text("B").tag(2) }

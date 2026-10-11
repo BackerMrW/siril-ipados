@@ -56,6 +56,7 @@ struct SequenceWorkspace: View {
     @State private var showStack = false
     @State private var showApply = false
     @State private var showBackground = false
+    @State private var backgroundRuns: [SequenceBackgroundRun] = []
     @State private var generated: SequenceLocation?
     @State private var flats: [FITSRecord] = []
     @State private var flatID: UUID?
@@ -130,6 +131,20 @@ struct SequenceWorkspace: View {
                         ShareLink("导出本次 FITS", item: result)
                     }
                 }.id("sequence-registration")
+                if !backgroundRuns.isEmpty {
+                    Section("背景处理记录") {
+                        ForEach(backgroundRuns) { run in
+                            DisclosureGroup("\(run.state.created.formatted(date: .abbreviated, time: .shortened)) · \(run.state.state)") {
+                                Text("\(run.state.inputCount) 张参与帧 · \(run.state.message)").textSelection(.enabled)
+                                if let output = run.output {
+                                    NavigationLink("打开这次校正序列") { SequenceWorkspace(location: output, engine: engine, onPreview: onPreview) }
+                                }
+                                ShareLink("导出完整背景参数", item: run.folder.appendingPathComponent("background.json"))
+                                ShareLink("导出这次处理日志", item: run.folder.appendingPathComponent("processing.log"))
+                            }
+                        }
+                    }
+                }
                 Section("逐帧列表") {
                     ForEach(snapshot.frames) { frame in
                         Button { index = frame.id } label: {
@@ -192,7 +207,7 @@ struct SequenceWorkspace: View {
             } }
             Button("取消", role: .cancel) { }
         } message: { Text("该任务中的所有序列和结果都将移入最近删除，可在存储管理中恢复。") }
-        .sheet(isPresented: $showBackground) {
+        .sheet(isPresented: $showBackground, onDismiss: { Task { await reload() } }) {
             SequenceBackgroundView(location: location, engine: engine) { output in generated = output }
         }
         .sheet(isPresented: $showApply) {
@@ -277,6 +292,7 @@ struct SequenceWorkspace: View {
             }
             if let snapshot {
                 index = min(index, snapshot.frames.count - 1)
+                backgroundRuns = try await engine.sequenceBackgroundRuns(location)
                 editHistory = try await engine.sequenceHistory(location, snapshot: snapshot)
                 options.register = snapshot.frames.contains { $0.native.has_registration != 0 }
                 flats = await engine.loadLibrary().filter { $0.channels == 1 && $0.width == Int(snapshot.info.width) && $0.height == Int(snapshot.info.height) }

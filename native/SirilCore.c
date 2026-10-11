@@ -268,6 +268,9 @@ int siril_background_compute_sequence(SirilBackground *session, const SirilBackg
     struct background_data data;
     if (!session || !sequence_background_options(o, sampling, &data, error, capacity)) return 0;
     g_mutex_lock(&engine_mutex);
+    g_mutex_lock(&log_mutex);
+    if (processing_log) g_string_truncate(processing_log, 0);
+    g_mutex_unlock(&log_mutex);
     fits *fit = &session->original->fit;
     double needed = (double)fit->rx * fit->ry * fit->naxes[2] * sizeof(float) * (o->method ? 8 : 5);
     if (!o->method && !o->interpolation) {

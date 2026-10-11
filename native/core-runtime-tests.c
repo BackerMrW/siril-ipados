@@ -397,9 +397,13 @@ static int sequence_background_checks(const char *root) {
             .protect_threshold = .05, .protect_amount = .5, .auto_degree = 1, .downsample = 4};
         SirilBackgroundSampling sampling = {.per_line = 10, .tolerance = 3};
         const int channels = kind == 1 ? 3 : 1, count = channels * 256 * 256;
-        for (int mode = 0; mode < 5; mode++) {
+        for (int mode = 0; mode < 6; mode++) {
             options.method = mode >= 3; options.interpolation = mode == 1 ? 0 : 1;
-            options.correction = mode == 2; options.simplified = mode == 4;
+            options.correction = mode == 2 || mode == 5; options.simplified = mode >= 4;
+            options.scale = mode == 5 ? 3 : 5; options.smoothness = mode == 5 ? .7 : 1;
+            options.protect = mode != 5; options.protect_threshold = mode == 5 ? .1 : .05;
+            options.protect_amount = mode == 5 ? .2 : .5; options.auto_degree = mode == 5 ? 2 : 1;
+            options.downsample = mode == 5 ? 2 : 4;
             sampling.border = 5; sampling.border_percent = kind != 2;
             snprintf(prefix, sizeof prefix, "b%d_", mode);
             CHECK(siril_sequence_background(process, "grad_.seq", prefix, &options, &sampling, error, sizeof error));
@@ -430,7 +434,7 @@ static int sequence_background_checks(const char *root) {
             if (mode != 2) {
                 snprintf(script, sizeof script, "seqsubsky grad_ %s -nodither -prefix=ref%d_ %s\n",
                     mode == 1 ? "-rbf" : mode >= 3 ? "-auto" : "1", mode,
-                    mode >= 3 ? (mode == 4 ? "-simplified" : "") : (kind == 2 ? "-samples=10 -tolerance=3 -border=5" : "-samples=10 -tolerance=3 -border=5%"));
+                    mode >= 3 ? (mode == 5 ? "-simplified -mode=divide -scale=3 -smoothness=0.7 -noprotect -protect_threshold=0.1 -protect_amount=0.2 -degree=2 -downsample=2" : mode == 4 ? "-simplified" : "") : (kind == 2 ? "-samples=10 -tolerance=3 -border=5" : "-samples=10 -tolerance=3 -border=5%"));
                 CHECK(siril_run_commands(process, script, error, sizeof error));
                 for (int i = 0; i < 2; i++) {
                     snprintf(path, sizeof path, "%s/ref%d_grad_%05d.fits", process, mode, output[i].file_number);
