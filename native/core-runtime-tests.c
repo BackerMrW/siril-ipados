@@ -381,6 +381,7 @@ static int sequence_background_checks(const char *root) {
     char process[4096], path[4096], script[16384], error[4096], name[128], prefix[64];
     float *actual = malloc(3 * 256 * 256 * sizeof(float)), *expected = malloc(3 * 256 * 256 * sizeof(float));
     CHECK(actual && expected);
+    CHECK(siril_run_commands(root, "setext fits\n", error, sizeof error));
     for (int kind = 0; kind < 3; kind++) {
         snprintf(process, sizeof process, "%s/seqbackground%d", root, kind); CHECK(!mkdir(process, 0700));
         for (int i = 0; i < 3; i++) {

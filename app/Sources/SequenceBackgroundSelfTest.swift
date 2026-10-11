@@ -20,7 +20,8 @@ extension SirilEngine {
         let process = job.folder.appendingPathComponent("process")
         let sourceIndex = process.appendingPathComponent(location.name)
         let sourceBytes = try Data(contentsOf: sourceIndex)
-        let originalPaths = try FileManager.default.contentsOfDirectory(at: process, includingPropertiesForKeys: nil).filter { $0.pathExtension == "fits" }
+        let originalPaths = try FileManager.default.contentsOfDirectory(at: process, includingPropertiesForKeys: nil).filter { ["fit", "fits", "fts"].contains($0.pathExtension) }
+        try require(originalPaths.count == 3, "source preservation test did not find three FITS frames")
         let originalBytes = try originalPaths.map { try Data(contentsOf: $0) }
         var settings = BackgroundSettings.sequenceDefaults
         settings.perLine = 10; settings.tolerance = 3; settings.dither = false
@@ -35,7 +36,11 @@ extension SirilEngine {
         let previewURL = job.folder.appendingPathComponent("sequence-preview.fits")
         try await preview.exportSequencePreview(previewURL)
         let reader = ImageAnalysisEngine(), compare = ImageAnalysisEngine()
-        let firstOutput = process.appendingPathComponent(output.base + String(format: "%05d.fits", generated.frames[0].native.file_number))
+        let outputStem = output.base + String(format: "%05d", generated.frames[0].native.file_number)
+        guard let firstOutput = try FileManager.default.contentsOfDirectory(at: process, includingPropertiesForKeys: nil)
+            .first(where: { $0.deletingPathExtension().lastPathComponent == outputStem && ["fit", "fits", "fts"].contains($0.pathExtension) }) else {
+            throw EngineError.failed("Corrected frame file missing")
+        }
         _ = try await reader.open(firstOutput); _ = try await compare.open(previewURL)
         for y in stride(from: 0, to: 256, by: 17) { for x in stride(from: 0, to: 256, by: 17) {
             let actual = try await reader.pixel(x: x, y: y).values[0]
