@@ -17,7 +17,7 @@ extension SirilEngine {
         var backgroundHistory = SequenceBackgroundHistory(source: output)
         var settings = backgroundHistory.current; settings.degree = 2; backgroundHistory.record(settings)
         try saveSequenceBackgroundHistory(backgroundHistory)
-        _ = try exportSequenceQuality(output)
+        _ = try exportSequenceQuality(output, layer: 1)
         let paths = try sequenceFilePaths(output)
         try require(paths.filter { $0.contains("/drizztmp/") }.count == 3, "original helper omitted weights")
         let before = try paths.map { ($0, try Data(contentsOf: sequenceTrashPath($0, under: root))) }

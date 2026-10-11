@@ -121,6 +121,9 @@ extension SirilEngine {
             try manifest(entry)
             return id
         } catch {
+            // The durable commit may have failed (for example disk full).
+            // Roll back even though the in-memory flag was already changed.
+            entry.sequenceOutput?.committed = false
             try recoverSequenceTrash(entry) // Uncommitted moves roll back, also after a crash.
             throw error
         }

@@ -168,6 +168,11 @@ struct SequenceWorkspace: View {
                     Text("移入最近删除后可以恢复。任务的输入副本、所有配准输出和 Drizzle 权重会一并移动；图库原图独立保留。永久删除后释放空间。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+            } else if !message.isEmpty {
+                Section {
+                    ContentUnavailableView("序列暂不可用", systemImage: "tray", description: Text("已删除的输出可在最近删除中恢复。"))
+                    NavigationLink("输出删除与恢复") { SequenceOutputManagementView(job: location.job, engine: engine, onPreview: onPreview) }
+                }
             } else { ProgressView("读取原版序列") }
             if busy { Section { ProgressView("Siril 正在处理") } }
             if !message.isEmpty { Section("提示") { Text(message).textSelection(.enabled) } }
@@ -298,6 +303,7 @@ struct SequenceWorkspace: View {
                 }
             }
             if let snapshot {
+                if let output = generated, !(await engine.sequenceLocations(job: location.job)).contains(output) { generated = nil }
                 index = min(index, snapshot.frames.count - 1)
                 backgroundRuns = try await engine.sequenceBackgroundRuns(location)
                 editHistory = try await engine.sequenceHistory(location, snapshot: snapshot)
@@ -305,7 +311,7 @@ struct SequenceWorkspace: View {
                 flats = await engine.loadLibrary().filter { $0.channels == 1 && $0.width == Int(snapshot.info.width) && $0.height == Int(snapshot.info.height) }
             }
             refreshPreview()
-        } catch { message = error.localizedDescription }
+        } catch { snapshot = nil; image = nil; message = error.localizedDescription }
     }
     @MainActor private func refreshPreview() {
         previewTask?.cancel(); image = nil

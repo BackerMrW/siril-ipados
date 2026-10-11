@@ -232,6 +232,8 @@ extension SirilEngine {
         for (i, url) in sourceURLs.enumerated() { try require(try Data(contentsOf: url) == sourceBytes[i], "application changed source pixels") }
         try require(try Data(contentsOf: flat.url) == flatBytes, "Drizzle altered gallery flat")
         try sequenceOutputStorageSelfTest(source: source, output: drizzled, sibling: second, stacked: stacked)
+        let recoveredStack = try stackSequence(drizzled, options: options, layer: 1)
+        try require(try floats(recoveredStack) == actual, "weighted stack pixels changed after independent output restoration")
         var impossible = options
         impossible.filters = [QualityFilter(enabled: true, metric: .nbstars, limit: .threshold, value: 10000)]
         rejected = false
