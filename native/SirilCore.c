@@ -635,7 +635,13 @@ SirilImage *siril_image_read_any(const char *path, char *error, size_t capacity)
     g_mutex_lock(&engine_mutex);
     initialize();
     SirilImage *image = g_try_new0(SirilImage, 1);
-    if (!image || read_single_image(path, &image->fit, NULL, FALSE, NULL, FALSE, TRUE, TRUE) || image->fit.type != DATA_FLOAT) {
+    int failed = !image || read_single_image(path, &image->fit, NULL, FALSE, NULL, FALSE, TRUE, TRUE);
+    /* force_float is honored by FITS/TIFF readers; PNG/JPEG/BMP/PNM
+     * readers keep integer samples. Use upstream's bit-depth-aware conversion
+     * before exposing the normalized floating-point image through this ABI. */
+    if (!failed && image->fit.type == DATA_USHORT)
+        failed = soper(&image->fit, 1.0f, OPER_MUL, TRUE);
+    if (failed || image->fit.type != DATA_FLOAT) {
         if (image) { clearfits(&image->fit); g_free(image); }
         image = NULL;
         if (error && capacity) snprintf(error, capacity, "Original Siril could not decode this image format");
