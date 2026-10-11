@@ -207,7 +207,7 @@ struct SequenceWorkspace: View {
             } }
             Button("取消", role: .cancel) { }
         } message: { Text("该任务中的所有序列和结果都将移入最近删除，可在存储管理中恢复。") }
-        .sheet(isPresented: $showBackground, onDismiss: { Task { await reload() } }) {
+        .fullScreenCover(isPresented: $showBackground, onDismiss: { Task { await reload() } }) {
             SequenceBackgroundView(location: location, engine: engine) { output in generated = output }
         }
         .sheet(isPresented: $showApply) {
