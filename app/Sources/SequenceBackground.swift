@@ -49,7 +49,10 @@ extension SirilEngine {
                   recipe.source == location,
                   var state = try? JSONDecoder().decode(JobState.self, from: Data(contentsOf: owned("job.json", under: run))) else { return nil }
             if state.state == "运行中" { state.state = "处理被中断" }
-            return SequenceBackgroundRun(folder: run, state: state, output: state.state == "已完成" ? recipe.output : nil)
+            let process = try sequenceFolder(location)
+            let available = FileManager.default.fileExists(atPath: try owned(recipe.output.name, under: process).path)
+            if !available && state.state == "已完成" { state.state = "输出已删除" }
+            return SequenceBackgroundRun(folder: run, state: state, output: state.state == "已完成" && available ? recipe.output : nil)
         }.sorted { $0.state.created > $1.state.created }
     }
 

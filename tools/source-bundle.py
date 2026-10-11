@@ -12,7 +12,7 @@ import urllib.request
 import zipfile
 
 GIT_SOURCES = [
-    ("Siril", "https://gitlab.com/free-astro/siril.git", "569e699ce0d19c00d383fd1930a87096aa34b4f9", "siril-ipados"),
+    ("Siril", "https://gitlab.com/free-astro/siril.git", "2a724774dc4b2f9218d4d9055e81289b77ca9be3", "siril-ipados"),
     ("CFITSIO", "https://github.com/HEASARC/cfitsio.git", "1d2f37b1bc8e6d5e8cf8cd497314680322063468", "cfitsio-upstream"),
     ("GLib", "https://github.com/GNOME/glib.git", "41eca60845d3fc309af361f5e7f801ba339099aa", "glib-ipados-upstream"),
     ("libffi", "https://gitlab.freedesktop.org/gstreamer/meson-ports/libffi.git", "83d0cfd00d7d37af4b4349511d29f1f0512621b3", "libffi-meson-upstream"),

@@ -26,6 +26,7 @@
 #include <gsl/gsl_errno.h>
 #include <fftw3.h>
 #include <stdio.h>
+#include <limits.h>
 #include <string.h>
 
 /* Upstream desktop entry points own these; the embedding app provides them. */
@@ -176,6 +177,50 @@ SirilImage *siril_sequence_frame(const char *directory, const char *name, int in
 done:
     g_mutex_unlock(&engine_mutex);
     return image;
+}
+int siril_sequence_files(const char *directory, const char *name, char *output,
+    size_t capacity, char *error, size_t error_size) {
+    g_mutex_lock(&engine_mutex);
+    initialize();
+    sequence *seq = embedded_sequence(directory, name, error, error_size);
+    int result = -1;
+    if (!seq) goto done;
+    if (seq->type != SEQ_REGULAR) {
+        if (error && error_size) snprintf(error, error_size, "Independent removal requires a regular FITS sequence");
+        goto free_seq;
+    }
+    GString *paths = g_string_new(name);
+    const char *folders[] = {"cache", "cache", "drizztmp"};
+    const char *extensions[] = {"lst", "msk", "fit"};
+    for (int i = 0; i < seq->number; i++) {
+        char filename[256];
+        if (!fit_sequence_get_image_filename_checkext(seq, i, filename) ||
+            strchr(filename, '/') || strchr(filename, '\\') || strchr(filename, '\n') || strchr(filename, '\r')) {
+            if (error && error_size) snprintf(error, error_size, "Invalid or missing sequence frame filename");
+            g_string_free(paths, TRUE);
+            goto free_seq;
+        }
+        g_string_append_printf(paths, "\n%s", filename);
+        for (int k = 0; k < 3; k++) {
+            gchar *cache = get_sequence_cache_filename(seq, i, folders[k], extensions[k], NULL);
+            if (cache && g_file_test(cache, G_FILE_TEST_EXISTS)) {
+                gchar *base = g_path_get_basename(cache);
+                g_string_append_printf(paths, "\n%s/%s", folders[k], base);
+                g_free(base);
+            }
+            g_free(cache);
+        }
+    }
+    if (paths->len < INT_MAX && (!output || capacity > paths->len)) {
+        result = (int)paths->len + 1;
+        if (output) memcpy(output, paths->str, result);
+    } else if (error && error_size) snprintf(error, error_size, "Sequence file-list capacity too small");
+    g_string_free(paths, TRUE);
+free_seq:
+    free_sequence(seq, TRUE);
+done:
+    g_mutex_unlock(&engine_mutex);
+    return result;
 }
 int siril_sequence_select(const char *directory, const char *name, const uint8_t *included,
     size_t count, int reference, char *error, size_t error_size) {

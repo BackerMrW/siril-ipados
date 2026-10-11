@@ -231,6 +231,7 @@ extension SirilEngine {
         }
         for (i, url) in sourceURLs.enumerated() { try require(try Data(contentsOf: url) == sourceBytes[i], "application changed source pixels") }
         try require(try Data(contentsOf: flat.url) == flatBytes, "Drizzle altered gallery flat")
+        try sequenceOutputStorageSelfTest(source: source, output: drizzled, sibling: second, stacked: stacked)
         var impossible = options
         impossible.filters = [QualityFilter(enabled: true, metric: .nbstars, limit: .threshold, value: 10000)]
         rejected = false
@@ -262,6 +263,9 @@ extension SirilEngine {
         let measured = try inspectSequence(location)
         guard measured.frames.allSatisfy({ $0.native.fwhm > 0 && $0.native.stars > 0 }) else { throw EngineError.failed("Actual sequence quality missing") }
         try editSequence(location, selection: SequenceSelection(included: [true, true, true, false], reference: 0))
+        _ = try applySequenceRegistration(location, options: options, layer: 0)
+        options.drizzleOptions.enabled = true
+        _ = try applySequenceRegistration(location, options: options, layer: 0)
         try JSONEncoder().encode(location).write(to: documents.appendingPathComponent("simulator-sequence-location.json"), options: .atomic)
     }
 }

@@ -7,7 +7,11 @@ struct TrashEntry: Codable, Identifiable, Sendable {
     let deleted: Date
     let records: [FITSRecord]
     let jobName: String?
-    var title: String { jobName == nil ? "\(records.count) 张图像" : "处理任务 \(jobName!.prefix(8))" }
+    var sequenceOutput: SequenceOutputTrash? = nil
+    var title: String {
+        if let output = sequenceOutput { return "输出序列 \(output.location.name)" }
+        return jobName == nil ? "\(records.count) 张图像" : "处理任务 \(jobName!.prefix(8))"
+    }
 }
 
 struct StorageSummary: Sendable {
@@ -52,8 +56,8 @@ extension SirilEngine {
         return url
     }
 
-    private func trashFolder(_ id: UUID) throws -> URL { try owned(id.uuidString, under: trashRoot) }
-    private func manifest(_ entry: TrashEntry) throws {
+    func trashFolder(_ id: UUID) throws -> URL { try owned(id.uuidString, under: trashRoot) }
+    func manifest(_ entry: TrashEntry) throws {
         let folder = try trashFolder(entry.id)
         try FileManager.default.createDirectory(at: folder.appendingPathComponent("payload"), withIntermediateDirectories: true)
         try JSONEncoder().encode(entry).write(to: folder.appendingPathComponent("entry.json"), options: .atomic)
@@ -100,6 +104,7 @@ extension SirilEngine {
     }
 
     func trashJob(_ job: JobRecord) throws {
+        try recoverTrashTransactions()
         guard !activeJobIDs.contains(job.id) else { throw EngineError.failed("任务正在处理，不能删除") }
         guard UUID(uuidString: job.id) != nil else { throw EngineError.failed("无效的任务目录") }
         let source = try owned(job.id, under: documents.appendingPathComponent("Jobs"))
@@ -113,7 +118,9 @@ extension SirilEngine {
     func restoreTrash(_ id: UUID) throws -> [FITSRecord] {
         guard let entry = trashEntries().first(where: { $0.id == id }) else { throw EngineError.failed("删除记录不存在") }
         let payload = try trashFolder(id).appendingPathComponent("payload")
-        if let job = entry.jobName {
+        if entry.sequenceOutput != nil {
+            try restoreSequenceTrash(entry)
+        } else if let job = entry.jobName {
             let destination = try owned(job, under: documents.appendingPathComponent("Jobs"))
             try FileManager.default.moveItem(at: try owned(job, under: payload), to: destination)
         } else {
@@ -148,6 +155,10 @@ extension SirilEngine {
         var completed: [UUID] = []
         var updated: [TrashEntry] = []
         for entry in entries {
+            if entry.sequenceOutput != nil {
+                try recoverSequenceTrash(entry)
+                continue
+            }
             let payload = (try? trashFolder(entry.id))?.appendingPathComponent("payload")
             if let job = entry.jobName {
                 if let source = try? owned(job, under: documents.appendingPathComponent("Jobs")),

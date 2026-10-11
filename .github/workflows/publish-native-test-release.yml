@@ -13,7 +13,7 @@ on:
       tag:
         description: Test release tag
         required: true
-        default: v0.12.0
+        default: v0.13.0
         type: string
 permissions:
   contents: write
@@ -103,6 +103,7 @@ jobs:
               'Sequence application: selected-frame seqapplyreg through Swift workspace, unique outputs and preserved old/source FITS, actual scaled dimensions/reference-number remapping/subpixel star alignment, rejection of newly included unmeasured frames, Bayer Drizzle and master-flat snapshot, independent weighted-stack pixel checks, missing-output failure detection, and weight-map restoration/permanent cleanup; application parameter screen captured.\n' +
               'Background editing: independent 625-pixel medians, atomic failed move/restore, stale-model invalidation, restored corrected FITS pixels, persistent parameter/sample undo/redo, canvas drag coordinate conversion/cancellation/bounds, and companion-file trash recovery/cleanup.\n' +
               'Sequence background: exact original per-frame sequence hooks and GUI worker; mono/RGB/Bayer polynomial/RBF/subtract/divide/automatic output pixels, selected frame numbers/reference, preview correspondence, preserved source and earlier results, persisted parameter history, partial-failure rejection/evidence, and task restoration/permanent cleanup; sequence background view captured.\n' +
+              'Independent output cleanup: native exact FITS/cache/weight filenames, persistent edit histories, deletion undo/restore/permanent cleanup, source/sibling/stack preservation, interrupted-delete rollback, interrupted-restore completion, conflicts/active-task/source/symlink/traversal protections; live/recoverable output management screen captured.\n' +
               'Physical iPad/file-picker/large real-camera datasets still require device testing.\n')
           PY
       - name: Upload and publish the test release
@@ -114,6 +115,7 @@ jobs:
           from pathlib import Path
           Path('/tmp/release-notes.md').write_text(
               'Native iPadOS test release using the original pinned Siril engine. Processing runs locally on the iPad.\n\n' +
+              '- Independent sequence output deletion/restoration: native-resolved FITS names and star/mask/Drizzle caches plus edit histories. Undo the last delete, recover from Recently Deleted or permanently clean only that output. Source frames, siblings and saved stack results stay intact. Dependency checks protect later/recoverable outputs; persistent journals roll back interrupted deletion or finish interrupted restoration. Conflicts never overwrite files. Output management screen shows actual availability.\n' +
               '- Sequence background extraction: the original GUI sequence worker with per-frame sampling, RBF/polynomial/automatic models, subtract/divide, dither, randomized dark sampling, gradient descent and border exclusion. Bayer sample models split four sensor subchannels. Exact sequence-hook preview, persisted 30-step parameter undo/redo, independent output sequences and verified included-frame counts; partial failures stay marked as failed. Source and previous outputs are preserved. Original Drizzle weights stay with the source; corrected outputs are ordinary sequences.\n' +
               '- Background sample dragging with original source-pixel median rereads; persistent sample/parameter undo and redo (30 steps), redo-branch reset, coalesced slider and drag edits, and restoration after reopening. Edits invalidate the computed model; rejected border/duplicate edits preserve the samples. History files follow gallery deletion/restoration/permanent cleanup.\n' +
               '- Apply registration directly from a measured sequence: selected frames, six interpolation modes and clamping, four output framings and scale, six Drizzle kernels, pixel fraction, master-flat selection and 8/32-bit weights, plus native quality filters. Open the independently named output sequence to inspect or stack it. Earlier outputs and source frames are retained; delete/restore the complete task from the sequence workspace or task history.\n' +

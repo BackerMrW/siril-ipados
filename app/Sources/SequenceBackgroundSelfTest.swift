@@ -106,6 +106,20 @@ extension SirilEngine {
         try editSequence(location, undo: true)
         try require(try inspectSequence(location).selection == original.selection, "background broke sequence selection undo")
         try editSequence(location, redo: true)
+        // Reversible cleanup of a dependent background-output chain.
+        let child = try applySequenceBackground(output, settings: settings)
+        rejected = false
+        do { _ = try trashSequenceOutput(output) } catch { rejected = true }
+        try require(rejected, "dependent chain input deleted")
+        let childTrash = try trashSequenceOutput(child)
+        rejected = false
+        do { _ = try trashSequenceOutput(output) } catch { rejected = true }
+        try require(rejected, "recoverable dependent lost its input")
+        try permanentlyDeleteTrash([childTrash])
+        let outputTrash = try trashSequenceOutput(output)
+        try require(try sequenceBackgroundRuns(location).first(where: { $0.folder.lastPathComponent != latestRun.folder.lastPathComponent })?.output == nil, "deleted background output still advertised")
+        _ = try restoreTrash(outputTrash)
+        try require(try Data(contentsOf: firstOutput) == savedOutput, "independent background restoration changed pixels")
         // Delete/restore/permanent cleanup moves every correction and its history.
         guard let task = jobHistory().first(where: { $0.id == location.job }) else { throw EngineError.failed("Background task missing") }
         try trashJob(task)

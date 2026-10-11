@@ -62,6 +62,7 @@ struct SequenceWorkspace: View {
     @State private var flatID: UUID?
     @State private var initializedLayer = false
     @State private var showDelete = false
+    @State private var showOutputs = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -162,6 +163,7 @@ struct SequenceWorkspace: View {
                     }
                 }
                 Section("任务存储") {
+                    NavigationLink("输出删除与恢复") { SequenceOutputManagementView(job: location.job, engine: engine, onPreview: onPreview) }
                     Button("删除本任务及全部序列", role: .destructive) { showDelete = true }
                     Text("移入最近删除后可以恢复。任务的输入副本、所有配准输出和 Drizzle 权重会一并移动；图库原图独立保留。永久删除后释放空间。")
                         .font(.caption).foregroundStyle(.secondary)
@@ -176,6 +178,7 @@ struct SequenceWorkspace: View {
         .interactiveDismissDisabled(busy)
         .toolbar { if busy { Button("中止", role: .destructive) { siril_cancel_processing() } } }
         .navigationTitle("序列工作区")
+        .navigationDestination(isPresented: $showOutputs) { SequenceOutputManagementView(job: location.job, engine: engine, onPreview: onPreview) }
         .task {
             await reload(); to = snapshot?.frames.count ?? 1
             if ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_VIEW_CHECK"] == "1", snapshot != nil {
@@ -184,6 +187,9 @@ struct SequenceWorkspace: View {
                 let section = ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] ?? "frames"
                 if section == "quality" || section == "registration" {
                     try? await Task.sleep(for: .milliseconds(400)); proxy.scrollTo("sequence-" + section, anchor: .top)
+                } else if section == "outputs" {
+                    showOutputs = true
+                    return // The output manager checks live and recoverable files.
                 } else if section == "background" {
                     showBackground = true
                     return // The sheet writes readiness after its own real preview.
@@ -199,6 +205,7 @@ struct SequenceWorkspace: View {
         .onChange(of: channel) { _, _ in refreshPreview() }
         .onChange(of: automatic) { _, _ in refreshPreview() }
         .onChange(of: layer) { _, _ in Task { await reload() } }
+        .onAppear { Task { await reload() } }
         .onDisappear { previewTask?.cancel(); logTask?.cancel() }
         .alert("删除本任务？", isPresented: $showDelete) {
             Button("移入最近删除", role: .destructive) { perform {

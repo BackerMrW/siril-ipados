@@ -190,12 +190,17 @@ extension SirilEngine {
         }
         return job
     }
-    func runSequenceCommand(_ location: SequenceLocation, command: String, title: String, options: BatchOptions? = nil, flat: URL? = nil) throws -> URL {
+    func runSequenceCommand(_ location: SequenceLocation, command: String, title: String, options: BatchOptions? = nil, flat: URL? = nil, producesSequence: Bool = false) throws -> URL {
         let snapshot = try inspectSequence(location)
         let process = try sequenceFolder(location), job = process.deletingLastPathComponent()
         let folder = try owned(UUID().uuidString, under: try owned("SequenceRuns", under: job))
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let prefix = "r_" + folder.lastPathComponent.replacingOccurrences(of: "-", with: "") + "_"
+        try JSONEncoder().encode(location).write(to: folder.appendingPathComponent("source-location.json"), options: .atomic)
+        if producesSequence {
+            try JSONEncoder().encode(SequenceLocation(job: location.job, name: prefix + location.name))
+                .write(to: folder.appendingPathComponent("output-sequence.json"), options: .atomic)
+        }
         let relative = "../SequenceRuns/\(folder.lastPathComponent)/"
         if let flat { try FileManager.default.copyItem(at: flat, to: folder.appendingPathComponent("flat.fits")) }
         if let options { try JSONEncoder().encode(options).write(to: folder.appendingPathComponent("batch-options.json"), options: .atomic) }
@@ -268,7 +273,7 @@ extension SirilEngine {
         }
         for filter in options.filters where filter.enabled { args += ["-filter-\(filter.metric.rawValue)=\(number(filter.value))\(filter.limit.suffix)"] }
         let command = "set32bits\nset gui_registration.drizz_weight_match_bitpix=\(drizzle.matchWeightBitDepth ? "true" : "false")\n" + args.joined(separator: " ")
-        let folder = try runSequenceCommand(location, command: command, title: "应用当前序列配准变换", options: options, flat: flatURL)
+        let folder = try runSequenceCommand(location, command: command, title: "应用当前序列配准变换", options: options, flat: flatURL, producesSequence: true)
         let prefix = "r_" + folder.lastPathComponent.replacingOccurrences(of: "-", with: "") + "_"
         let output = SequenceLocation(job: location.job, name: prefix + location.name)
         do {

@@ -120,6 +120,7 @@ struct JobDetailView: View {
             }
             if !sequences.isEmpty {
                 Section("原版序列与质量") {
+                    NavigationLink("输出删除与恢复") { SequenceOutputManagementView(job: job.id, engine: engine, onPreview: onPreview) }
                     ForEach(sequences) { location in
                         NavigationLink(location.name) { SequenceWorkspace(location: location, engine: engine, onPreview: onPreview) }
                     }
