@@ -53,6 +53,29 @@ actor BackgroundEngine {
         guard let session else { throw EngineError.failed("还没有打开图像") }
         return session
     }
+    func openSequence(directory: URL, name: String, index: Int) throws {
+        if let session { siril_background_free(session) }; session = nil
+        var error = [CChar](repeating: 0, count: 1024)
+        let capacity = error.count
+        session = directory.path.withCString { directory in name.withCString {
+            siril_background_open_sequence(directory, $0, Int32(index), &error, capacity)
+        } }
+        guard session != nil else { throw EngineError.failed(String(cString: error)) }
+    }
+    func computeSequence(_ settings: BackgroundSettings) throws {
+        var options = settings.native, sampling = settings.sampling
+        var error = [CChar](repeating: 0, count: 1024)
+        let capacity = error.count
+        guard siril_background_compute_sequence(try handle(), &options, &sampling, &error, capacity) != 0 else {
+            throw EngineError.failed(String(cString: error))
+        }
+    }
+    func exportSequencePreview(_ url: URL) throws {
+        let session = try handle()
+        guard url.path.withCString({ siril_background_write(session, $0) }) != 0 else {
+            throw EngineError.failed("Cannot export sequence preview")
+        }
+    }
     func samples() throws -> [SampleMarker] {
         let session = try handle()
         let count = siril_background_samples(session, nil, 0)
@@ -271,17 +294,14 @@ struct BackgroundExtractionView: View {
                 Text("采样点和参数修改保留最近 30 步，关闭后仍可撤销。修改后需重新计算模型。")
                     .font(.caption)
             }
-            Section("方法与校正") {
-                Picker("建模方法", selection: setting(\.method)) {
-                    Text("采样点").tag(0); Text("自动渐变移除").tag(1)
-                }
-                Picker("校正", selection: setting(\.correction)) {
-                    Text("减法 Subtraction").tag(0); Text("除法 Division").tag(1)
-                }
-                Toggle("抖动 Dither", isOn: setting(\.dither))
-            }.disabled(busy)
-            if settings.method == 0 { sampleControls; interpolationControls }
-            else { automaticControls }
+            BackgroundModelControls(settings: Binding(get: { settings }, set: { value in
+                settings = value; invalidate()
+                if sliderStart == nil { recordEdit() }
+            }), onSliderEditing: { editing in
+                if editing { sliderStart = settings }
+                else if sliderStart != nil { sliderStart = nil; recordEdit() }
+            }).disabled(busy)
+            if settings.method == 0 { sampleControls }
             Section("计算与应用") {
                 if busy { ProgressView("Siril 正在处理") }
                 Button("计算背景模型") {
@@ -338,31 +358,6 @@ struct BackgroundExtractionView: View {
             }
             Button("清空采样点", role: .destructive) {
                 Task { await perform { try await engine.clear(); try await changedSamples() } }
-            }
-        }.disabled(busy)
-    }
-    private var interpolationControls: some View {
-        Section("插值") {
-            Picker("插值方法", selection: setting(\.interpolation)) {
-                Text("RBF 径向基函数").tag(0); Text("多项式").tag(1)
-            }
-            if settings.interpolation == 0 { numberSlider("平滑度", value: setting(\.smoothing), range: 0...1) }
-            else { Stepper("多项式阶数：\(settings.degree)", value: setting(\.degree), in: 1...4) }
-        }.disabled(busy)
-    }
-    private var automaticControls: some View {
-        Section("自动渐变模型") {
-            numberSlider("模型尺度", value: setting(\.scale), range: 1...10)
-            numberSlider("额外平滑", value: setting(\.smoothness), range: 0...3)
-            Toggle("保护目标结构", isOn: setting(\.protect))
-            if settings.protect {
-                numberSlider("保护阈值", value: setting(\.protectThreshold), range: 0...1)
-                numberSlider("保护范围", value: setting(\.protectAmount), range: 0...1)
-            }
-            Toggle("先去除多项式模型", isOn: setting(\.simplified))
-            if settings.simplified { Stepper("预处理阶数：\(settings.autoDegree)", value: setting(\.autoDegree), in: 1...6) }
-            Picker("内部降采样", selection: setting(\.downsample)) {
-                ForEach([1, 2, 4, 8], id: \.self) { Text("\($0)×").tag($0) }
             }
         }.disabled(busy)
     }
@@ -438,5 +433,53 @@ struct BackgroundExtractionView: View {
     }
     @MainActor private func delete(_ index: Int) {
         Task { await perform { try await engine.remove(index); try await changedSamples() } }
+    }
+}
+
+struct BackgroundModelControls: View {
+    @Binding var settings: BackgroundSettings
+    var onSliderEditing: (Bool) -> Void = { _ in }
+    var body: some View {
+        Section("方法与校正") {
+            Picker("建模方法", selection: $settings.method) {
+                Text("采样点").tag(0); Text("自动渐变移除").tag(1)
+            }
+            Picker("校正", selection: $settings.correction) {
+                Text("减法 Subtraction").tag(0); Text("除法 Division").tag(1)
+            }
+            Toggle("抖动 Dither", isOn: $settings.dither)
+        }
+        if settings.method == 0 { interpolationControls } else { automaticControls }
+    }
+    private var interpolationControls: some View {
+        Section("插值") {
+            Picker("插值方法", selection: $settings.interpolation) {
+                Text("RBF 径向基函数").tag(0); Text("多项式").tag(1)
+            }
+            if settings.interpolation == 0 { numberSlider("平滑度", value: $settings.smoothing, range: 0...1) }
+            else { Stepper("多项式阶数：\(settings.degree)", value: $settings.degree, in: 1...4) }
+        }
+    }
+    private var automaticControls: some View {
+        Section("自动渐变模型") {
+            numberSlider("模型尺度", value: $settings.scale, range: 1...10)
+            numberSlider("额外平滑", value: $settings.smoothness, range: 0...3)
+            Toggle("保护目标结构", isOn: $settings.protect)
+            if settings.protect {
+                numberSlider("保护阈值", value: $settings.protectThreshold, range: 0...1)
+                numberSlider("保护范围", value: $settings.protectAmount, range: 0...1)
+            }
+            Toggle("先去除多项式模型", isOn: $settings.simplified)
+            if settings.simplified { Stepper("预处理阶数：\(settings.autoDegree)", value: $settings.autoDegree, in: 1...6) }
+            Picker("内部降采样", selection: $settings.downsample) {
+                ForEach([1, 2, 4, 8], id: \.self) { Text("\($0)×").tag($0) }
+            }
+        }
+    }
+    private func numberSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+        VStack(alignment: .leading) {
+            LabeledContent(title, value: value.wrappedValue.formatted(.number.precision(.fractionLength(3))))
+            Slider(value: value, in: range, onEditingChanged: onSliderEditing)
+        }
     }
 }

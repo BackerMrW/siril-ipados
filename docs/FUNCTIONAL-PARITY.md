@@ -55,7 +55,7 @@
 | win.saturation-processing | Color Saturation... | 简化参数界面，未达到原版完整功能 |
 | win.remove-green-processing | Remove Green Noise... | 待移植或待逐项验证 |
 | win.negative-processing | Negative Transformation | 待移植或待逐项验证 |
-| win.background-extr-processing | Background Extraction... | 交互界面已接入（序列应用仍待接入） |
+| win.background-extr-processing | Background Extraction... | 交互界面与序列应用已接入（真机大图验证待完成） |
 | win.linearmatch-processing | Linear Match... | 待移植或待逐项验证 |
 | win.pixel-math | Pixel Math... | 待移植或待逐项验证 |
 | win.asinh-processing | Asinh Transformation... | 简化参数界面，未达到原版完整功能 |
@@ -134,4 +134,4 @@
 
 共享分析工作区已接入矩形选区、完整分辨率像素读数、原版 STATS_MAIN 八项统计及归一化/CFA 开关、原版整图/选区直方图和完整文件头查看/搜索/复制。选区目前用于分析；处理 ROI、蒙版、多边形选择、关键字编辑、文件信息编辑和直方图变换仍待移植。
 
-背景提取已接入原版采样和图像 hook：增删/选择采样、自动/随机采样、RBF/1–4 阶多项式、减法/除法、抖动、自动渐变完整参数、原图/模型/结果预览与另存。校正结果支持共享 FITS 撤销/重做；采样点可拖动并重读原图中值，采样/参数修改支持30步跨重启撤销/重做、分支清除与滑块/拖动合并。编辑记录随图库文件删除/恢复/永久清理。序列应用仍待补齐。
+背景提取已接入原版采样和图像 hook：增删/选择采样、自动/随机采样、RBF/1–4 阶多项式、减法/除法、抖动、自动渐变完整参数、原图/模型/结果预览与另存。校正结果支持共享 FITS 撤销/重做；采样点可拖动并重读原图中值，采样/参数修改支持30步跨重启撤销/重做、分支清除与滑块/拖动合并。编辑记录随图库文件删除/恢复/永久清理。序列应用接入原版 GUI worker：每帧重新采样、Bayer 四子通道处理、完整采样/自动模型参数、减法/除法与抖动；预览调用相同序列 hook，新输出独立命名并检查全部参与帧，部分失败保留日志与输出但不报全部完成。序列参数30步撤销/重做跨关闭保存，随任务删除恢复；单份输出独立删除和结果切换撤销尚待接入。

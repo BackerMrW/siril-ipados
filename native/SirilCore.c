@@ -223,6 +223,126 @@ SirilBackground *siril_background_open(const char *path, char *error, size_t cap
     session->original = image;
     return session;
 }
+SirilBackground *siril_background_open_sequence(const char *directory, const char *name,
+        int index, char *error, size_t capacity) {
+    SirilImage *image = siril_sequence_frame(directory, name, index, error, capacity);
+    if (!image) return NULL;
+    SirilBackground *session = g_try_new0(SirilBackground, 1);
+    if (!session) { siril_image_free(image); return NULL; }
+    session->original = image;
+    return session;
+}
+static int sequence_background_options(const SirilBackgroundOptions *o, const SirilBackgroundSampling *s,
+        struct background_data *data, char *error, size_t capacity) {
+    if (!o || !s || o->method < 0 || o->method > 1 || o->interpolation < 0 || o->interpolation > 1 ||
+        o->degree < 1 || o->degree > 4 || o->correction < 0 || o->correction > 1 ||
+        !isfinite(o->smoothing) || o->smoothing < 0 || o->smoothing > 1 ||
+        !isfinite(o->scale) || o->scale < 1 || o->scale > 10 ||
+        !isfinite(o->smoothness) || o->smoothness < 0 ||
+        !isfinite(o->protect_threshold) || o->protect_threshold < 0 || o->protect_threshold > 1 ||
+        !isfinite(o->protect_amount) || o->protect_amount < 0 || o->protect_amount > 1 ||
+        o->auto_degree < 1 || o->auto_degree > 6 ||
+        (o->downsample != 1 && o->downsample != 2 && o->downsample != 4 && o->downsample != 8) ||
+        s->per_line < 2 || s->per_line > 100 || !isfinite(s->tolerance) || s->tolerance < 0 ||
+        !isfinite(s->border) || s->border < 0 || (s->border_percent && s->border >= 50)) {
+        if (error && capacity) snprintf(error, capacity, "Invalid background model or sampling parameters");
+        return 0;
+    }
+    *data = (struct background_data) {
+        .destroy_fn = free_background_data, .method = o->method,
+        .nb_of_samples = s->per_line, .tolerance = s->tolerance,
+        .correction = o->correction, .interpolation_method = o->interpolation,
+        .degree = o->degree - 1, .smoothing = o->smoothing, .threads = 1, .dither = o->dither,
+        .randomize = s->randomize, .grad_descent = s->gradient_descent,
+        .border_value = s->border, .border_is_percent = s->border_percent,
+        .autograd = { .scale = o->scale, .smoothness = o->smoothness, .protect = o->protect,
+            .protect_threshold = o->protect_threshold, .protect_amount = o->protect_amount,
+            .simplified = o->simplified, .degree = o->auto_degree, .downsample = o->downsample }
+    };
+    return 1;
+}
+extern int siril_ipados_background_sequence_preview(fits *, struct background_data *);
+int siril_background_compute_sequence(SirilBackground *session, const SirilBackgroundOptions *o,
+        const SirilBackgroundSampling *sampling, char *error, size_t capacity) {
+    if (error && capacity) error[0] = 0;
+    struct background_data data;
+    if (!session || !sequence_background_options(o, sampling, &data, error, capacity)) return 0;
+    g_mutex_lock(&engine_mutex);
+    fits *fit = &session->original->fit;
+    double needed = (double)fit->rx * fit->ry * fit->naxes[2] * sizeof(float) * (o->method ? 8 : 5);
+    if (!o->method && !o->interpolation) {
+        double n = sampling->randomize ? sampling->per_line + 400 : sampling->per_line * sampling->per_line;
+        needed += (n + 1) * (n + 1) * sizeof(double);
+    }
+    int ok = 0;
+    if (needed > (double)get_available_memory() * 0.8) {
+        if (error && capacity) snprintf(error, capacity, "Not enough iPad memory for sequence preview");
+        goto done;
+    }
+    background_invalidate(session);
+    if (copyfits(fit, &session->corrected, CP_ALLOC | CP_DEEPCOPY, 0)) goto done;
+    ok = siril_ipados_background_sequence_preview(&session->corrected, &data) == 0;
+    if (ok) { session->computed = 1; session->correction = o->correction; }
+    else {
+        background_invalidate(session);
+        if (error && capacity) snprintf(error, capacity, "Original per-frame background extraction failed; check samples and image values");
+    }
+done:
+    g_mutex_unlock(&engine_mutex);
+    return ok;
+}
+int siril_sequence_background(const char *directory, const char *name, const char *prefix,
+        const SirilBackgroundOptions *o, const SirilBackgroundSampling *sampling, char *error, size_t capacity) {
+    if (error && capacity) error[0] = 0;
+    struct background_data data;
+    if (!prefix || !*prefix || strlen(prefix) > 64 ||
+        !sequence_background_options(o, sampling, &data, error, capacity)) return 0;
+    for (const char *p = prefix; *p; p++) if (!g_ascii_isalnum(*p) && *p != '_') {
+        if (error && capacity) snprintf(error, capacity, "Invalid output prefix");
+        return 0;
+    }
+    g_mutex_lock(&engine_mutex);
+    initialize();
+    g_atomic_int_set(&cancel_requested, 0);
+    g_mutex_lock(&log_mutex);
+    if (processing_log) g_string_truncate(processing_log, 0);
+    g_mutex_unlock(&log_mutex);
+    int ok = 0;
+    sequence *seq = embedded_sequence(directory, name, error, capacity);
+    if (!seq) goto done;
+    /* seq_prepare_hook removes old prefixed files. Never let an embedding
+     * caller accidentally overwrite a prior run, including orphan outputs. */
+    GDir *dir = g_dir_open(directory, 0, NULL);
+    if (!dir) { free_sequence(seq, TRUE); goto done; }
+    const gchar *entry;
+    gboolean collision = FALSE;
+    while ((entry = g_dir_read_name(dir))) if (g_str_has_prefix(entry, prefix)) { collision = TRUE; break; }
+    g_dir_close(dir);
+    if (seq->selnum < 1 || collision || strlen(prefix) + strlen(seq->seqname) > 230) {
+        if (error && capacity) snprintf(error, capacity, "Empty selection, reused output prefix or overlong sequence name");
+        free_sequence(seq, TRUE); goto done;
+    }
+    if (!o->method && !o->interpolation) {
+        double n = sampling->randomize ? sampling->per_line + 400 : sampling->per_line * sampling->per_line;
+        double needed = (n + 1) * (n + 1) * sizeof(double) + (double)seq->rx * seq->ry * seq->nb_layers * sizeof(float) * 5;
+        if (needed > (double)get_available_memory() * 0.8) {
+            if (error && capacity) snprintf(error, capacity, "Not enough iPad memory for RBF; use fewer samples or a polynomial");
+            free_sequence(seq, TRUE); goto done;
+        }
+    }
+    struct background_data *args = g_try_new(struct background_data, 1);
+    if (!args) { free_sequence(seq, TRUE); goto done; }
+    *args = data; args->seq = seq; args->seqEntry = strdup(prefix);
+    /* com.script makes the original persistent worker synchronous. It owns
+     * args and seq, including on startup failure; consume its cached result. */
+    waiting_for_thread();
+    apply_background_extraction_to_sequence(args);
+    ok = GPOINTER_TO_INT(waiting_for_thread()) == 0 && !g_atomic_int_get(&cancel_requested);
+    if (!ok && error && capacity) snprintf(error, capacity, "Original sequence background extraction failed or was cancelled");
+done:
+    g_mutex_unlock(&engine_mutex);
+    return ok;
+}
 void siril_background_free(SirilBackground *session) {
     if (!session) return;
     g_mutex_lock(&engine_mutex);

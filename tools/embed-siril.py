@@ -100,3 +100,18 @@ guint64 get_available_memory() {
 #endif
 #elif defined(__linux__) || defined(__CYGWIN__)""")
 utilities.write_text(text)
+
+# Expose an original per-frame sequence hook for a matching native preview.
+# No algorithm is copied or reimplemented; static hooks stay in their own TU.
+background = source / "src/algos/background_extraction.c"
+background.write_text(background.read_text() + r'''
+
+int siril_ipados_background_sequence_preview(fits *fit, struct background_data *data) {
+    sensor_pattern pattern = get_cfa_pattern_index_from_string(fit->keywords.bayer_pattern);
+    data->is_cfa = fit->naxes[2] == 1 && pattern >= BAYER_FILTER_MIN && pattern <= BAYER_FILTER_MAX;
+    struct generic_seq_args args = { .user = data };
+    return data->is_cfa && data->method != BACKGROUND_METHOD_AUTO
+        ? bgcfa_image_hook(&args, 0, 0, fit, NULL, 1)
+        : background_image_hook(&args, 0, 0, fit, NULL, 1);
+}
+''')

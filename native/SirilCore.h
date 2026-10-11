@@ -41,6 +41,21 @@ typedef struct {
     int protect, simplified, auto_degree, downsample;
 } SirilBackgroundOptions;
 typedef struct {
+    int per_line, randomize, gradient_descent, border_percent;
+    double tolerance, border;
+} SirilBackgroundSampling;
+/* Uses the original GUI sequence worker (including sample-based division,
+ * which seqsubsky does not expose). Prefix must be new and alphanumeric.
+ * Caller verifies output count: upstream permits partial frame failures. */
+int siril_sequence_background(const char *directory, const char *name, const char *prefix,
+    const SirilBackgroundOptions *options, const SirilBackgroundSampling *sampling,
+    char *error, size_t capacity);
+SirilBackground *siril_background_open_sequence(const char *directory, const char *name,
+    int index, char *error, size_t capacity);
+/* Preview uses the exact sequence image hook: per-frame sampling and CFA split. */
+int siril_background_compute_sequence(SirilBackground *session, const SirilBackgroundOptions *options,
+    const SirilBackgroundSampling *sampling, char *error, size_t capacity);
+typedef struct {
     uint32_t width, height, channels;
     int32_t working_bitpix, gain, offset; /* loaded representation; imports are normalized float */
     double exposure, temperature;

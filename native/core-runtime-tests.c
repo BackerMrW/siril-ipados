@@ -358,6 +358,105 @@ static int sequence_checks(const char *registered, const char *combinations) {
     return 0;
 }
 
+static int sequence_background_fixture(const char *path, int kind, int frame, int zero) {
+    const int side = 256, channels = kind == 1 ? 3 : 1;
+    float *pixels = calloc(side * side * channels, sizeof(float)); CHECK(pixels);
+    for (int c = 0; c < channels; c++) for (int y = 0; y < side; y++) for (int x = 0; x < side; x++) {
+        int color = kind == 2 ? (y % 2) * 2 + x % 2 : c;
+        double level = .08 + color * .04 + frame * .015;
+        double xx = x - 128, yy = y - 128;
+        pixels[c * side * side + y * side + x] = zero ? 0 : level +
+            (.12 + .02 * color) * x / 255.0 + (.06 + .01 * color) * y / 255.0 +
+            .0001 * sin(x * 1.3 + y * .7) + .25 * exp(-(xx * xx + yy * yy) / 18);
+    }
+    fitsfile *file = NULL; int status = 0;
+    long axes[] = {side, side, channels};
+    fits_create_file(&file, path, &status);
+    fits_create_img(file, FLOAT_IMG, channels == 1 ? 2 : 3, axes, &status);
+    if (kind == 2) fits_update_key(file, TSTRING, "BAYERPAT", "RGGB", NULL, &status);
+    fits_write_img(file, TFLOAT, 1, side * side * channels, pixels, &status);
+    fits_close_file(file, &status); free(pixels); return status;
+}
+static int sequence_background_checks(const char *root) {
+    char process[4096], path[4096], script[16384], error[4096], name[128], prefix[64];
+    float *actual = malloc(3 * 256 * 256 * sizeof(float)), *expected = malloc(3 * 256 * 256 * sizeof(float));
+    CHECK(actual && expected);
+    for (int kind = 0; kind < 3; kind++) {
+        snprintf(process, sizeof process, "%s/seqbackground%d", root, kind); CHECK(!mkdir(process, 0700));
+        for (int i = 0; i < 3; i++) {
+            snprintf(path, sizeof path, "%s/grad_%05d.fits", process, i + 1);
+            CHECK(sequence_background_fixture(path, kind, i, 0) == 0);
+        }
+        CHECK(siril_sequence_discover(process, error, sizeof error));
+        uint8_t included[] = {1, 0, 1};
+        CHECK(siril_sequence_select(process, "grad_.seq", included, 3, 2, error, sizeof error));
+        SirilSequenceInfo info; SirilSequenceFrame source[3], output[3];
+        CHECK(siril_sequence_inspect(process, "grad_.seq", 0, &info, source, 3, error, sizeof error) == 3);
+        SirilBackgroundOptions options = {.method = 0, .interpolation = 1, .degree = 1, .correction = 0,
+            .smoothing = .5, .dither = 0, .scale = 5, .smoothness = 1, .protect = 1,
+            .protect_threshold = .05, .protect_amount = .5, .auto_degree = 1, .downsample = 4};
+        SirilBackgroundSampling sampling = {.per_line = 10, .tolerance = 3};
+        const int channels = kind == 1 ? 3 : 1, count = channels * 256 * 256;
+        for (int mode = 0; mode < 5; mode++) {
+            options.method = mode >= 3; options.interpolation = mode == 1 ? 0 : 1;
+            options.correction = mode == 2; options.simplified = mode == 4;
+            sampling.border = 5; sampling.border_percent = kind != 2;
+            snprintf(prefix, sizeof prefix, "b%d_", mode);
+            CHECK(siril_sequence_background(process, "grad_.seq", prefix, &options, &sampling, error, sizeof error));
+            snprintf(name, sizeof name, "%sgrad_.seq", prefix);
+            CHECK(siril_sequence_inspect(process, name, 0, &info, output, 3, error, sizeof error) == 2);
+            CHECK(info.included == 2 && info.layers == channels && info.width == 256 && info.height == 256);
+            CHECK(output[0].file_number == source[0].file_number && output[1].file_number == source[2].file_number);
+            for (int i = 0; i < 2; i++) {
+                snprintf(path, sizeof path, "%s/%sgrad_%05d.fits", process, prefix, output[i].file_number);
+                CHECK(read_pixels(path, actual, count) == 0);
+                SirilBackground *preview = siril_background_open_sequence(process, "grad_.seq", i ? 2 : 0, error, sizeof error);
+                CHECK(preview && siril_background_compute_sequence(preview, &options, &sampling, error, sizeof error));
+                snprintf(path, sizeof path, "%s/preview%d_%d.fits", process, mode, i);
+                CHECK(siril_background_write(preview, path)); siril_background_free(preview);
+                CHECK(read_pixels(path, expected, count) == 0);
+                for (int j = 0; j < count; j++) CHECK(isfinite(actual[j]) && fabs(actual[j] - expected[j]) < 1e-6);
+                if (mode < 3) for (int c = 0; c < channels; c++) {
+                    double left = 0, right = 0;
+                    // Sampling every second pixel keeps each Bayer subchannel separate.
+                    for (int y = 32; y < 224; y += 2) for (int x = 32; x < 56; x += 2) {
+                        left += actual[c * 65536 + y * 256 + x]; right += actual[c * 65536 + y * 256 + x + 168];
+                    }
+                    CHECK(fabs(left - right) / (96 * 12) < .02);
+                    CHECK(actual[c * 65536 + 128 * 256 + 128] > actual[c * 65536 + 64 * 256 + 64] + .08);
+                }
+            }
+            // The command path must match our GUI worker for modes it supports.
+            if (mode != 2) {
+                snprintf(script, sizeof script, "seqsubsky grad_ %s -nodither -prefix=ref%d_ %s\n",
+                    mode == 1 ? "-rbf" : mode >= 3 ? "-auto" : "1", mode,
+                    mode >= 3 ? (mode == 4 ? "-simplified" : "") : (kind == 2 ? "-samples=10 -tolerance=3 -border=5" : "-samples=10 -tolerance=3 -border=5%"));
+                CHECK(siril_run_commands(process, script, error, sizeof error));
+                for (int i = 0; i < 2; i++) {
+                    snprintf(path, sizeof path, "%s/ref%d_grad_%05d.fits", process, mode, output[i].file_number);
+                    CHECK(read_pixels(path, expected, count) == 0);
+                    snprintf(path, sizeof path, "%s/%sgrad_%05d.fits", process, prefix, output[i].file_number);
+                    CHECK(read_pixels(path, actual, count) == 0);
+                    for (int j = 0; j < count; j++) CHECK(fabs(actual[j] - expected[j]) < 1e-6);
+                }
+            }
+        }
+        // Changing stochastic/dither/border options still runs original kernels.
+        options.method = 0; options.interpolation = 1; options.correction = 0; options.dither = 1;
+        sampling.randomize = 1; sampling.gradient_descent = 1; sampling.border = 7;
+        CHECK(siril_sequence_background(process, "grad_.seq", "random_", &options, &sampling, error, sizeof error));
+        CHECK(siril_sequence_inspect(process, "random_grad_.seq", 0, &info, output, 3, error, sizeof error) == 2);
+        CHECK(!siril_sequence_background(process, "grad_.seq", "random_", &options, &sampling, error, sizeof error));
+        CHECK(!siril_sequence_background(process, "grad_.seq", "../unsafe_", &options, &sampling, error, sizeof error));
+        sampling.tolerance = NAN;
+        CHECK(!siril_sequence_background(process, "grad_.seq", "invalid_", &options, &sampling, error, sizeof error));
+        CHECK(siril_sequence_inspect(process, "grad_.seq", 0, &info, output, 3, error, sizeof error) == 3);
+        CHECK(info.reference == 2 && info.included == 2 && !output[1].included);
+    }
+    free(actual); free(expected);
+    puts("PASS: sequence GUI background worker and exact per-frame previews; mono/RGB/Bayer polynomial, RBF, subtract/divide, both automatic modes; every output pixel matched original supported commands, gradients removed and stars preserved; included file numbers, stochastic options, collisions/invalid options and source flags preserved");
+    return 0;
+}
 int main(int argc, char **argv) {
     CHECK(argc == 2);
     char light[4096], dark[4096], output[4096], missing[4096];
@@ -893,6 +992,7 @@ int main(int argc, char **argv) {
     CHECK(gfit->data || gfit->fdata);
     siril_release_workspace();
     siril_image_free(image);
+    CHECK(sequence_background_checks(argv[1]) == 0);
     puts("PASS: native workspace release freed command image/sequence state, preserved independent image sessions, and allowed subsequent commands");
     return 0;
 }

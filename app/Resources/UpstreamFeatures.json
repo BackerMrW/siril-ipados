@@ -215,7 +215,7 @@
       "id": "win.background-extr-processing",
       "title": "Background Extraction...",
       "group": "root",
-      "status": "交互界面已接入（序列应用仍待接入）"
+      "status": "交互界面与序列应用已接入（真机大图验证待完成）"
     },
     {
       "id": "win.linearmatch-processing",

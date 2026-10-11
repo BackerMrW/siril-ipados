@@ -55,6 +55,7 @@ struct SequenceWorkspace: View {
     @State private var logTask: Task<Void, Never>?
     @State private var showStack = false
     @State private var showApply = false
+    @State private var showBackground = false
     @State private var generated: SequenceLocation?
     @State private var flats: [FITSRecord] = []
     @State private var flatID: UUID?
@@ -110,10 +111,12 @@ struct SequenceWorkspace: View {
                     } }
                     Text("测量保存星点质量和变换矩阵。调整参与帧后，可在下方应用已有变换；新加入的未测量帧需重新测量。")
                         .font(.caption).foregroundStyle(.secondary)
+                    Button("序列背景提取", systemImage: "square.3.layers.3d") { showBackground = true }
+                        .disabled(snapshot.info.included < 1)
                     Button("应用配准 / Drizzle 参数", systemImage: "arrow.triangle.branch") { showApply = true }
                         .disabled(snapshot.info.included < 2 || !snapshot.frames.filter(\.included).allSatisfy { $0.native.has_registration != 0 })
                     if let generated {
-                        NavigationLink("打开配准输出并继续叠加") { SequenceWorkspace(location: generated, engine: engine, onPreview: onPreview) }
+                        NavigationLink("打开处理输出并继续配准或叠加") { SequenceWorkspace(location: generated, engine: engine, onPreview: onPreview) }
                         Text("已生成 \(generated.name)").font(.caption).textSelection(.enabled)
                     }
                     Button("计算原版序列统计") { perform { export = try await engine.sequenceStatistics(location); log = SirilEngine.processingLog(); await reload() } }
@@ -166,6 +169,9 @@ struct SequenceWorkspace: View {
                 let section = ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] ?? "frames"
                 if section == "quality" || section == "registration" {
                     try? await Task.sleep(for: .milliseconds(400)); proxy.scrollTo("sequence-" + section, anchor: .top)
+                } else if section == "background" {
+                    showBackground = true
+                    return // The sheet writes readiness after its own real preview.
                 } else if section == "apply" {
                     options.drizzleOptions.enabled = true; options.scale = 2; showApply = true
                 }
@@ -186,6 +192,9 @@ struct SequenceWorkspace: View {
             } }
             Button("取消", role: .cancel) { }
         } message: { Text("该任务中的所有序列和结果都将移入最近删除，可在存储管理中恢复。") }
+        .sheet(isPresented: $showBackground) {
+            SequenceBackgroundView(location: location, engine: engine) { output in generated = output }
+        }
         .sheet(isPresented: $showApply) {
             SequenceApplyView(options: $options, flatID: $flatID, flats: flats) {
                 showApply = false
