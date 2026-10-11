@@ -103,6 +103,8 @@ if tool_report.exists():
 print(text, flush=True)
 (root / "diagnostics/app-launch-check.txt").write_text(text)
 if not text.startswith("PASS:"):
+    if tool_report.exists():
+        print(tool_report.read_text(), flush=True)
     raise RuntimeError(text)
 ready = container / "Documents/simulator-background-ready.txt"
 deadline = time.monotonic() + 30

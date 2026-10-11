@@ -993,12 +993,15 @@ SirilImage *siril_image_mask_copy(SirilImage *image) {
     g_mutex_lock(&engine_mutex);
     fits *mask = mask_to_fits(&image->fit);
     SirilImage *result = NULL;
+    /* Upstream mask_to_fits clones the RGB source format but changes only
+     * naxes[2]. A persisted single-channel mask also needs a 2-D FITS header. */
+    if (mask) mask->naxis = 2;
     if (mask && mask->type == DATA_USHORT) {
         float *pixels = ushort_buffer_to_float(mask->data, (size_t)mask->rx * mask->ry);
         if (pixels) {
             g_free(mask->data); mask->data = NULL;
             for (int c = 0; c < 3; c++) { mask->pdata[c] = NULL; mask->fpdata[c] = pixels; }
-            mask->fdata = pixels; mask->type = DATA_FLOAT; mask->bitpix = FLOAT_IMG;
+            mask->fdata = pixels; mask->type = DATA_FLOAT; mask->bitpix = FLOAT_IMG; mask->orig_bitpix = FLOAT_IMG;
         }
     }
     if (mask && mask->type == DATA_FLOAT) {
