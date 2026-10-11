@@ -68,6 +68,9 @@ extension SirilEngine {
             throw EngineError.failed("任务正在运行或序列路径无效，请处理完成后再打开。")
         }
         let job = try owned(location.job, under: documents.appendingPathComponent("Jobs"))
+        guard (try? job.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
+            throw EngineError.failed("任务已删除或不存在，请先恢复所属任务。")
+        }
         let process = try owned("process", under: job)
         _ = try owned(location.name, under: process)
         return process

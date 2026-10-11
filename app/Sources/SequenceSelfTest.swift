@@ -231,6 +231,7 @@ extension SirilEngine {
         }
         for (i, url) in sourceURLs.enumerated() { try require(try Data(contentsOf: url) == sourceBytes[i], "application changed source pixels") }
         try require(try Data(contentsOf: flat.url) == flatBytes, "Drizzle altered gallery flat")
+        try await sequenceResultHistorySelfTest(source: source, registered: first, sibling: second, drizzle: drizzled)
         try sequenceOutputStorageSelfTest(source: source, output: drizzled, sibling: second, stacked: stacked)
         // The storage test deliberately excludes a frame to test persistent
         // flag undo. Restore the initial selection before comparing stacks.
@@ -243,11 +244,20 @@ extension SirilEngine {
         rejected = false
         do { _ = try applySequenceRegistration(source, options: impossible, layer: 0, flat: flat) } catch { rejected = true }
         try require(rejected, "zero-output native filtering reported success")
+        _ = try recordSequenceResult(entry: source, source: source, output: drizzled)
         guard let task = jobHistory().first(where: { $0.id == source.job }) else { throw EngineError.failed("Registration task missing") }
         try trashJob(task)
+        rejected = false
+        do { _ = try sequenceResultStatus(source) } catch { rejected = true }
+        try require(rejected && !FileManager.default.fileExists(atPath: process.deletingLastPathComponent().path), "reading trashed task history recreated its live folder")
         guard let deletion = trashEntries().first(where: { $0.jobName == source.job }) else { throw EngineError.failed("Registration trash missing") }
         _ = try restoreTrash(deletion.id)
         try require(try inspectSequence(drizzled, layer: 1).info.count == 3, "restored output sequence missing")
+        let restoredHistory = try sequenceResultStatus(source)
+        try require(restoredHistory.history.current == drizzled && restoredHistory.canUndo, "whole-task restore lost the durable result cursor")
+        let restoredUndo = try replaySequenceResult(source, redo: false)
+        let restoredRedo = try replaySequenceResult(source, redo: true)
+        try require(restoredUndo.history.current == source && restoredRedo.history.current == drizzled, "whole-task restored result chain cannot undo/redo")
         for (i, url) in weights.enumerated() { try require(try Data(contentsOf: url) == weightBytes[i], "restored weight bytes changed") }
         try trashJob(task)
         try permanentlyDeleteTrash(Set(trashEntries().filter { $0.jobName == source.job }.map(\.id)))

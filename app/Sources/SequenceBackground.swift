@@ -141,7 +141,7 @@ extension SirilEngine {
 struct SequenceBackgroundView: View {
     let location: SequenceLocation
     let engine: SirilEngine
-    let onOutput: (SequenceLocation) -> Void
+    let onOutput: @MainActor (SequenceLocation) async throws -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var preview = BackgroundEngine()
@@ -267,8 +267,8 @@ struct SequenceBackgroundView: View {
                     await persistTask?.value
                     applying = true; defer { applying = false }
                     let result = try await engine.applySequenceBackground(location, settings: settings)
-                    output = result; onOutput(result)
-                    message = "全部参与帧已验证；打开校正序列继续配准或叠加。"
+                    output = result; try await onOutput(result)
+                    message = "全部参与帧已验证；关闭此页将切换到校正输出，可撤销处理结果。"
                 } } }.disabled(snapshot?.info.included == 0 || sliderEditing)
                 if let output { Text("已生成 \(output.name)").textSelection(.enabled) }
                 if busy { ProgressView("Siril 正在处理") }

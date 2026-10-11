@@ -13,7 +13,7 @@ on:
       tag:
         description: Test release tag
         required: true
-        default: v0.13.0
+        default: v0.14.0
         type: string
 permissions:
   contents: write
@@ -104,6 +104,7 @@ jobs:
               'Background editing: independent 625-pixel medians, atomic failed move/restore, stale-model invalidation, restored corrected FITS pixels, persistent parameter/sample undo/redo, canvas drag coordinate conversion/cancellation/bounds, and companion-file trash recovery/cleanup.\n' +
               'Sequence background: exact original per-frame sequence hooks and GUI worker; mono/RGB/Bayer polynomial/RBF/subtract/divide/automatic output pixels, selected frame numbers/reference, preview correspondence, preserved source and earlier results, persisted parameter history, partial-failure rejection/evidence, and task restoration/permanent cleanup; sequence background view captured.\n' +
               'Independent output cleanup: native exact FITS/cache/weight filenames, persistent edit histories, deletion undo/restore/permanent cleanup, source/sibling/stack preservation, interrupted-delete rollback, interrupted-restore completion, conflicts/active-task/source/symlink/traversal protections; live/recoverable output management screen captured.\n' +
+              'Sequence result history: persisted real mono/RGB result switching, native Drizzle/background ancestry, duplicate completion/sibling branching, old FITS/index/weight preservation, deleted-output fallback and restored redo, whole-task cursor restoration and active/cross-job/traversal/failed-output rejection; actual result undo workspace captured.\n' +
               'Physical iPad/file-picker/large real-camera datasets still require device testing.\n')
           PY
       - name: Upload and publish the test release
@@ -115,6 +116,7 @@ jobs:
           from pathlib import Path
           Path('/tmp/release-notes.md').write_text(
               'Native iPadOS test release using the original pinned Siril engine. Processing runs locally on the iPad.\n\n' +
+              '- Whole-sequence processing-result undo/redo: registration/Drizzle/background outputs switch actual frames, dimensions and channels. Up to 30 persisted steps, saved-source ancestry, redo branching with old files/weights retained, deletion fallback and restored redo, separate frame-inclusion/reference undo. Background modal switches to its completed output on close; repeated applications from the same input are siblings. Batch stacking and mask undo remain pending.\n' +
               '- Independent sequence output deletion/restoration: native-resolved FITS names and star/mask/Drizzle caches plus edit histories. Undo the last delete, recover from Recently Deleted or permanently clean only that output. Source frames, siblings and saved stack results stay intact. Dependency checks protect later/recoverable outputs; persistent journals roll back interrupted deletion or finish interrupted restoration. Conflicts never overwrite files. Output management screen shows actual availability.\n' +
               '- Sequence background extraction: the original GUI sequence worker with per-frame sampling, RBF/polynomial/automatic models, subtract/divide, dither, randomized dark sampling, gradient descent and border exclusion. Bayer sample models split four sensor subchannels. Exact sequence-hook preview, persisted 30-step parameter undo/redo, independent output sequences and verified included-frame counts; partial failures stay marked as failed. Source and previous outputs are preserved. Original Drizzle weights stay with the source; corrected outputs are ordinary sequences.\n' +
               '- Background sample dragging with original source-pixel median rereads; persistent sample/parameter undo and redo (30 steps), redo-branch reset, coalesced slider and drag edits, and restoration after reopening. Edits invalidate the computed model; rejected border/duplicate edits preserve the samples. History files follow gallery deletion/restoration/permanent cleanup.\n' +

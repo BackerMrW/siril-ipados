@@ -63,13 +63,33 @@ struct SequenceWorkspace: View {
     @State private var initializedLayer = false
     @State private var showDelete = false
     @State private var showOutputs = false
+    @State private var resultStatus: SequenceResultStatus?
+    @State private var backgroundSource: SequenceLocation?
+    private var currentLocation: SequenceLocation { resultStatus?.history.current ?? location }
 
     var body: some View {
         ScrollViewReader { proxy in
         List {
+            Section("处理结果撤销") {
+                Text("当前：\(currentLocation.name)").font(.caption).textSelection(.enabled)
+                HStack {
+                    Button("撤销处理结果", systemImage: "arrow.uturn.backward") { perform {
+                        let status = try await engine.replaySequenceResult(location, redo: false); await adopt(status)
+                    } }.disabled(resultStatus?.canUndo != true)
+                    Spacer()
+                    Button("重做处理结果", systemImage: "arrow.uturn.forward") { perform {
+                        let status = try await engine.replaySequenceResult(location, redo: true); await adopt(status)
+                    } }.disabled(resultStatus?.canRedo != true)
+                }.buttonStyle(.borderless)
+                Button("回到入口序列") { perform { let status = try await engine.selectSequenceResult(entry: location, target: location); await adopt(status) } }
+                    .disabled(currentLocation == location && resultStatus != nil)
+                Text("切换整组图像，保留旧文件与权重。历史跨关闭保存，最多30步；新处理清除重做分支。帧勾选与参考帧的撤销位于下方。")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let note = resultStatus?.note, !note.isEmpty { Text(note).font(.caption) }
+            }.id("sequence-results")
             if let snapshot {
                 Section("序列") {
-                    Text(location.name).font(.headline)
+                    Text(currentLocation.name).font(.headline)
                     LabeledContent("参与 / 总数", value: "\(snapshot.info.included) / \(snapshot.info.count)")
                     if snapshot.info.drizzle != 0 { Text("Drizzle 序列：叠加继续使用原版逐帧像素权重。") }
                     Picker("质量通道", selection: $layer) {
@@ -88,8 +108,8 @@ struct SequenceWorkspace: View {
                         ForEach(snapshot.frames) { Text("第 \($0.id + 1) 帧").tag($0.id) }
                     }
                     HStack {
-                        Button("撤销", systemImage: "arrow.uturn.backward") { perform { try await engine.editSequence(location, undo: true); await reload() } }.disabled(editHistory?.past.isEmpty != false)
-                        Button("重做", systemImage: "arrow.uturn.forward") { perform { try await engine.editSequence(location, redo: true); await reload() } }.disabled(editHistory?.future.isEmpty != false)
+                        Button("撤销参与选择", systemImage: "arrow.uturn.backward") { perform { try await engine.editSequence(currentLocation, undo: true); await reload() } }.disabled(editHistory?.past.isEmpty != false)
+                        Button("重做参与选择", systemImage: "arrow.uturn.forward") { perform { try await engine.editSequence(currentLocation, redo: true); await reload() } }.disabled(editHistory?.future.isEmpty != false)
                     }.buttonStyle(.borderless)
                     Text("排除只改变是否参与处理，原图仍保留。参考帧会自动设为参与；排除参考帧后改为自动选择。修改可以跨重启撤销、重做；新的修改会清除重做分支。")
                         .font(.caption).foregroundStyle(.secondary)
@@ -108,21 +128,21 @@ struct SequenceWorkspace: View {
                     Stepper("最少匹配星对：\(options.minimumPairs)", value: $options.minimumPairs, in: 4...2000)
                     Stepper("最多检测星点：\(options.maximumStars)", value: $options.maximumStars, in: 100...2000, step: 100)
                     Button("两遍星点配准：测量质量") { perform {
-                        try await engine.measureSequence(location, options: options, layer: layer)
+                        try await engine.measureSequence(currentLocation, options: options, layer: layer)
                         log = SirilEngine.processingLog(); await reload()
                     } }
                     Text("测量保存星点质量和变换矩阵。调整参与帧后，可在下方应用已有变换；新加入的未测量帧需重新测量。")
                         .font(.caption).foregroundStyle(.secondary)
-                    Button("序列背景提取", systemImage: "square.3.layers.3d") { showBackground = true }
+                    Button("序列背景提取", systemImage: "square.3.layers.3d") { backgroundSource = currentLocation; showBackground = true }
                         .disabled(snapshot.info.included < 1)
                     Button("应用配准 / Drizzle 参数", systemImage: "arrow.triangle.branch") { showApply = true }
                         .disabled(snapshot.info.included < 2 || !snapshot.frames.filter(\.included).allSatisfy { $0.native.has_registration != 0 })
                     if let generated {
-                        NavigationLink("打开处理输出并继续配准或叠加") { SequenceWorkspace(location: generated, engine: engine, onPreview: onPreview) }
+                        Button("切换到本次处理输出") { perform { let status = try await engine.selectSequenceResult(entry: location, target: generated); await adopt(status) } }
                         Text("已生成 \(generated.name)").font(.caption).textSelection(.enabled)
                     }
-                    Button("计算原版序列统计") { perform { export = try await engine.sequenceStatistics(location); log = SirilEngine.processingLog(); await reload() } }
-                    Button("导出质量数据 CSV") { perform { export = try await engine.exportSequenceQuality(location, layer: layer) } }
+                    Button("计算原版序列统计") { perform { export = try await engine.sequenceStatistics(currentLocation); log = SirilEngine.processingLog(); await reload() } }
+                    Button("导出质量数据 CSV") { perform { export = try await engine.exportSequenceQuality(currentLocation, layer: layer) } }
                     if let export { ShareLink("分享 CSV", item: export) }
                     Button("设置参数并按当前选择叠加", systemImage: "square.stack.3d.up") { showStack = true }
                     Text("重新叠加会保存新的结果和日志，保留之前的结果，并复用该任务的序列文件。原始、校准后和配准后的序列彼此独立；请确认当前选择的是要叠加的序列。")
@@ -138,7 +158,7 @@ struct SequenceWorkspace: View {
                             DisclosureGroup("\(run.state.created.formatted(date: .abbreviated, time: .shortened)) · \(run.state.state)") {
                                 Text("\(run.state.inputCount) 张参与帧 · \(run.state.message)").textSelection(.enabled)
                                 if let output = run.output {
-                                    NavigationLink("打开这次校正序列") { SequenceWorkspace(location: output, engine: engine, onPreview: onPreview) }
+                                    Button("切换到这次校正序列") { perform { let status = try await engine.selectSequenceResult(entry: location, target: output); await adopt(status) } }
                                 }
                                 ShareLink("导出完整背景参数", item: run.folder.appendingPathComponent("background.json"))
                                 ShareLink("导出这次处理日志", item: run.folder.appendingPathComponent("processing.log"))
@@ -163,7 +183,7 @@ struct SequenceWorkspace: View {
                     }
                 }
                 Section("任务存储") {
-                    NavigationLink("输出删除与恢复") { SequenceOutputManagementView(job: location.job, engine: engine, onPreview: onPreview) }
+                    NavigationLink("输出删除与恢复") { SequenceOutputManagementView(job: currentLocation.job, engine: engine, onPreview: onPreview) }
                     Button("删除本任务及全部序列", role: .destructive) { showDelete = true }
                     Text("移入最近删除后可以恢复。任务的输入副本、所有配准输出和 Drizzle 权重会一并移动；图库原图独立保留。永久删除后释放空间。")
                         .font(.caption).foregroundStyle(.secondary)
@@ -171,7 +191,7 @@ struct SequenceWorkspace: View {
             } else if !message.isEmpty {
                 Section {
                     ContentUnavailableView("序列暂不可用", systemImage: "tray", description: Text("已删除的输出可在最近删除中恢复。"))
-                    NavigationLink("输出删除与恢复") { SequenceOutputManagementView(job: location.job, engine: engine, onPreview: onPreview) }
+                    NavigationLink("输出删除与恢复") { SequenceOutputManagementView(job: currentLocation.job, engine: engine, onPreview: onPreview) }
                 }
             } else { ProgressView("读取原版序列") }
             if busy { Section { ProgressView("Siril 正在处理") } }
@@ -183,52 +203,81 @@ struct SequenceWorkspace: View {
         .interactiveDismissDisabled(busy)
         .toolbar { if busy { Button("中止", role: .destructive) { siril_cancel_processing() } } }
         .navigationTitle("序列工作区")
-        .navigationDestination(isPresented: $showOutputs) { SequenceOutputManagementView(job: location.job, engine: engine, onPreview: onPreview) }
+        .navigationDestination(isPresented: $showOutputs) { SequenceOutputManagementView(job: currentLocation.job, engine: engine, onPreview: onPreview) }
         .task {
-            await reload(); to = snapshot?.frames.count ?? 1
+            do { let status = try await engine.sequenceResultStatus(location); await adopt(status) }
+            catch { message = error.localizedDescription; await reload() }
+            to = snapshot?.frames.count ?? 1
             if ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_VIEW_CHECK"] == "1", snapshot != nil {
                 for _ in 0..<60 where image == nil { try? await Task.sleep(for: .milliseconds(50)) }
                 guard image != nil else { return }
                 let section = ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] ?? "frames"
-                if section == "quality" || section == "registration" {
+                if section == "results" {
+                    do {
+                        let outputs = try await engine.sequenceOutputRecords(job: location.job)
+                        var candidate: SequenceLocation?
+                        for output in outputs where output.available {
+                            let inspected = try await engine.inspectSequence(output.location)
+                            if inspected.info.drizzle != 0 { candidate = output.location; break }
+                        }
+                        guard let drizzle = candidate else { throw EngineError.failed("Simulator Drizzle result missing") }
+                        var settings = BackgroundSettings.sequenceDefaults
+                        settings.perLine = 10; settings.tolerance = 3; settings.dither = false
+                        let corrected = try await engine.applySequenceBackground(drizzle, settings: settings)
+                        _ = try await engine.recordSequenceResult(entry: location, source: drizzle, output: corrected)
+                        let status = try await engine.replaySequenceResult(location, redo: false)
+                        await adopt(status)
+                        for _ in 0..<60 where image == nil { try? await Task.sleep(for: .milliseconds(50)) }
+                        guard image != nil, snapshot?.info.layers == 3, snapshot?.info.drizzle != 0, status.canUndo, status.canRedo else { throw EngineError.failed("Simulator result undo did not load actual RGB Drizzle pixels and both history directions") }
+                    } catch { message = error.localizedDescription; return }
+                }
+                if section == "quality" || section == "registration" || section == "results" {
                     try? await Task.sleep(for: .milliseconds(400)); proxy.scrollTo("sequence-" + section, anchor: .top)
                 } else if section == "outputs" {
                     showOutputs = true
                     return // The output manager checks live and recoverable files.
                 } else if section == "background" {
-                    showBackground = true
+                    backgroundSource = currentLocation; showBackground = true
                     return // The sheet writes readiness after its own real preview.
                 } else if section == "apply" {
                     options.drizzleOptions.enabled = true; options.scale = 2; showApply = true
                 }
                 try? await Task.sleep(for: .milliseconds(400))
                 let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                try? "PASS: native sequence \(section) workspace loaded original frames, preview and quality.\n".write(to: root.appendingPathComponent("simulator-sequence-\(section)-ready.txt"), atomically: true, encoding: .utf8)
+                let check = section == "results" ? "PASS: native sequence results workspace loaded actual RGB Drizzle pixels after background-result undo, with undo and redo available.\n" : "PASS: native sequence \(section) workspace loaded original frames, preview and quality.\n"
+                try? check.write(to: root.appendingPathComponent("simulator-sequence-\(section)-ready.txt"), atomically: true, encoding: .utf8)
             }
         }
         .onChange(of: index) { _, _ in refreshPreview() }
         .onChange(of: channel) { _, _ in refreshPreview() }
         .onChange(of: automatic) { _, _ in refreshPreview() }
         .onChange(of: layer) { _, _ in Task { await reload() } }
-        .onAppear { Task { await reload() } }
+        .onAppear { if resultStatus != nil { perform { let status = try await engine.sequenceResultStatus(location); await adopt(status) } } }
         .onDisappear { previewTask?.cancel(); logTask?.cancel() }
         .alert("删除本任务？", isPresented: $showDelete) {
             Button("移入最近删除", role: .destructive) { perform {
-                guard let task = await engine.jobHistory().first(where: { $0.id == location.job }) else { throw EngineError.failed("任务已不存在。") }
+                guard let task = await engine.jobHistory().first(where: { $0.id == currentLocation.job }) else { throw EngineError.failed("任务已不存在。") }
                 try await engine.trashJob(task); dismiss()
             } }
             Button("取消", role: .cancel) { }
         } message: { Text("该任务中的所有序列和结果都将移入最近删除，可在存储管理中恢复。") }
-        .fullScreenCover(isPresented: $showBackground, onDismiss: { Task { await reload() } }) {
-            SequenceBackgroundView(location: location, engine: engine) { output in generated = output }
+        .fullScreenCover(isPresented: $showBackground, onDismiss: { perform { let status = try await engine.sequenceResultStatus(location); await adopt(status) } }) {
+            SequenceBackgroundView(location: backgroundSource ?? currentLocation, engine: engine) { output in
+                generated = output
+                do { _ = try await engine.recordSequenceResult(entry: location, source: backgroundSource ?? currentLocation, output: output) }
+                catch { throw EngineError.failed("校正输出已保存，但结果历史保存失败：" + error.localizedDescription) }
+            }
         }
         .sheet(isPresented: $showApply) {
             SequenceApplyView(options: $options, flatID: $flatID, flats: flats) {
                 showApply = false
                 let flat = flats.first { $0.id == flatID }
                 perform {
-                    generated = try await engine.applySequenceRegistration(location, options: options, layer: layer, flat: flat)
-                    log = SirilEngine.processingLog(); await reload()
+                    let source = currentLocation
+                    let output = try await engine.applySequenceRegistration(source, options: options, layer: layer, flat: flat)
+                    generated = output; log = SirilEngine.processingLog()
+                    do { let status = try await engine.recordSequenceResult(entry: location, source: source, output: output); await adopt(status) }
+                    catch { message = "配准输出已保存，但结果切换失败：" + error.localizedDescription; await reload() }
                 }
             }
         }
@@ -238,7 +287,7 @@ struct SequenceWorkspace: View {
                     StackControls(options: $options)
                     Section { Button("按当前参与帧叠加") {
                         showStack = false
-                        perform { result = try await engine.stackSequence(location, options: options, layer: layer); log = SirilEngine.processingLog(); await reload() }
+                        perform { result = try await engine.stackSequence(currentLocation, options: options, layer: layer); log = SirilEngine.processingLog(); await reload() }
                     } }
                 }.navigationTitle("序列叠加")
                 .toolbar { Button("完成") { showStack = false } }
@@ -293,20 +342,29 @@ struct SequenceWorkspace: View {
         }
     }
     private func formatted(_ value: Double?) -> String { value.map { String(format: "%.6g", locale: Locale(identifier: "en_US_POSIX"), $0) } ?? "未测得" }
+    @MainActor private func adopt(_ status: SequenceResultStatus) async {
+        if currentLocation != status.history.current {
+            previewTask?.cancel(); image = nil; snapshot = nil
+            index = 0; layer = 0; channel = -1; initializedLayer = false
+            plotFrame = nil; from = 1; generated = nil; result = nil; export = nil
+        }
+        resultStatus = status
+        await reload(); to = snapshot?.frames.count ?? 1
+    }
     @MainActor private func reload() async {
         do {
-            snapshot = try await engine.inspectSequence(location, layer: layer)
+            snapshot = try await engine.inspectSequence(currentLocation, layer: layer)
             if !initializedLayer {
                 initializedLayer = true
                 if snapshot?.info.layers == 3 {
-                    layer = 1; snapshot = try await engine.inspectSequence(location, layer: layer)
+                    layer = 1; snapshot = try await engine.inspectSequence(currentLocation, layer: layer)
                 }
             }
             if let snapshot {
-                if let output = generated, !(await engine.sequenceLocations(job: location.job)).contains(output) { generated = nil }
+                if let output = generated, !(await engine.sequenceLocations(job: currentLocation.job)).contains(output) { generated = nil }
                 index = min(index, snapshot.frames.count - 1)
-                backgroundRuns = try await engine.sequenceBackgroundRuns(location)
-                editHistory = try await engine.sequenceHistory(location, snapshot: snapshot)
+                backgroundRuns = try await engine.sequenceBackgroundRuns(currentLocation)
+                editHistory = try await engine.sequenceHistory(currentLocation, snapshot: snapshot)
                 options.register = snapshot.frames.contains { $0.native.has_registration != 0 }
                 flats = await engine.loadLibrary().filter { $0.channels == 1 && $0.width == Int(snapshot.info.width) && $0.height == Int(snapshot.info.height) }
             }
@@ -318,7 +376,7 @@ struct SequenceWorkspace: View {
         let current = index, display = channel, automatic = automatic
         previewTask = Task {
             do {
-                let bytes = try await engine.sequencePreview(location, index: current, channel: display, automatic: automatic)
+                let bytes = try await engine.sequencePreview(currentLocation, index: current, channel: display, automatic: automatic)
                 guard !Task.isCancelled else { return }
                 image = bytes.uiImage
             } catch { if !Task.isCancelled { message = error.localizedDescription } }
@@ -333,7 +391,7 @@ struct SequenceWorkspace: View {
             do { try await action() } catch { message = error.localizedDescription }
         }
     }
-    @MainActor private func change(_ selection: SequenceSelection) { perform { try await engine.editSequence(location, selection: selection); await reload() } }
+    @MainActor private func change(_ selection: SequenceSelection) { perform { try await engine.editSequence(currentLocation, selection: selection); await reload() } }
     @MainActor private func includeCurrent(_ included: Bool) {
         guard var selection = snapshot?.selection else { return }
         selection.included[index] = included
