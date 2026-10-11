@@ -244,7 +244,7 @@ static int sequence_background_options(const SirilBackgroundOptions *o, const Si
         o->auto_degree < 1 || o->auto_degree > 6 ||
         (o->downsample != 1 && o->downsample != 2 && o->downsample != 4 && o->downsample != 8) ||
         s->per_line < 2 || s->per_line > 100 || !isfinite(s->tolerance) || s->tolerance < 0 ||
-        !isfinite(s->border) || s->border < 0 || (s->border_percent && s->border >= 50)) {
+        !isfinite(s->border) || s->border < 0 || s->border > G_MAXINT / 2 || (s->border_percent && s->border >= 50)) {
         if (error && capacity) snprintf(error, capacity, "Invalid background model or sampling parameters");
         return 0;
     }
@@ -325,13 +325,22 @@ int siril_sequence_background(const char *directory, const char *name, const cha
         if (error && capacity) snprintf(error, capacity, "Empty selection, reused output prefix or overlong sequence name");
         free_sequence(seq, TRUE); goto done;
     }
+    /* Upstream sequence memory hook budgets sample models, even for auto.
+     * Budget the auto allocations and dense RBF matrix before submitting a
+     * worker; available memory already excludes any retained preview. */
+    double pixel_count = (double)seq->rx * seq->ry;
+    if (seq->is_variable) for (int i = 0; i < seq->number; i++) if (seq->imgparam[i].incl) {
+        double frame_pixels = (double)seq->imgparam[i].rx * seq->imgparam[i].ry;
+        if (frame_pixels > pixel_count) pixel_count = frame_pixels;
+    }
+    double needed = pixel_count * seq->nb_layers * sizeof(float) * (o->method ? 8 : 5);
     if (!o->method && !o->interpolation) {
         double n = sampling->randomize ? sampling->per_line + 400 : sampling->per_line * sampling->per_line;
-        double needed = (n + 1) * (n + 1) * sizeof(double) + (double)seq->rx * seq->ry * seq->nb_layers * sizeof(float) * 5;
-        if (needed > (double)get_available_memory() * 0.8) {
-            if (error && capacity) snprintf(error, capacity, "Not enough iPad memory for RBF; use fewer samples or a polynomial");
-            free_sequence(seq, TRUE); goto done;
-        }
+        needed += (n + 1) * (n + 1) * sizeof(double);
+    }
+    if (needed > (double)get_available_memory() * 0.8) {
+        if (error && capacity) snprintf(error, capacity, "Not enough remaining iPad memory for this background model; use fewer samples or close other Apps");
+        free_sequence(seq, TRUE); goto done;
     }
     struct background_data *args = g_try_new(struct background_data, 1);
     if (!args) { free_sequence(seq, TRUE); goto done; }

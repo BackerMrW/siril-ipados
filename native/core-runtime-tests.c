@@ -453,6 +453,11 @@ static int sequence_background_checks(const char *root) {
         CHECK(siril_sequence_inspect(process, "random_grad_.seq", 0, &info, output, 3, error, sizeof error) == 2);
         CHECK(!siril_sequence_background(process, "grad_.seq", "random_", &options, &sampling, error, sizeof error));
         CHECK(!siril_sequence_background(process, "grad_.seq", "../unsafe_", &options, &sampling, error, sizeof error));
+        sampling.border = 1e300;
+        CHECK(!siril_sequence_background(process, "grad_.seq", "overflow_", &options, &sampling, error, sizeof error));
+        sampling.border = 0;
+        options.interpolation = 0; sampling.randomize = 0; sampling.per_line = 100;
+        CHECK(!siril_sequence_background(process, "grad_.seq", "memory_", &options, &sampling, error, sizeof error));
         sampling.tolerance = NAN;
         CHECK(!siril_sequence_background(process, "grad_.seq", "invalid_", &options, &sampling, error, sizeof error));
         CHECK(siril_sequence_inspect(process, "grad_.seq", 0, &info, output, 3, error, sizeof error) == 3);
