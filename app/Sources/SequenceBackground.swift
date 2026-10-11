@@ -255,6 +255,7 @@ struct SequenceBackgroundView: View {
             Section("预览与整组应用") {
                 Button("计算当前帧预览") { Task { await perform {
                     computed = false; view = 0
+                    try await refresh() // A failed computation must keep the displayed original.
                     try await preview.computeSequence(settings); computed = true; view = 1
                     try await refresh(); message = "已用原版序列算法计算当前帧。随机采样或抖动时，整组输出可能与预览略有差异。"
                 } } }
@@ -295,7 +296,7 @@ struct SequenceBackgroundView: View {
         Task { await perform { try await refresh() } }
     }
     @MainActor private func loadFrame() async throws {
-        computed = false; view = 0
+        computed = false; view = 0; image = nil
         try await engine.openSequenceBackground(location, index: index, into: preview)
         try await refresh()
     }
