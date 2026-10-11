@@ -184,7 +184,15 @@ finder = source / "src/algos/star_finder.c"
 text = finder.read_text()
 old = "\telse if (!args->update_GUI)\n\t\tfree_fitted_stars(stars);"
 assert text.count(old) == 1
-finder.write_text(text.replace(old, "\telse if (!args->update_GUI) {\n\t\tif (com.headless && !args->im.from_seq) replace_com_stars(stars);\n\t\telse free_fitted_stars(stars);\n\t}"))
+text = text.replace(old, "\telse if (!args->update_GUI) {\n\t\tif (com.headless && !args->im.from_seq) replace_com_stars(stars);\n\t\telse free_fitted_stars(stars);\n\t}")
+# Do not let a missing selected-channel result silently trigger the star-mask
+# worker's green-channel fallback or reuse a previous single-image star list.
+start = text.index("gpointer findstar_worker(")
+empty = "\t} else {\n\t\tgoto END;\n\t}"
+worker = text[start:]
+assert worker.count(empty) == 1
+worker = worker.replace(empty, "\t} else {\n\t\tif (com.headless && !args->im.from_seq && !args->stars) {\n\t\t\treplace_com_stars(NULL);\n\t\t\tretval = 1;\n\t\t}\n\t\tgoto END;\n\t}")
+finder.write_text(text[:start] + worker)
 single = source / "src/io/single_image.c"
 text = single.read_text()
 text = '#include "algos/PSF.h"\n' + text

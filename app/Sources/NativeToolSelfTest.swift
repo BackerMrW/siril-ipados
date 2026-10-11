@@ -120,7 +120,10 @@ extension SirilEngine {
         var negativeAngle = identity; negativeAngle.values["angle"] = -90
         try await session.compute(negativeAngle, library: records)
         let backwards = try await session.pixel(view: 1, x: x, y: y)
-        let backwardsExpected = (0..<3).map { values[$0 * width * height + x * width + width - 1 - y] }
+        let backwardsOffset = x * width + (width - 1 - y)
+        let backwardsExpected: [Float] = (0..<3).map { channel in
+            values[channel * width * height + backwardsOffset]
+        }
         try require(backwards == backwardsExpected, "negative desktop rotation angle changed direction")
         var oversized = NativeToolRecipe(tool: .resample, file: file)
         oversized.values["mode"] = 4; oversized.values["width"] = 100000; oversized.values["height"] = 100000
