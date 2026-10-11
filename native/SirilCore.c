@@ -4,6 +4,7 @@
 #include "core/siril.h"
 #include "core/settings.h"
 #include "core/arithm.h"
+#include "core/masks.h"
 #include "io/image_format_fits.h"
 #include "filters/mtf.h"
 #include "algos/siril_random.h"
@@ -628,6 +629,20 @@ SirilImage *siril_image_read(const char *path, char *error, size_t error_size) {
     g_mutex_unlock(&engine_mutex);
     return image;
 }
+SirilImage *siril_image_read_any(const char *path, char *error, size_t capacity) {
+    if (error && capacity) error[0] = 0;
+    if (!path) return NULL;
+    g_mutex_lock(&engine_mutex);
+    initialize();
+    SirilImage *image = g_try_new0(SirilImage, 1);
+    if (!image || read_single_image(path, &image->fit, NULL, FALSE, NULL, FALSE, TRUE, TRUE) || image->fit.type != DATA_FLOAT) {
+        if (image) { clearfits(&image->fit); g_free(image); }
+        image = NULL;
+        if (error && capacity) snprintf(error, capacity, "Original Siril could not decode this image format");
+    }
+    g_mutex_unlock(&engine_mutex);
+    return image;
+}
 void siril_image_free(SirilImage *image) {
     if (!image) return;
     g_mutex_lock(&engine_mutex);
@@ -845,6 +860,26 @@ int siril_image_write(const SirilImage *image, const char *path) {
     return ok;
 }
 
+int siril_image_export(SirilImage *image, const char *path, int format, int depth, int quality) {
+    if (!image || !path || (format == 1 && !g_str_has_suffix(path, ".png")) ||
+        (format == 2 && !g_str_has_suffix(path, ".jpg")) || (format == 3 && !g_str_has_suffix(path, ".tif"))) return 0;
+    g_mutex_lock(&engine_mutex);
+    int ok = 0;
+    if (g_file_test(path, G_FILE_TEST_EXISTS)) goto done;
+#ifdef HAVE_LIBPNG
+    if (format == 1 && (depth == 8 || depth == 16)) ok = savepng(path, &image->fit, depth / 8, image->fit.naxes[2] == 3) == 0;
+#endif
+#ifdef HAVE_LIBJPEG
+    if (format == 2 && quality >= 1 && quality <= 100) ok = savejpg(path, &image->fit, quality, FALSE) == 0;
+#endif
+#ifdef HAVE_LIBTIFF
+    if (format == 3 && (depth == 8 || depth == 16 || depth == 32)) ok = savetif(path, &image->fit, depth, NULL, NULL, FALSE, TRUE, FALSE) == 0;
+#endif
+done:
+    g_mutex_unlock(&engine_mutex);
+    return ok;
+}
+
 void siril_copy_processing_log(char *buffer, size_t capacity) {
     if (!buffer || !capacity) return;
     g_mutex_lock(&log_mutex);
@@ -866,10 +901,9 @@ void siril_release_workspace(void) {
     g_mutex_unlock(&engine_mutex);
 }
 
-int siril_run_commands(const char *directory, const char *script, char *error, size_t capacity) {
+static int run_commands_locked(const char *directory, const char *script, char *error, size_t capacity) {
     if (error && capacity) error[0] = 0;
     if (!directory || !script) return 0;
-    g_mutex_lock(&engine_mutex);
     initialize();
     g_atomic_int_set(&cancel_requested, 0);
     g_mutex_lock(&log_mutex);
@@ -919,6 +953,58 @@ int siril_run_commands(const char *directory, const char *script, char *error, s
     g_strfreev(lines);
 done:
     if (!ok && error && capacity && error[0]) capture_log(error, NULL);
+    return ok;
+}
+
+int siril_run_commands(const char *directory, const char *script, char *error, size_t capacity) {
+    g_mutex_lock(&engine_mutex);
+    int ok = run_commands_locked(directory, script, error, capacity);
     g_mutex_unlock(&engine_mutex);
     return ok;
+}
+
+/* Native tool previews own their result, including the original mask. Copy and
+ * workspace release stay inside the same lock as command execution. A second
+ * Swift actor can never replace gfit between execution and result capture. */
+SirilImage *siril_tool_compute(const char *directory, const char *script, char *error, size_t capacity) {
+    g_mutex_lock(&engine_mutex);
+    initialize();
+    memset(&com.selection, 0, sizeof com.selection);
+    SirilImage *result = NULL;
+    if (run_commands_locked(directory, script, error, capacity) && gfit->fdata && gfit->type == DATA_FLOAT) {
+        double bytes = (double)gfit->rx * gfit->ry * (gfit->naxes[2] * sizeof(float) + 4);
+        if (bytes < (double)get_available_memory() * 0.8) {
+            result = g_try_new0(SirilImage, 1);
+            if (result && copyfits(gfit, &result->fit, CP_ALLOC | CP_DEEPCOPY | CP_COPYMASK, 0)) {
+                clearfits(&result->fit); g_free(result); result = NULL;
+            }
+        }
+        if (!result && error && capacity) snprintf(error, capacity, "Not enough memory to retain this tool preview");
+    }
+    close_sequence(FALSE);
+    close_single_image();
+    memset(&com.selection, 0, sizeof com.selection);
+    g_mutex_unlock(&engine_mutex);
+    return result;
+}
+SirilImage *siril_image_mask_copy(SirilImage *image) {
+    if (!image) return NULL;
+    g_mutex_lock(&engine_mutex);
+    fits *mask = mask_to_fits(&image->fit);
+    SirilImage *result = NULL;
+    if (mask && mask->type == DATA_USHORT) {
+        float *pixels = ushort_buffer_to_float(mask->data, (size_t)mask->rx * mask->ry);
+        if (pixels) {
+            g_free(mask->data); mask->data = NULL;
+            for (int c = 0; c < 3; c++) { mask->pdata[c] = NULL; mask->fpdata[c] = pixels; }
+            mask->fdata = pixels; mask->type = DATA_FLOAT; mask->bitpix = FLOAT_IMG;
+        }
+    }
+    if (mask && mask->type == DATA_FLOAT) {
+        result = g_try_new0(SirilImage, 1);
+        if (result) { result->fit = *mask; g_free(mask); mask = NULL; }
+    }
+    if (mask) { clearfits(mask); g_free(mask); }
+    g_mutex_unlock(&engine_mutex);
+    return result;
 }

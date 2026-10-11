@@ -132,12 +132,15 @@ for tab, screenshot in ((0, "native-analysis-simulator.png"), (1, "native-histog
                     str(root / "diagnostics" / screenshot)], check=True, timeout=30)
 
 # Load deletion/restore controls and the processing undo workspace in the real App.
-for feature in ("workspace", "storage", "batch", "batch-registration", "batch-stacking", "batch-drizzle", "sequence-frames", "sequence-quality", "sequence-registration", "sequence-apply", "sequence-background", "sequence-outputs", "sequence-results"):
+for feature in ("workspace", "storage", "batch", "batch-registration", "batch-stacking", "batch-drizzle", "sequence-frames", "sequence-quality", "sequence-registration", "sequence-apply", "sequence-background", "sequence-outputs", "sequence-results", "tools-ghs", "tools-masks", "tools-filters", "tools-geometry"):
     subprocess.run(["xcrun", "simctl", "terminate", udid, "com.backermrw.sirilpad"], check=True, timeout=30)
     ready = container / f"Documents/simulator-{feature}-ready.txt"
     ready.unlink(missing_ok=True)
     environment = dict(os.environ, SIMCTL_CHILD_SIRIL_SELF_TEST="0", SIMCTL_CHILD_SIRIL_ANALYSIS_VIEW_CHECK="0")
-    if feature.startswith("batch"):
+    if feature.startswith("tools-"):
+        environment["SIMCTL_CHILD_SIRIL_NATIVE_TOOL_VIEW_CHECK"] = "1"
+        environment["SIMCTL_CHILD_SIRIL_NATIVE_TOOL_SECTION"] = feature.removeprefix("tools-")
+    elif feature.startswith("batch"):
         environment["SIMCTL_CHILD_SIRIL_BATCH_VIEW_CHECK"] = "1"
         environment["SIMCTL_CHILD_SIRIL_BATCH_SECTION"] = feature
     elif feature.startswith("sequence-"):

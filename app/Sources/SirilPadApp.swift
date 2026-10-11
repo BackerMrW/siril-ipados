@@ -12,6 +12,7 @@ struct FITSRecord: Identifiable, Sendable, Codable {
     let exposure: Double
     var role: FrameRole = .lights
     var parentID: UUID? = nil
+    var hasMask: Bool? = nil
     var displayName: String {
         let name = url.lastPathComponent
         return name.count > 37 && UUID(uuidString: String(name.prefix(36))) != nil ? String(name.dropFirst(37)) : name
@@ -46,15 +47,21 @@ actor SirilEngine {
     func importFile(_ source: URL, role: FrameRole = .lights) throws -> FITSRecord {
         let accessed = source.startAccessingSecurityScopedResource()
         defer { if accessed { source.stopAccessingSecurityScopedResource() } }
-        let allowed = ["fit", "fits", "fts"]
-        guard allowed.contains(source.pathExtension.lowercased()) else {
-            throw EngineError.failed("请选择 .fit、.fits 或 .fts 文件")
+        let fits = ["fit", "fits", "fts"].contains(source.pathExtension.lowercased())
+        guard fits || ["png", "jpg", "jpeg", "tif", "tiff", "bmp", "pnm", "ppm", "pgm"].contains(source.pathExtension.lowercased()) else {
+            throw EngineError.failed("支持 FITS、PNG、JPEG、TIFF、BMP 和 PNM 图像。RAW、HEIF、JPEG XL、XISF 与视频格式仍待适配。")
         }
         let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("FITS", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let destination = folder.appendingPathComponent(UUID().uuidString + "-" + source.lastPathComponent)
-        try FileManager.default.copyItem(at: source, to: destination)
+        let destination = folder.appendingPathComponent(UUID().uuidString + "-" + source.lastPathComponent + (fits ? "" : ".fits"))
+        if fits { try FileManager.default.copyItem(at: source, to: destination) }
+        else {
+            var error = [CChar](repeating: 0, count: 512); let count = error.count
+            guard let decoded = source.path.withCString({ siril_image_read_any($0, &error, count) }) else { throw EngineError.failed(String(cString: error)) }
+            defer { siril_image_free(decoded) }
+            guard destination.path.withCString({ siril_image_write(decoded, $0) }) != 0 else { throw EngineError.failed("转换为工作 FITS 失败。") }
+        }
         do {
             let image = try read(destination)
             defer { siril_image_free(image) }
@@ -62,10 +69,19 @@ actor SirilEngine {
             guard siril_image_info(image, &info) != 0 else {
                 throw EngineError.failed("Siril 无法读取图像信息")
             }
+            let maskSource = source.appendingPathExtension("mask.fits")
+            var hasMask = false
+            if FileManager.default.fileExists(atPath: maskSource.path) {
+                let mask = try read(maskSource); defer { siril_image_free(mask) }
+                var details = SirilImageInfo(); _ = siril_image_info(mask, &details)
+                guard details.width == info.width, details.height == info.height, details.channels == 1 else { throw EngineError.failed("保存的蒙版与图像尺寸或通道不符。") }
+                try FileManager.default.copyItem(at: maskSource, to: destination.appendingPathExtension("mask.fits")); hasMask = true
+            }
             return FITSRecord(url: destination, width: Int(info.width), height: Int(info.height),
-                              channels: Int(info.channels), exposure: info.exposure, role: role)
+                              channels: Int(info.channels), exposure: info.exposure, role: role, hasMask: hasMask)
         } catch {
             try? FileManager.default.removeItem(at: destination)
+            try? FileManager.default.removeItem(at: destination.appendingPathExtension("mask.fits"))
             throw error
         }
     }
@@ -128,6 +144,9 @@ struct ContentView: View {
     @State private var autoDisplay = true
     @State private var showBackground = false
     @State private var showTools = false
+    @State private var showImageExport = false
+    @State private var nativeTool: NativeTool?
+    @State private var pendingNativeTool: NativeTool?
     @State private var pendingTool: Int?
     @State private var showAnalysis = false
     @State private var analysisTab = 0
@@ -261,14 +280,20 @@ struct ContentView: View {
                 showProcessing = true
             }
             if let pendingTool, pendingTool >= 2 { analysisTab = pendingTool - 2; showAnalysis = true }
+            if let pendingNativeTool { nativeTool = pendingNativeTool; self.pendingNativeTool = nil }
             pendingTool = nil
         }) {
             ToolInventoryView(onBackground: { pendingTool = 0; showTools = false },
                               onProcessing: { pendingTool = 1; showTools = false },
-                              onAnalysis: { tab in pendingTool = tab + 2; showTools = false })
+                              onAnalysis: { tab in pendingTool = tab + 2; showTools = false },
+                              onNativeTool: { tool in pendingNativeTool = tool; showTools = false }, canUseNativeTools: activeFile != nil)
+        }
+        .fullScreenCover(item: $nativeTool) { tool in
+            if let file = activeFile { NativeToolView(file: file, tool: tool, engine: engine) { result in importResult(result, parent: file.id) } }
         }
         .onChange(of: displayChannel) { _, _ in refreshDisplay() }
         .onChange(of: autoDisplay) { _, _ in refreshDisplay() }
+        .sheet(isPresented: $showImageExport) { if let file = activeFile { NativeImageExportView(file: file, engine: engine) } }
         .sheet(isPresented: $showHistory) {
             JobHistoryView(engine: engine) { result in importResult(result, parent: nil) }
         }
@@ -330,6 +355,9 @@ struct ContentView: View {
                     analysisTab = 0
                     showAnalysis = true
                 }
+                if ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_VIEW_CHECK"] == "1", let file = files.last {
+                    await loadPreview(file); nativeTool = .ghs
+                }
                 if ProcessInfo.processInfo.environment["SIRIL_BATCH_VIEW_CHECK"] == "1" { showProcessing = true }
                 if ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_VIEW_CHECK"] == "1" {
                     let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-sequence-location.json")
@@ -351,6 +379,7 @@ struct ContentView: View {
         HStack {
             Button("图像处理", systemImage: "slider.horizontal.3") { showTools = true }
             Button("背景提取") { showBackground = true }
+            Button("导出图片") { showImageExport = true }
             Button("统计 / 直方图") { analysisTab = 0; showAnalysis = true }
         }
     }
@@ -438,6 +467,7 @@ struct ContentView: View {
             try await engine.sequenceSelfTest()
             try await engine.sequenceRegistrationSelfTest()
             try await engine.sequenceBackgroundSelfTest()
+            try await engine.nativeToolSelfTest()
             guard processed.width == 2 && processed.height == 2 else { throw EngineError.failed("Batch output dimensions changed") }
             await loadPreview(processed)
             try await engine.saveLibrary([record, processed])
@@ -507,7 +537,7 @@ struct ContentView: View {
             try await engine.saveLibrary(files)
             try await engine.makeSequenceDemo()
             showBackground = true
-            try "PASS: Swift actor imported FITS, calibrated and stacked lights with original Siril commands, verified advanced batch settings and exact exposure-scaled calibration with single/multiple calibration inputs, real one/two-pass Bayer Drizzle with nonuniform-flat calibration, RGB photometry and weight-map delete/restore/permanent cleanup, compatible old settings, restored library/history, ran manual MTF, tested native background samples/RBF/model/FITS export, sample move with median rereads, stale-model invalidation, rejected edits, persistent sample/parameter undo and redo across reopened native sessions, redo branching, undo clear, zoomed canvas drag coordinate conversion/cancellation/edge bounds and one commit per drag, companion history trash/recovery/permanent cleanup, and verified original full/selected statistics and histogram counts, full-resolution pixel reads and complete FITS header. Batch/trash deletion, interrupted restore recovery, persistent FITS undo/redo/branching, permanent storage cleanup, task restoration and symlink safety passed. Native sequence frame reads, actual excluded-frame stack pixels, persisted selection undo/redo and branching, interrupted edit recovery, original sequence statistics/quality CSV, active-task protection, restack history and task delete/restore/permanent cleanup passed; actual quality graph fixtures were measured. Sequence registration application verified selected output counts, original file-number/reference mapping, real 2x FITS and subpixel star alignment, unique outputs and source preservation, unmeasured-frame rejection, Bayer Drizzle with a saved flat, independent weighted stack pixels, missing-output failure detection and task weight cleanup. Sequence background GUI worker verified real corrected FITS, exact per-frame preview, selected original numbering/reference, repeated independent outputs, source preservation, persisted parameter undo/redo/branching/30-step limit, partial-failure detection and saved failure recipes, source-selection undo and task delete/restore/permanent cleanup. Independent sequence output deletion verified exact native filenames including .fts, Drizzle weights, selection/background/quality histories, source/sibling/stack preservation, undo, permanent cleanup, interrupted deletion rollback and restoration completion, restore-conflict rejection, active-task/source protection and symlink/traversal rejection. Persistent whole-sequence result undo/redo verified native mono/RGB dimensions and pixels, original source ancestry, duplicate completion and sibling rebasing, branch reset without file changes, missing-output fallback and restored redo, rejected failed outputs/active tasks/cross-job/traversal histories and whole-task cursor restoration. Bundled original feature inventory and notices were verified.\n"
+            try "PASS: Swift actor imported FITS, calibrated and stacked lights with original Siril commands, verified advanced batch settings and exact exposure-scaled calibration with single/multiple calibration inputs, real one/two-pass Bayer Drizzle with nonuniform-flat calibration, RGB photometry and weight-map delete/restore/permanent cleanup, compatible old settings, restored library/history, ran manual MTF, tested native background samples/RBF/model/FITS export, sample move with median rereads, stale-model invalidation, rejected edits, persistent sample/parameter undo and redo across reopened native sessions, redo branching, undo clear, zoomed canvas drag coordinate conversion/cancellation/edge bounds and one commit per drag, companion history trash/recovery/permanent cleanup, and verified original full/selected statistics and histogram counts, full-resolution pixel reads and complete FITS header. Batch/trash deletion, interrupted restore recovery, persistent FITS undo/redo/branching, permanent storage cleanup, task restoration and symlink safety passed. Native sequence frame reads, actual excluded-frame stack pixels, persisted selection undo/redo and branching, interrupted edit recovery, original sequence statistics/quality CSV, active-task protection, restack history and task delete/restore/permanent cleanup passed; actual quality graph fixtures were measured. Sequence registration application verified selected output counts, original file-number/reference mapping, real 2x FITS and subpixel star alignment, unique outputs and source preservation, unmeasured-frame rejection, Bayer Drizzle with a saved flat, independent weighted stack pixels, missing-output failure detection and task weight cleanup. Sequence background GUI worker verified real corrected FITS, exact per-frame preview, selected original numbering/reference, repeated independent outputs, source preservation, persisted parameter undo/redo/branching/30-step limit, partial-failure detection and saved failure recipes, source-selection undo and task delete/restore/permanent cleanup. Independent sequence output deletion verified exact native filenames including .fts, Drizzle weights, selection/background/quality histories, source/sibling/stack preservation, undo, permanent cleanup, interrupted deletion rollback and restoration completion, restore-conflict rejection, active-task/source protection and symlink/traversal rejection. Persistent whole-sequence result undo/redo verified native mono/RGB dimensions and pixels, original source ancestry, duplicate completion and sibling rebasing, branch reset without file changes, missing-output fallback and restored redo, rejected failed outputs/active tasks/cross-job/traversal histories and whole-task cursor restoration. Native image tools executed all 33 original workers; independent negative/MTF/SCNR/crop/mirror/binning and identity pixel checks, 8/16/32-bit mask blending/inversion, luminance/threshold/blur/feather masks, saved-mask geometry, parameter history/branching, companion restoration/cleanup and stale-result rejection passed. Original PNG/JPEG/TIFF export/import checked RGB orientation and declared precision, overwrite refusal and malformed-format failure. Bundled original feature inventory and notices were verified.\n"
                 .write(to: report, atomically: true, encoding: .utf8)
         } catch {
             try? ("FAIL: " + error.localizedDescription + "\n" + String(SirilEngine.processingLog().suffix(16000)))

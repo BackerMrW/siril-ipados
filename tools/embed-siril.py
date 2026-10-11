@@ -115,3 +115,34 @@ int siril_ipados_background_sequence_preview(fits *fit, struct background_data *
         : background_image_hook(&args, 0, 0, fit, NULL, 1);
 }
 ''')
+
+# Upstream's luminance mask command currently points at the channel parser.
+# Bind it to the existing original luminance parser; keep the algorithm intact.
+command_table = source / "src/core/command_list.h"
+text = command_table.read_text()
+old = 'process_mask_from_channel, STR_MASK_FROM_LUM'
+assert text.count(old) == 1
+command_table.write_text(text.replace(old, 'process_mask_from_lum, STR_MASK_FROM_LUM'))
+
+formats = source / "src/io/image_formats_libraries.c"
+text = formats.read_text()
+start = text.index("int readjpg(")
+end = text.index("int savejpg(", start)
+reader = text[start:end]
+reader = reader.replace("struct jpeg_error_mgr jerr;", "struct ipad_jpeg_error jerr = {0};")
+reader = reader.replace("cinfo.err = jpeg_std_error(&jerr);", "cinfo.err = jpeg_std_error(&jerr.manager);\n\tjerr.manager.error_exit = ipad_jpeg_error_exit;\n\tif (setjmp(jerr.recovery)) {\n\t\tjpeg_destroy_decompress(&cinfo); fclose(f); free(jerr.pixels);\n\t\treturn OPEN_IMAGE_ERROR;\n\t}")
+reader = reader.replace("WORD *data = malloc(npixels * sizeof(WORD) * 3);", "WORD *data = malloc(npixels * sizeof(WORD) * 3);\n\tjerr.pixels = data;")
+helper = """struct ipad_jpeg_error {
+    struct jpeg_error_mgr manager;
+    jmp_buf recovery;
+    void *volatile pixels;
+};
+static void ipad_jpeg_error_exit(j_common_ptr decoder) {
+    struct ipad_jpeg_error *error = (struct ipad_jpeg_error *)decoder->err;
+    char text[JMSG_LENGTH_MAX];
+    decoder->err->format_message(decoder, text);
+    siril_log_error("JPEG decode failed: %s\\n", text);
+    longjmp(error->recovery, 1);
+}
+"""
+formats.write_text(text[:start] + helper + reader + text[end:])

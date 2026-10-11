@@ -244,6 +244,11 @@ def main():
               "6a99eeed15632c6354895b1dd542ed5a855c0f15d9ad1326c6fe2b2c9e423190", [])
     cmake("libpng", "https://github.com/pnggroup/libpng.git", "872555f4ba910252783af1507f9e7fe1653be252",
           ["-DPNG_SHARED=OFF", "-DPNG_STATIC=ON", "-DPNG_TESTS=OFF", "-DPNG_TOOLS=OFF"])
+    cmake("libjpeg-turbo", "https://github.com/libjpeg-turbo/libjpeg-turbo.git", "4e151a4ad91001b3aa8c2ece2205c15f487ce320",
+          ["-DENABLE_SHARED=OFF", "-DENABLE_STATIC=ON", "-DWITH_SIMD=OFF", "-DWITH_TURBOJPEG=OFF"])
+    cmake("libtiff", "https://gitlab.com/libtiff/libtiff.git", "8300e0f79b1599c18dd6dc50caa9ab9200d11889",
+          ["-Dtiff-tools=OFF", "-Dtiff-tests=OFF", "-Dtiff-contrib=OFF", "-Dtiff-docs=OFF",
+           "-Djpeg=ON", "-Dlerc=OFF", "-Dzstd=OFF", "-Dlzma=OFF", "-Dwebp=OFF", "-Djbig=OFF"])
     meson("cairo", "https://gitlab.freedesktop.org/cairo/cairo.git", "4541e0cd3a751b85e52e2a83d02ac6145a5efa85",
           ["-Dtests=disabled", "-Dxlib=disabled", "-Dxcb=disabled", "-Dfontconfig=disabled",
            "-Dfreetype=disabled", "-Dquartz=enabled", "-Dpng=enabled", "-Dglib=enabled",

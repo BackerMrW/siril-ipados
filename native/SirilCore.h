@@ -91,6 +91,9 @@ size_t siril_image_copy_header(SirilImage *image, char *buffer, size_t capacity)
 const char *siril_core_version(void);
 /* All operations are serialized because upstream Siril uses global state. */
 SirilImage *siril_image_read(const char *path, char *error, size_t error_size);
+/* Original stat_file/any_to_fits readers; rejects sequence containers and
+ * suppresses implicit CFA debayer. Current build enables PNG/JPEG/TIFF. */
+SirilImage *siril_image_read_any(const char *path, char *error, size_t error_size);
 void siril_image_free(SirilImage *image);
 int siril_image_info(const SirilImage *image, SirilImageInfo *info);
 /* Display-only RGBA using upstream Siril's linked automatic MTF stretch. */
@@ -103,10 +106,19 @@ int siril_image_subtract(SirilImage *destination, const SirilImage *source);
 int siril_image_divide_scalar(SirilImage *image, float divisor);
 /* Export a new floating-point FITS; refuses to overwrite an existing path. */
 int siril_image_write(const SirilImage *image, const char *path);
+/* Original writers: 1 PNG, 2 JPEG, 3 TIFF. Exact suffix and no overwrite;
+ * PNG accepts 8/16-bit, TIFF 8/16/32-bit; JPEG quality is 1..100. */
+int siril_image_export(SirilImage *image, const char *path, int format, int depth, int quality);
 /* Execute original Siril commands synchronously, stopping at the first error.
  * Blank lines and # comments are accepted. No desktop process or GTK loop.
  * Returns 1 on success; errors identify the source line. */
 int siril_run_commands(const char *directory, const char *script, char *error, size_t error_size);
+/* Execute a native tool script and atomically capture an owned float result
+ * plus mask, then close the command workspace. Script must load its input and
+ * leave its result open. Returns NULL on failure/cancellation. */
+SirilImage *siril_tool_compute(const char *directory, const char *script, char *error, size_t error_size);
+/* Independent float image using the original mask_to_fits conversion. */
+SirilImage *siril_image_mask_copy(SirilImage *image);
 /* Independent of the engine lock, so UI can read logs and cancel a running job. */
 void siril_copy_processing_log(char *buffer, size_t capacity);
 void siril_cancel_processing(void);

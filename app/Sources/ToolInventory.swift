@@ -21,6 +21,8 @@ struct ToolInventoryView: View {
     let onBackground: () -> Void
     let onProcessing: () -> Void
     let onAnalysis: (Int) -> Void
+    let onNativeTool: (NativeTool) -> Void
+    let canUseNativeTools: Bool
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     private let features = UpstreamInventory.bundled
@@ -37,12 +39,22 @@ struct ToolInventoryView: View {
                     Button("直方图与像素读数") { dismiss(); onAnalysis(1) }
                     Button("FITS 文件头 · FITS Header") { dismiss(); onAnalysis(2) }
                 }
+                ForEach(["拉伸", "颜色", "滤镜", "几何"], id: \.self) { group in
+                    Section(group) {
+                        ForEach(NativeTool.allCases.filter { $0.group == group }) { tool in
+                            Button(tool.title) { dismiss(); onNativeTool(tool) }.disabled(!canUseNativeTools)
+                        }
+                        if !canUseNativeTools { Text("先从图库打开一张图像。").font(.caption) }
+                    }
+                }
                 Section("原版功能对应情况") {
                     Text("下面按所移植的 Siril 1.5 源码列出原版动作。当前版本仍在移植，未完成的工具会显示真实状态。")
                         .font(.caption).foregroundStyle(.secondary)
                     ForEach(filtered) { entry in
                         VStack(alignment: .leading, spacing: 5) {
-                            Text(entry.title).font(.headline)
+                            if let tool = NativeTool.actions[entry.id] {
+                                Button(entry.title) { dismiss(); onNativeTool(tool) }.disabled(!canUseNativeTools)
+                            } else { Text(entry.title).font(.headline) }
                             Text(entry.status).font(.caption).foregroundStyle(.secondary)
                         }
                     }

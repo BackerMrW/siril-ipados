@@ -1,0 +1,269 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+import SwiftUI
+import SirilCore
+
+struct ToolFieldControls: View {
+    let fields: [ToolField]
+    @Binding var values: [String: Double]
+    var body: some View {
+        ForEach(fields) { field in
+            let binding = Binding(get: { values[field.id] ?? field.value }, set: { values[field.id] = $0 })
+            if field.boolean {
+                Toggle(field.title, isOn: Binding(get: { binding.wrappedValue == 1 }, set: { binding.wrappedValue = $0 ? 1 : 0 }))
+            } else if !field.choices.isEmpty {
+                Picker(field.title, selection: binding) { ForEach(field.choices.indices, id: \.self) { i in Text(field.choices[i]).tag(Double(i)) } }
+            } else {
+                HStack {
+                    Text(field.title); Spacer()
+                    TextField(field.title, value: binding, format: .number).multilineTextAlignment(.trailing).frame(width: 115).keyboardType(.numbersAndPunctuation)
+                    Stepper(field.title, value: binding, in: field.lower...field.upper, step: field.integer ? 1 : 0.01).labelsHidden()
+                }
+            }
+        }
+    }
+}
+
+struct NativeToolView: View {
+    let file: FITSRecord
+    let initialTool: NativeTool
+    let engine: SirilEngine
+    let onOutput: (URL) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var session = NativeToolSession()
+    @State private var recipe: NativeToolRecipe
+    @State private var history: NativeToolHistory?
+    @State private var library: [FITSRecord] = []
+    @State private var originalImage: UIImage?, resultImage: UIImage?, maskImage: UIImage?
+    @State private var resultWidth = 1, resultHeight = 1
+    @State private var view = 0, channel = -1
+    @State private var automatic = false
+    @State private var selecting = false
+    @State private var region: ImageSelection?
+    @State private var busy = false, loaded = false, validPreview = false
+    @State private var message = "", log = ""
+    @State private var persistTask: Task<Void, Never>?
+    @State private var previewTask: Task<Void, Never>?
+    @State private var logTask: Task<Void, Never>?
+    init(file: FITSRecord, tool: NativeTool, engine: SirilEngine, onOutput: @escaping (URL) -> Void) {
+        self.file = file; self.initialTool = tool; self.engine = engine; self.onOutput = onOutput
+        _recipe = State(initialValue: NativeToolRecipe(tool: tool, file: file))
+    }
+    var body: some View {
+        NavigationStack {
+            GeometryReader { geometry in
+                if geometry.size.width > 850 {
+                    HStack(spacing: 0) { canvas; controls.frame(width: 440) }
+                } else {
+                    VStack(spacing: 0) { canvas.frame(height: geometry.size.height * 0.45); controls }
+                }
+            }
+            .navigationTitle(recipe.tool.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) }
+                ToolbarItem(placement: .confirmationAction) { Button("应用并另存") { apply() }.disabled(busy || !validPreview) }
+                if busy { ToolbarItem { Button("中止", role: .destructive) { siril_cancel_processing() } } }
+            }
+            .interactiveDismissDisabled(busy)
+            .task { await open() }
+            .onChange(of: recipe) { _, value in edited(value) }
+            .onChange(of: view) { _, _ in refresh() }
+            .onChange(of: channel) { _, _ in refresh() }
+            .onChange(of: automatic) { _, _ in refresh() }
+            .onDisappear {
+                UIApplication.shared.isIdleTimerDisabled = false
+                previewTask?.cancel(); logTask?.cancel()
+                let pending = persistTask
+                Task { await pending?.value; await session.close() }
+            }
+        }
+    }
+    private var canvas: some View {
+        VStack(spacing: 8) {
+            Picker("预览", selection: $view) {
+                Text("原图").tag(0); Text("处理结果").tag(1); Text("蒙版").tag(2)
+            }.pickerStyle(.segmented).padding(.horizontal)
+            let image = view == 0 ? originalImage : view == 2 ? maskImage : resultImage
+            if let image {
+                ZoomableImageCanvas(image: image, samples: [], imageWidth: Double(view == 0 ? file.width : resultWidth), imageHeight: Double(view == 0 ? file.height : resultHeight), region: view == 0 ? region : nil, selecting: selecting && view == 0,
+                    onSelection: { selection in
+                        region = selection
+                        if recipe.tool == .crop {
+                            recipe.values["x"] = Double(selection.x); recipe.values["y"] = Double(selection.y)
+                            recipe.values["width"] = Double(selection.width); recipe.values["height"] = Double(selection.height)
+                        }
+                    }, onTap: nil)
+                    .background(.black)
+            } else { ContentUnavailableView(view == 2 ? "当前没有蒙版预览" : "请计算预览", systemImage: "photo") }
+            HStack {
+                Picker("显示通道", selection: $channel) { Text("RGB / 灰度").tag(-1); if file.channels == 3 { Text("红").tag(0); Text("绿").tag(1); Text("蓝").tag(2) } }
+                Toggle("显示自动拉伸", isOn: $automatic)
+            }.padding(.horizontal)
+            if recipe.tool == .crop { Toggle("在原图上拖出裁剪选区", isOn: $selecting).padding(.horizontal) }
+            if let region { Text(region.description).font(.caption) }
+        }.disabled(busy)
+    }
+    private var controls: some View {
+        Form {
+            Section("原版工具") {
+                Picker("工具", selection: Binding(get: { recipe.tool }, set: { recipe = NativeToolRecipe(tool: $0, file: file) })) {
+                    ForEach(NativeTool.allCases) { tool in Text(tool.title).tag(tool) }
+                }
+                Text("每次预览从未修改的输入计算。改参数会清除旧预览；应用保存当前计算结果和蒙版，原图保留。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("参数") { ToolFieldControls(fields: recipe.tool.fields, values: $recipe.values) }
+            if recipe.tool == .guided {
+                Section("引导图") {
+                    Picker("引导来源", selection: $recipe.guideID) {
+                        Text("当前图像自身").tag(UUID?.none)
+                        ForEach(library.filter { $0.width == file.width && $0.height == file.height }) { item in Text(item.displayName).tag(Optional(item.id)) }
+                    }
+                }
+            }
+            if recipe.tool.acceptsMask {
+                Section("处理蒙版") {
+                    ToolFieldControls(fields: visibleMaskFields, values: $recipe.mask.values)
+                    if recipe.mask.number("mode") == 3 {
+                        Picker("蒙版图像", selection: $recipe.mask.sourceID) {
+                            Text("请选择").tag(UUID?.none)
+                            ForEach(library.filter { $0.width == file.width && $0.height == file.height }) { item in Text(item.displayName).tag(Optional(item.id)) }
+                        }
+                    }
+                    Text("亮度、通道、颜色、星点及图像蒙版使用原版生成器；阈值、模糊、羽化、反转与乘法在原版蒙版上执行。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Section("编辑历史") {
+                HStack {
+                    Button("撤销参数", systemImage: "arrow.uturn.backward") { step(redo: false) }.disabled(history?.past.isEmpty != false)
+                    Button("重做参数", systemImage: "arrow.uturn.forward") { step(redo: true) }.disabled(history?.future.isEmpty != false)
+                }.buttonStyle(.borderless)
+                Button("恢复此工具默认参数") { recipe = NativeToolRecipe(tool: recipe.tool, file: file) }
+                Text("工具、参数和蒙版编辑历史跨关闭保存，最多30步；新的编辑清除重做分支。应用后的完整 FITS 可以在主工作区撤销。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Button("计算原版预览") { compute() }
+                if busy { ProgressView("Siril 正在处理") }
+                if !validPreview { Text("当前参数尚未完成预览，应用暂不可用。").font(.caption) }
+            }
+            if !message.isEmpty { Section("提示") { Text(message).textSelection(.enabled) } }
+            if !log.isEmpty { Section("原版处理日志") { Text(log).font(.system(.caption, design: .monospaced)).textSelection(.enabled) } }
+        }.disabled(busy || !loaded)
+    }
+    private var visibleMaskFields: [ToolField] {
+        let mode = recipe.mask.number("mode")
+        let names: Set<String>
+        switch mode {
+        case 0: names = ["mode"]
+        case 1: names = ["mode", "luminance", "depth", "stretch"]
+        case 2: names = ["mode", "channel", "depth", "stretch"]
+        case 3: names = ["mode", "luminance", "depth", "stretch"]
+        case 6: names = ["mode", "depth", "stretch"]
+        case 4: names = ["mode", "red", "green", "blue", "tolerance", "lumLow", "lumHigh", "colourFeather", "depth", "stretch"]
+        default: names = ["mode", "channel", "starRadius", "starFeather", "depth", "stretch"]
+        }
+        return ToolMask.fields.filter { field in
+            if names.contains(field.id) { return true }
+            guard mode != 0 else { return false }
+            if ["threshold", "blur", "feather", "invert", "factor"].contains(field.id) { return true }
+            if ["low", "high", "range"].contains(field.id) { return recipe.mask.number("threshold") == 1 }
+            if field.id == "radius" { return recipe.mask.number("blur") == 1 }
+            if ["distance", "featherMode"].contains(field.id) { return recipe.mask.number("feather") == 1 }
+            return false
+        }
+    }
+    @MainActor private func open() async {
+        do {
+            library = await engine.loadLibrary()
+            history = try await engine.nativeToolHistory(file, tool: initialTool)
+            recipe = history!.current
+            try await session.open(file)
+            let bytes = try await session.preview(view: 0, channel: channel, automatic: automatic)
+            originalImage = bytes.uiImage; loaded = true
+            if ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_VIEW_CHECK"] == "1" {
+                let section = ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_SECTION"] ?? "ghs"
+                recipe = NativeToolRecipe(tool: section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)
+                if section == "ghs" { recipe.values["D"] = 1.2; recipe.values["SP"] = 0.1 }
+                if section == "masks" { recipe.mask.values["mode"] = 1; recipe.mask.values["invert"] = 1 }
+                if section == "geometry" { recipe.values["x"] = 16; recipe.values["y"] = 24; recipe.values["width"] = 96; recipe.values["height"] = 80 }
+                try await session.compute(recipe, library: library)
+                let info = try await session.info(view: 1); resultWidth = Int(info.width); resultHeight = Int(info.height)
+                resultImage = try await session.preview(view: 1, channel: -1, automatic: false).uiImage
+                if recipe.mask.number("mode") != 0 { maskImage = try await session.preview(view: 2, channel: -1, automatic: false).uiImage }
+                view = section == "masks" ? 2 : section == "geometry" ? 0 : 1; validPreview = true
+                if section == "geometry" { region = ImageSelection(x: 16, y: 24, width: 96, height: 80); selecting = true }
+                guard originalImage != nil, resultImage != nil, section != "masks" || maskImage != nil else { throw EngineError.failed("Native tool preview image missing") }
+                try? await Task.sleep(for: .milliseconds(500))
+                let marker = await engine.documents.appendingPathComponent("simulator-tools-\(section)-ready.txt")
+                try "PASS: native tools \(section) loaded original parameters, computed pixels and preview/apply controls.\n".write(to: marker, atomically: true, encoding: .utf8)
+            }
+        } catch { message = error.localizedDescription }
+    }
+    @MainActor private func edited(_ value: NativeToolRecipe) {
+        guard loaded, history?.current != value else { return }
+        history?.record(value); invalidate(); saveHistory()
+    }
+    @MainActor private func invalidate() {
+        validPreview = false; resultImage = nil; maskImage = nil; view = 0; message = ""
+        previewTask?.cancel()
+    }
+    @MainActor private func saveHistory() {
+        persistTask?.cancel()
+        guard let history else { return }
+        persistTask = Task {
+            do { try await Task.sleep(for: .milliseconds(250)); try Task.checkCancellation(); try await engine.saveNativeToolHistory(history, file: file) }
+            catch is CancellationError { } catch { message = error.localizedDescription }
+        }
+    }
+    @MainActor private func step(redo: Bool) {
+        history?.step(redo: redo); if let value = history?.current { recipe = value }
+        invalidate(); saveHistory()
+    }
+    @MainActor private func refresh() {
+        previewTask?.cancel()
+        let selectedView = view, selectedChannel = channel, stretch = automatic
+        previewTask = Task {
+            do {
+                let bytes = try await session.preview(view: selectedView, channel: selectedChannel, automatic: stretch)
+                try Task.checkCancellation()
+                if selectedView == 0 { originalImage = bytes.uiImage } else if selectedView == 1 { resultImage = bytes.uiImage } else { maskImage = bytes.uiImage }
+            } catch is CancellationError { } catch { if selectedView == 0 || validPreview { message = error.localizedDescription } }
+        }
+    }
+    @MainActor private func compute() {
+        guard !busy else { return }; busy = true; message = ""; validPreview = false
+        UIApplication.shared.isIdleTimerDisabled = true
+        logTask = Task { while !Task.isCancelled { log = SirilEngine.processingLog(); try? await Task.sleep(for: .milliseconds(300)) } }
+        let current = recipe
+        Task {
+            defer { busy = false; UIApplication.shared.isIdleTimerDisabled = false; logTask?.cancel(); log = SirilEngine.processingLog() }
+            do {
+                await persistTask?.value
+                try await session.compute(current, library: library)
+                let info = try await session.info(view: 1); resultWidth = Int(info.width); resultHeight = Int(info.height)
+                resultImage = try await session.preview(view: 1, channel: channel, automatic: automatic).uiImage
+                if current.mask.number("mode") != 0 { maskImage = try await session.preview(view: 2, channel: -1, automatic: false).uiImage }
+                validPreview = recipe == current; view = 1
+            } catch { message = error.localizedDescription; resultImage = nil; maskImage = nil; view = 0 }
+        }
+    }
+    @MainActor private func apply() {
+        guard !busy, validPreview else { return }; busy = true
+        Task {
+            defer { busy = false }
+            do {
+                await persistTask?.value
+                let job = try await engine.prepareNativeToolJob(file: file, recipe: recipe, library: library)
+                do {
+                    let output = try await session.export(recipe, to: job)
+                    _ = try await engine.preview(output, automatic: false)
+                    try await engine.writeJobState(job.folder, state: "已完成", message: recipe.tool.title)
+                    try? SirilEngine.processingLog().write(to: job.folder.appendingPathComponent("processing.log"), atomically: true, encoding: .utf8)
+                    onOutput(output); dismiss()
+                } catch { try? await engine.writeJobState(job.folder, state: "输出验证失败", message: error.localizedDescription); throw error }
+            } catch { message = error.localizedDescription }
+        }
+    }
+}

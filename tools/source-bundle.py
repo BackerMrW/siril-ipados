@@ -19,6 +19,8 @@ GIT_SOURCES = [
     ("proxy-libintl", "https://github.com/frida/proxy-libintl.git", "33934de09af6a6627eb44e310a8079df009abdbb", None),
     ("LCMS", "https://github.com/mm2/Little-CMS.git", "453bafeb85b4ef96498866b7a8eadcc74dff9223", "lcms-ipados-upstream"),
     ("libpng", "https://github.com/pnggroup/libpng.git", "872555f4ba910252783af1507f9e7fe1653be252", None),
+    ("libjpeg-turbo", "https://github.com/libjpeg-turbo/libjpeg-turbo.git", "4e151a4ad91001b3aa8c2ece2205c15f487ce320", None),
+    ("libtiff", "https://gitlab.com/libtiff/libtiff.git", "8300e0f79b1599c18dd6dc50caa9ab9200d11889", None),
     ("Cairo", "https://gitlab.freedesktop.org/cairo/cairo.git", "4541e0cd3a751b85e52e2a83d02ac6145a5efa85", "cairo-ipados-upstream"),
     ("HarfBuzz", "https://github.com/harfbuzz/harfbuzz.git", "3ef8709829a5884517ad91a97b32b9435b2f20d1", "harfbuzz-ipados-upstream"),
     ("Pango", "https://github.com/GNOME/pango.git", "5f589a7e0e61dca3f976da172cf55743ace77a38", "pango-ipados-upstream"),

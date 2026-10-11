@@ -59,13 +59,13 @@
       "id": "win.crop",
       "title": "Crop",
       "group": "工作区与分析",
-      "status": "简化参数界面，未达到原版完整功能"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.rotation-processing",
       "title": "Rotate & Crop",
       "group": "工作区与分析",
-      "status": "简化参数界面，未达到原版完整功能"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.seq-crop",
@@ -197,19 +197,19 @@
       "id": "win.saturation-processing",
       "title": "Color Saturation...",
       "group": "root",
-      "status": "简化参数界面，未达到原版完整功能"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.remove-green-processing",
       "title": "Remove Green Noise...",
       "group": "root",
-      "status": "待移植或待逐项验证"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.negative-processing",
       "title": "Negative Transformation",
       "group": "root",
-      "status": "待移植或待逐项验证"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.background-extr-processing",
@@ -233,7 +233,7 @@
       "id": "win.asinh-processing",
       "title": "Asinh Transformation...",
       "group": "stretches",
-      "status": "简化参数界面，未达到原版完整功能"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.curves-processing",
@@ -245,13 +245,13 @@
       "id": "win.histo-processing",
       "title": "Histogram Transformation...",
       "group": "stretches",
-      "status": "简化参数界面，未达到原版完整功能"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.payne-processing",
       "title": "Generalised Hyperbolic Stretch Transformations...",
       "group": "stretches",
-      "status": "待移植或待逐项验证"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.color-calib-processing",
@@ -329,19 +329,19 @@
       "id": "win.wavelets-processing",
       "title": "À trous Wavelets Transform...",
       "group": "filters",
-      "status": "待移植或待逐项验证"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.fix-banding-processing",
       "title": "Banding Reduction...",
       "group": "filters",
-      "status": "待移植或待逐项验证"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.clahe-processing",
       "title": "Contrast-Limited Adaptive Histogram Equalization...",
       "group": "filters",
-      "status": "待移植或待逐项验证"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.cosmetic-processing",
@@ -359,7 +359,7 @@
       "id": "win.epf-processing",
       "title": "Edge Preserving Filters...",
       "group": "filters",
-      "status": "待移植或待逐项验证"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.fft-processing",
@@ -371,13 +371,13 @@
       "id": "win.medianfilter-processing",
       "title": "Median Filter...",
       "group": "filters",
-      "status": "待移植或待逐项验证"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.denoise-processing",
       "title": "Noise Reduction...",
       "group": "filters",
-      "status": "简化参数界面，未达到原版完整功能"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.rgradient-processing",
@@ -389,43 +389,43 @@
       "id": "win.unpurple-processing",
       "title": "Unpurple Filter...",
       "group": "filters",
-      "status": "待移植或待逐项验证"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.rotation90-processing",
       "title": "Rotate 90 degrees, clockwise",
       "group": "geometry",
-      "status": "简化参数界面，未达到原版完整功能"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.rotation270-processing",
       "title": "Rotate 90 degrees, counter-clockwise",
       "group": "geometry",
-      "status": "简化参数界面，未达到原版完整功能"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.mirrorx-processing",
       "title": "Horizontal Mirror",
       "group": "geometry",
-      "status": "待移植或待逐项验证"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.mirrory-processing",
       "title": "Vertical Mirror",
       "group": "geometry",
-      "status": "待移植或待逐项验证"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.binning-processing",
       "title": "Binning...",
       "group": "geometry",
-      "status": "待移植或待逐项验证"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.resample-processing",
       "title": "Resample...",
       "group": "geometry",
-      "status": "待移植或待逐项验证"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.snapshot",
@@ -449,7 +449,7 @@
       "id": "win.ccm-processing",
       "title": "Color Conversion Matrix...",
       "group": "root",
-      "status": "待移植或待逐项验证"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.fits-header",
