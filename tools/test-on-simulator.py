@@ -81,6 +81,9 @@ if not report.exists():
         (root / "diagnostics" / path.name).write_bytes(path.read_bytes())
     raise RuntimeError("Native App did not produce its numerical self-check report within 180 seconds")
 text = report.read_text()
+tool_report = container / "Documents/native-tool-tests.log"
+if tool_report.exists():
+    (root / "diagnostics/native-tool-tests.log").write_bytes(tool_report.read_bytes())
 print(text, flush=True)
 (root / "diagnostics/app-launch-check.txt").write_text(text)
 if not text.startswith("PASS:"):

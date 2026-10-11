@@ -38,56 +38,64 @@ extension SirilEngine {
         try require(original == expected, "independent FITS fixture did not read exact displayed planes: \(original) != \(expected)")
         var records = [file]
         var jobs: [ProcessingJob] = []
+        var checks: [String] = [], failures: [String] = []
+        defer { try? checks.joined(separator: "\n").write(to: documents.appendingPathComponent("native-tool-tests.log"), atomically: true, encoding: .utf8) }
         // Every actual native tool must execute, return finite full-resolution
         // pixels and preserve the original. No fake success from command text.
         for tool in NativeTool.allCases {
-            var recipe = NativeToolRecipe(tool: tool, file: file)
-            if tool == .crop { recipe.values["x"] = 16; recipe.values["y"] = 13; recipe.values["width"] = 64; recipe.values["height"] = 48 }
-            if [.ghs, .inverseGHS, .modifiedAsinh, .inverseModifiedAsinh].contains(tool) { recipe.values["D"] = 0.8; recipe.values["SP"] = 0.1 }
-            if tool == .linearStretch { recipe.values["BP"] = 0.05 }
-            if tool == .asinh { recipe.values["stretch"] = 10 }
-            if tool == .mtf || tool == .inverseMTF { recipe.values["mid"] = 0.25 }
-            if tool == .greenNoise { recipe.values["preserve"] = 0 }
-            if tool == .saturation { recipe.values["amount"] = 0.3 }
-            if tool == .guided { recipe.values["diameter"] = 2 }
-            try await session.compute(recipe, library: records)
-            let info = try await session.info(view: 1)
-            let actual = try await session.pixel(view: 1, x: 10, y: 10)
-            try require(info.width > 0 && info.height > 0 && info.channels == 3 && actual.allSatisfy(\.isFinite), "\(tool.rawValue) did not return finite RGB pixels")
-            switch tool {
-            case .negative:
-                let after = try await session.pixel(view: 1, x: x, y: y)
-                try require(zip(after, expected).allSatisfy { abs($0.0 - (1 - $0.1)) < 2e-6 }, "negative pixels")
-            case .mtf:
-                let after = try await session.pixel(view: 1, x: x, y: y)
-                try require(zip(after, expected).allSatisfy { abs(Double($0.0) - (-0.75 * Double($0.1)) / (-0.5 * Double($0.1) - 0.25)) < 2e-6 }, "independent MTF formula")
-            case .greenNoise:
-                let after = try await session.pixel(view: 1, x: x, y: y)
-                try require(abs(after[1] - min(expected[1], (expected[0] + expected[2]) / 2)) < 2e-6 && after[0] == expected[0] && after[2] == expected[2], "SCNR average-neutral pixels")
-            case .crop:
-                let after = try await session.pixel(view: 1, x: 0, y: 0)
-                let corner = (0..<3).map { values[$0 * width * height + 13 * width + 16] }
-                try require(info.width == 64 && info.height == 48 && after == corner, "crop selection coordinates or pixels")
-            case .mirrorHorizontal, .mirrorVertical, .rotate180:
-                let fromX = tool == .mirrorVertical ? x : width - 1 - x
-                let fromY = tool == .mirrorHorizontal ? y : height - 1 - y
-                let mirrored = (0..<3).map { values[$0 * width * height + fromY * width + fromX] }
-                let after = try await session.pixel(view: 1, x: x, y: y)
-                try require(after == mirrored, "\(tool.rawValue) coordinates")
-            case .binning:
-                let after = try await session.pixel(view: 1, x: 10, y: 10)
-                for c in 0..<3 {
-                    let mean = (values[c * width * height + 20 * width + 20] + values[c * width * height + 20 * width + 21] + values[c * width * height + 21 * width + 20] + values[c * width * height + 21 * width + 21]) / 4
-                    try require(info.width == 48 && info.height == 48 && abs(after[c] - mean) < 2e-6, "independent binning mean")
+            do {
+                var recipe = NativeToolRecipe(tool: tool, file: file)
+                if tool == .crop { recipe.values["x"] = 16; recipe.values["y"] = 13; recipe.values["width"] = 64; recipe.values["height"] = 48 }
+                if [.ghs, .inverseGHS, .modifiedAsinh, .inverseModifiedAsinh].contains(tool) { recipe.values["D"] = 0.8; recipe.values["SP"] = 0.1 }
+                if tool == .linearStretch { recipe.values["BP"] = 0.05 }
+                if tool == .asinh { recipe.values["stretch"] = 10 }
+                if tool == .mtf || tool == .inverseMTF { recipe.values["mid"] = 0.25 }
+                if tool == .greenNoise { recipe.values["preserve"] = 0 }
+                if tool == .saturation { recipe.values["amount"] = 0.3 }
+                if tool == .guided { recipe.values["diameter"] = 2 }
+                try await session.compute(recipe, library: records)
+                let info = try await session.info(view: 1)
+                let actual = try await session.pixel(view: 1, x: 10, y: 10)
+                try require(info.width > 0 && info.height > 0 && info.channels == 3 && actual.allSatisfy(\.isFinite), "\(tool.rawValue) did not return finite RGB pixels")
+                switch tool {
+                case .negative:
+                    let after = try await session.pixel(view: 1, x: x, y: y)
+                    try require(zip(after, expected).allSatisfy { abs($0.0 - (1 - $0.1)) < 2e-6 }, "negative pixels")
+                case .mtf:
+                    let after = try await session.pixel(view: 1, x: x, y: y)
+                    try require(zip(after, expected).allSatisfy { abs(Double($0.0) - (-0.75 * Double($0.1)) / (-0.5 * Double($0.1) - 0.25)) < 2e-6 }, "independent MTF formula")
+                case .greenNoise:
+                    let after = try await session.pixel(view: 1, x: x, y: y)
+                    try require(abs(after[1] - min(expected[1], (expected[0] + expected[2]) / 2)) < 2e-6 && after[0] == expected[0] && after[2] == expected[2], "SCNR average-neutral pixels")
+                case .crop:
+                    let after = try await session.pixel(view: 1, x: 0, y: 0)
+                    let corner = (0..<3).map { values[$0 * width * height + 13 * width + 16] }
+                    try require(info.width == 64 && info.height == 48 && after == corner, "crop selection coordinates or pixels")
+                case .mirrorHorizontal, .mirrorVertical, .rotate180:
+                    let fromX = tool == .mirrorVertical ? x : width - 1 - x
+                    let fromY = tool == .mirrorHorizontal ? y : height - 1 - y
+                    let mirrored = (0..<3).map { values[$0 * width * height + fromY * width + fromX] }
+                    let after = try await session.pixel(view: 1, x: x, y: y)
+                    try require(after == mirrored, "\(tool.rawValue) coordinates")
+                case .binning:
+                    let after = try await session.pixel(view: 1, x: 10, y: 10)
+                    for c in 0..<3 {
+                        let mean = (values[c * width * height + 20 * width + 20] + values[c * width * height + 20 * width + 21] + values[c * width * height + 21 * width + 20] + values[c * width * height + 21 * width + 21]) / 4
+                        try require(info.width == 48 && info.height == 48 && abs(after[c] - mean) < 2e-6, "independent binning mean")
+                    }
+                case .wavelets, .ccm, .resample:
+                    let after = try await session.pixel(view: 1, x: x, y: y)
+                    try require(zip(after, expected).allSatisfy { abs($0.0 - $0.1) < 2e-5 }, "identity \(tool.rawValue) changed pixels")
+                default: break
                 }
-            case .wavelets, .ccm, .resample:
-                let after = try await session.pixel(view: 1, x: x, y: y)
-                try require(zip(after, expected).allSatisfy { abs($0.0 - $0.1) < 2e-5 }, "identity \(tool.rawValue) changed pixels")
-            default: break
+                try require(try Data(contentsOf: file.url) == sourceBytes, "tool changed imported original")
+                checks.append("PASS: native tool \(tool.rawValue) executed original worker and preserved source")
+            } catch {
+                let failure = "FAIL: \(tool.rawValue): \(error.localizedDescription)\n" + String(Self.processingLog().suffix(1200))
+                failures.append(failure); checks.append(failure)
             }
-            try require(try Data(contentsOf: file.url) == sourceBytes, "tool changed imported original")
-            print("PASS: native tool \(tool.rawValue) executed original worker and preserved source")
         }
+        try require(failures.isEmpty, failures.joined(separator: "\n"))
         // A non-centred crop must select the same displayed pixels with either
         // sensor ROWORDER tag. Symmetric selections can hide a double flip.
         var bottomBytes = Data(bytes.prefix(2880))
@@ -105,7 +113,9 @@ extension SirilEngine {
         crop.values["x"] = 16; crop.values["y"] = 13; crop.values["width"] = 64; crop.values["height"] = 48
         try await bottomSession.compute(crop, library: [bottomFile])
         let bottomCorner = try await bottomSession.pixel(view: 1, x: 0, y: 0)
-        try require(bottomCorner == (0..<3).map { values[$0 * width * height + 13 * width + 16] }, "bottom-up crop displayed coordinates")
+        let cornerOffset = 13 * width + 16
+        let bottomExpected: [Float] = (0..<3).map { c in values[c * width * height + cornerOffset] }
+        try require(bottomCorner == bottomExpected, "bottom-up crop displayed coordinates")
         await bottomSession.close(); try fm.removeItem(at: bottomFile.url)
         for mode in [1, 3, 4, 5] {
             var recipe = NativeToolRecipe(tool: .negative, file: file)
@@ -205,7 +215,7 @@ extension SirilEngine {
             let tolerance: Float = format == .jpeg ? 0.035 : format.depth == 8 ? 0.008 : format.depth == 16 ? 0.00004 : 0.000002
             try require(zip(pixel, expected).allSatisfy { abs($0.0 - $0.1) < tolerance }, "\(format.rawValue) imported pixel precision or orientation")
             try fm.removeItem(at: imported.url)
-            print("PASS: original \(format.rawValue) export/import preserved full-size RGB planes at declared precision")
+            checks.append("PASS: original \(format.rawValue) export/import preserved full-size RGB planes at declared precision")
         }
         for ext in ["jpg", "png", "tif"] {
             let bad = folder.appendingPathComponent("invalid." + ext); try Data("not an image".utf8).write(to: bad)
@@ -219,5 +229,6 @@ extension SirilEngine {
             try permanentlyDeleteTrash(Set(trashEntries().filter { $0.jobName == task.id }.map(\.id)))
         }
         try require(try Data(contentsOf: file.url) == sourceBytes, "exports, masks or cleanup changed source pixels")
+        checks.append("PASS: all mask sources, 8/16/32-bit blending/inversion, inherited/resized masks, stale previews, persistent history, companion restoration/permanent cleanup and malformed-file survival")
     }
 }
