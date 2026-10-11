@@ -54,6 +54,13 @@ extension SirilEngine {
         let again = try applySequenceBackground(location, settings: settings)
         try require(try Data(contentsOf: firstOutput) == savedOutput && again != output, "repeat overwrote an earlier output")
         try require(try sequenceBackgroundRuns(location).count == 2 && sequenceBackgroundRuns(location).allSatisfy { $0.state.state == "已完成" && $0.output != nil }, "saved successful run browser")
+        guard let latestRun = try sequenceBackgroundRuns(location).first else { throw EngineError.failed("Background run missing") }
+        try writeJobState(latestRun.folder, state: "运行中", message: "simulated interrupted final state write")
+        let restarted = SirilEngine()
+        let interrupted = try await restarted.sequenceBackgroundRuns(location).first
+        try require(interrupted?.state.state == "处理被中断" && interrupted?.output == nil, "interrupted run falsely advertised as active or complete")
+        try require(try Data(contentsOf: firstOutput) == savedOutput, "interrupted-state read changed earlier FITS")
+        try writeJobState(latestRun.folder, state: "已完成", message: "序列背景提取")
         var history = try sequenceBackgroundHistory(location)
         history.record(settings); settings.correction = 1; history.record(settings)
         try saveSequenceBackgroundHistory(history)

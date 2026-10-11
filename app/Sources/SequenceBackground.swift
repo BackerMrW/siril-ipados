@@ -47,7 +47,8 @@ extension SirilEngine {
                   let run = try? owned(candidate.lastPathComponent, under: folder),
                   let recipe = try? JSONDecoder().decode(SequenceBackgroundRecipe.self, from: Data(contentsOf: owned("background.json", under: run))),
                   recipe.source == location,
-                  let state = try? JSONDecoder().decode(JobState.self, from: Data(contentsOf: owned("job.json", under: run))) else { return nil }
+                  var state = try? JSONDecoder().decode(JobState.self, from: Data(contentsOf: owned("job.json", under: run))) else { return nil }
+            if state.state == "运行中" { state.state = "处理被中断" }
             return SequenceBackgroundRun(folder: run, state: state, output: state.state == "已完成" ? recipe.output : nil)
         }.sorted { $0.state.created > $1.state.created }
     }
