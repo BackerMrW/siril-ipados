@@ -34,7 +34,7 @@ jobs:
         set -euo pipefail
         git init siril-src
         git -C siril-src remote add origin https://gitlab.com/free-astro/siril.git
-        git -C siril-src fetch --depth 1 origin 6c0f8f3207b9cb712f7e04249217123a8ca66915
+        git -C siril-src fetch --depth 1 origin 569e699ce0d19c00d383fd1930a87096aa34b4f9
         git -C siril-src checkout --detach FETCH_HEAD
         git -C siril-src rev-parse HEAD > diagnostics/siril-commit.txt
         (cd siril-src && git apply --check ../native/siril-ipados.patch && git apply ../native/siril-ipados.patch)

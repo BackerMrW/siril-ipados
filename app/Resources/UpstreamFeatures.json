@@ -1,5 +1,5 @@
 {
-  "upstreamRevision": "6c0f8f3207b9cb712f7e04249217123a8ca66915",
+  "upstreamRevision": "569e699ce0d19c00d383fd1930a87096aa34b4f9",
   "entries": [
     {
       "id": "win.documentation",
@@ -13801,6 +13801,18 @@
             "halign": "start",
             "label": "Verify file checksums in FITS header (DATASUM and CHECKSUM)",
             "tooltip-text": "Verify file checksums if they exist. The verification occurs each time the file is read, which may significantly impact Siril's performance when using a sequence."
+          },
+          "signals": []
+        },
+        {
+          "id": "checkbutton_fits_mips_lohi",
+          "kind": "GtkCheckButton",
+          "properties": {
+            "active": "1",
+            "focusable": "1",
+            "halign": "start",
+            "label": "Set display sliders from MIPS-LO and MIPS-HI keywords",
+            "tooltip-text": "When an image contains the MIPS-LO and MIPS-HI visualization cutoff keywords, use them to set the display sliders. If unchecked, the sliders are set to the minimum and maximum pixel values of the image."
           },
           "signals": []
         },

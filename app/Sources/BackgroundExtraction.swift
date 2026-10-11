@@ -329,6 +329,8 @@ struct BackgroundExtractionView: View {
             Toggle("边缘按百分比", isOn: setting(\.borderPercent))
             Button("生成采样点") {
                 Task { await perform {
+                    // Keep-sample merge rollback also invalidates the native model.
+                    invalidate(); try await refresh()
                     try await engine.generate(settings)
                     try await changedSamples()
                     status = "已生成 \(markers.count) 个采样点，请检查并避开目标结构。"

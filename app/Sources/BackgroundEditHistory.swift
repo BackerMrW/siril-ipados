@@ -39,8 +39,8 @@ struct BackgroundEditHistory: Codable, Equatable, Sendable {
             .appendingPathComponent("FITS").standardizedFileURL.resolvingSymlinksInPath()
         let source = root.appendingPathComponent(file.url.lastPathComponent)
         let url = source.appendingPathExtension("background.json")
-        guard file.url.deletingLastPathComponent().standardizedFileURL.resolvingSymlinksInPath() == root,
-              source.resolvingSymlinksInPath() == source, url.resolvingSymlinksInPath() == url else {
+        guard file.url.deletingLastPathComponent().standardizedFileURL.resolvingSymlinksInPath().path == root.path,
+              source.resolvingSymlinksInPath().path == source.path, url.resolvingSymlinksInPath().path == url.path else {
             throw EngineError.failed("不能保存到图库以外的路径或符号链接")
         }
         return url

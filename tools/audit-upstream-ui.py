@@ -58,13 +58,13 @@ for obj in main.iter("object"):
     state = connected.get(action, "简化参数界面，未达到原版完整功能" if action.removeprefix("win.") in partial else "待移植或待逐项验证")
     entries.append({"id": action, "title": title, "group": group, "status": state})
 
-value = {"upstreamRevision": "6c0f8f3207b9cb712f7e04249217123a8ca66915", "entries": entries,
+value = {"upstreamRevision": "569e699ce0d19c00d383fd1930a87096aa34b4f9", "entries": entries,
          "panels": panels, "note": "Every status requires parameter, interaction, algorithm, and device verification. A command catalog is not a completion claim."}
 out = root / "app/Resources/UpstreamFeatures.json"
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
 lines = ["# Siril iPad 完整移植核对表", "", "目标是原版功能、参数、图像交互和文件格式完整对应。当前 App 尚未达到该目标。", "",
-         "固定原版源码：`" + value["upstreamRevision"] + "`（1.5 开发版）。目标采用最新开发版；2026-10-10 核对上游 HEAD 与此提交一致。", "",
+         "固定原版源码：`" + value["upstreamRevision"] + "`（1.5 开发版）。目标采用最新开发版；2026-10-11 核对上游 HEAD 与此提交一致。", "",
          f"从原版主窗口提取 {len(entries)} 个不同动作，扫描 {len(panels)} 个 UI 文件；控件、信号、范围和默认值记录在 `app/Resources/UpstreamFeatures.json`。",
          "这是自动发现的基线，不能替代代码路径、插件、脚本、序列以及实际交互核对。", "",
          "## 当前必须补齐的跨工具能力", "",
