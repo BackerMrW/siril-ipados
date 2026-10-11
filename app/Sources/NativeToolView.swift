@@ -119,7 +119,7 @@ struct NativeToolView: View {
                 Text("每次预览从未修改的输入计算。改参数会清除旧预览；应用保存当前计算结果和蒙版，原图保留。")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section("参数") { ToolFieldControls(fields: recipe.tool.fields, values: $recipe.values) }
+            Section("参数") { ToolFieldControls(fields: visibleToolFields, values: $recipe.values) }
             if recipe.tool == .guided {
                 Section("引导图") {
                     Picker("引导来源", selection: $recipe.guideID) {
@@ -158,6 +158,12 @@ struct NativeToolView: View {
             if !message.isEmpty { Section("提示") { Text(message).textSelection(.enabled) } }
             if !log.isEmpty { Section("原版处理日志") { Text(log).font(.system(.caption, design: .monospaced)).textSelection(.enabled) } }
         }.disabled(busy || !loaded)
+    }
+    private var visibleToolFields: [ToolField] {
+        guard recipe.tool == .resample else { return recipe.tool.fields }
+        let mode = recipe.number("mode")
+        let names: Set<String> = mode == 0 ? ["mode", "scale", "interp", "clamp"] : mode == 4 ? ["mode", "width", "height", "interp", "clamp"] : ["mode", "size", "interp", "clamp"]
+        return recipe.tool.fields.filter { names.contains($0.id) }
     }
     private var visibleMaskFields: [ToolField] {
         let mode = recipe.mask.number("mode")

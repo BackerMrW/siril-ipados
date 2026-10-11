@@ -65,7 +65,7 @@ extension NativeTool {
             if self == .ghs || self == .inverseGHS { f.insert(n("B", "局部强度 B", 0.5, -5, 15, false), at: 1) }; return f
         case .linearStretch: return [n("BP", "黑点 BP", 0, 0, 0.999999, false), channels, b("sat", "作用于饱和度", false)]
         case .automatic: return [n("shadow", "阴影剪切 Sigma", -2.8, -20, 0, false), n("target", "目标背景", 0.25, 0.000001, 0.999999, false), b("linked", "链接 RGB 通道", true)]
-        case .automaticGHS: return [n("shadow", "阴影剪切 Sigma", -2.8, -20, 0, false), n("amount", "拉伸量", 2, 0, 10, false), n("B", "局部强度 B", 0.5, -5, 15, false), n("LP", "阴影保护 LP", 0, 0, 1, false), n("HP", "高光保护 HP", 1, 0, 1, false), b("linked", "链接 RGB 通道", true), clipping]
+        case .automaticGHS: return [n("shadow", "阴影剪切 Sigma", -2.8, -20, 0, false), n("amount", "拉伸量", 2, 0, 10, false), n("B", "局部强度 B", 13, -5, 15, false), n("LP", "阴影保护 LP", 0, 0, 1, false), n("HP", "高光保护 HP", 0.7, 0, 1, false), b("linked", "链接 RGB 通道", true), clipping]
         case .saturation: return [n("amount", "饱和度调整", 0, -1, 1, false), n("background", "背景保护系数", 1, 0, 2, false), c("hue", "色相范围", ["粉红—红 / 红—橙", "橙—棕 / 黄", "黄—绿 / 绿—青", "青", "青—蓝 / 蓝—品红", "品红 / 粉红", "全部色相"], 6)]
         case .greenNoise: return [c("type", "保护模型", ["平均中性", "最大中性", "最大蒙版", "加法蒙版"], 0), n("amount", "蒙版强度", 1, 0, 1, false), b("preserve", "保留明度", true)]
         case .unpurple: return [n("mod", "蓝通道调节量", 1, 0, 1, false), n("threshold", "阈值", 0, 0, 1, false), b("stars", "使用星点蒙版", false)]
@@ -81,7 +81,7 @@ extension NativeTool {
         case .crop: return [n("x", "左上角 X", 0, 0, 100000, true), n("y", "左上角 Y", 0, 0, 100000, true), n("width", "宽", 100, 1, 100000, true), n("height", "高", 100, 1, 100000, true)]
         case .rotate: return [n("angle", "角度", 0, -180, 180, false), b("crop", "裁切旋转边缘", true), interp, b("clamp", "插值钳位", true)]
         case .binning: return [n("factor", "合并系数", 2, 1, 50, true), c("method", "合并方法", ["均值", "求和"], 0)]
-        case .resample: return [c("mode", "尺寸指定", ["倍率", "宽度", "高度", "最长边"], 0), n("scale", "倍率", 1, 0.01, 10, false), n("size", "目标像素数", 2048, 1, 100000, true), interp, b("clamp", "插值钳位", true)]
+        case .resample: return [c("mode", "尺寸指定", ["倍率", "宽度（保持比例）", "高度（保持比例）", "最长边", "独立宽与高"], 0), n("scale", "倍率", 1, 0.01, 10, false), n("size", "目标像素数", 2048, 1, 100000, true), n("width", "宽", 2048, 1, 100000, true), n("height", "高", 2048, 1, 100000, true), interp, b("clamp", "插值钳位", true)]
         default: return []
         }
     }
@@ -112,6 +112,7 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
         self.tool = tool; values = Dictionary(uniqueKeysWithValues: tool.fields.map { ($0.id, $0.value) })
         if file.hasMask == true { mask.values["mode"] = 6 }
         if tool == .crop { values["width"] = Double(file.width); values["height"] = Double(file.height) }
+        if tool == .resample { values["width"] = Double(file.width); values["height"] = Double(file.height) }
         if tool == .wavelets { values["layers"] = Double(max(2, min(6, Int(log2(Double(min(file.width, file.height)))) - 2))) }
     }
     func number(_ key: String) -> Double { values[key] ?? 0 }
@@ -174,13 +175,15 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
             // follows the FITS ROWORDER keyword. Convert only at this boundary.
             let cropY = topDown ? Double(file.height) - number("y") - number("height") : number("y")
             command = "crop \(n("x")) \(Self.format(cropY)) \(n("width")) \(n("height"))"
-        case .rotate: command = "rotate \(n("angle")) -interp=\(interp)\(on("crop") ? "" : " -nocrop")\(on("clamp") ? "" : " -noclamp")"
-        case .rotate90: command = "rotate 90 -nocrop"; case .rotate270: command = "rotate -90 -nocrop"; case .rotate180: command = "rotatePi"
+        case .rotate:
+            let angle = number("angle") < 0 ? number("angle") + 360 : number("angle")
+            command = "rotate \(Self.format(angle)) -interp=\(interp)\(on("crop") ? "" : " -nocrop")\(on("clamp") ? "" : " -noclamp")"
+        case .rotate90: command = "rotate 90 -nocrop"; case .rotate270: command = "rotate 270 -nocrop"; case .rotate180: command = "rotatePi"
         // Siril mirrorx flips rows, mirrory flips columns.
         case .mirrorHorizontal: command = "mirrory"; case .mirrorVertical: command = "mirrorx"
         case .binning: command = "binxy \(n("factor"))\(number("method") == 1 ? " -sum" : "")"
         case .resample:
-            let size = [n("scale"), "-width=" + n("size"), "-height=" + n("size"), "-maxdim=" + n("size")][Int(number("mode"))]
+            let size = [n("scale"), "-width=" + n("size"), "-height=" + n("size"), "-maxdim=" + n("size"), "-width=" + n("width") + " -height=" + n("height")][Int(number("mode"))]
             command = "resample \(size) -interp=\(interp)\(on("clamp") ? "" : " -noclamp")"
         }
         let masks = try maskCommands(file: file)

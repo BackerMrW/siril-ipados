@@ -58,6 +58,8 @@ extension SirilEngine {
                 if tool == .greenNoise { recipe.values["preserve"] = 0 }
                 if tool == .saturation { recipe.values["amount"] = 0.3 }
                 if tool == .guided { recipe.values["diameter"] = 2 }
+                if tool == .rotate { recipe.values["angle"] = 13 }
+                if tool == .resample { recipe.values["mode"] = 4; recipe.values["width"] = 48; recipe.values["height"] = 32; recipe.values["interp"] = 0 }
                 try await session.compute(recipe, library: records)
                 let info = try await session.info(view: 1)
                 let actual = try await session.pixel(view: 1, x: 10, y: 10)
@@ -88,7 +90,17 @@ extension SirilEngine {
                         let mean = (values[c * width * height + 20 * width + 20] + values[c * width * height + 20 * width + 21] + values[c * width * height + 21 * width + 20] + values[c * width * height + 21 * width + 21]) / 4
                         try require(info.width == 48 && info.height == 48 && abs(after[c] - mean) < 2e-6, "independent binning mean")
                     }
-                case .wavelets, .ccm, .resample:
+                case .rotate90, .rotate270:
+                    let fromX = tool == .rotate90 ? y : width - 1 - y
+                    let fromY = tool == .rotate90 ? height - 1 - x : x
+                    let rotated = (0..<3).map { values[$0 * width * height + fromY * width + fromX] }
+                    let after = try await session.pixel(view: 1, x: x, y: y)
+                    try require(after == rotated, "\(tool.rawValue) displayed direction")
+                case .resample:
+                    let after = try await session.pixel(view: 1, x: 10, y: 10)
+                    let resized = (0..<3).map { values[$0 * width * height + 32 * width + 20] }
+                    try require(info.width == 48 && info.height == 32 && after == resized, "independent nonuniform nearest resampling")
+                case .wavelets, .ccm:
                     let after = try await session.pixel(view: 1, x: x, y: y)
                     try require(zip(after, expected).allSatisfy { abs($0.0 - $0.1) < 2e-5 }, "identity \(tool.rawValue) changed pixels")
                 default: break
@@ -101,6 +113,20 @@ extension SirilEngine {
             }
         }
         try require(failures.isEmpty, failures.joined(separator: "\n"))
+        let identity = NativeToolRecipe(tool: .rotate, file: file)
+        try await session.compute(identity, library: records)
+        let same = try await session.pixel(view: 1, x: x, y: y)
+        try require(same == expected, "zero-angle geometry failed to preserve pixels")
+        var negativeAngle = identity; negativeAngle.values["angle"] = -90
+        try await session.compute(negativeAngle, library: records)
+        let backwards = try await session.pixel(view: 1, x: x, y: y)
+        let backwardsExpected = (0..<3).map { values[$0 * width * height + x * width + width - 1 - y] }
+        try require(backwards == backwardsExpected, "negative desktop rotation angle changed direction")
+        var oversized = NativeToolRecipe(tool: .resample, file: file)
+        oversized.values["mode"] = 4; oversized.values["width"] = 100000; oversized.values["height"] = 100000
+        var tooLargeRejected = false
+        do { try await session.compute(oversized, library: records) } catch { tooLargeRejected = true }
+        try require(tooLargeRejected, "oversized resampling attempted an unsafe allocation")
         // A non-centred crop must select the same displayed pixels with either
         // sensor ROWORDER tag. Symmetric selections can hide a double flip.
         var bottomBytes = Data(bytes.prefix(2880))

@@ -140,6 +140,42 @@ epf = epf.replace("g_slist_append(gfit->history, g_strdup(log))", "g_slist_appen
 epf = epf.replace("if (mod <= 0.0 || mod > 1.0)", "if (mod < 0.0 || mod > 1.0)")
 command.write_text(text[:start] + epf + text[end:])
 
+# Bridge desktop GUI geometry states that the command parser rejected: identity
+# transforms, the GUI's full percentage range, and independent X/Y dimensions.
+text = command.read_text()
+start = text.index("int process_resample(")
+end = text.index("int process_crop(", start)
+resample = text[start:end]
+resample = resample.replace("factor <= 0.2 || factor > 5.0", "factor < 0.01 || factor > 10.0")
+resample = resample.replace("Should be between 0.2 and 5.0.", "Should be between 0.01 and 10.0.")
+identity = '\t\tif (factor == 1.0) {\n\t\t\tsiril_log_message(_("Scale is 1.0. Not doing anything.\\n"));\n\t\t\treturn CMD_ARG_ERROR;\n\t\t}\n'
+assert resample.count(identity) == 1
+resample = resample.replace(identity, "")
+branch = '\t\t} else if (!strcmp(word[i], "-noclamp")) {'
+assert resample.count(branch) == 1
+resample = resample.replace(branch, '\t\t} else if (g_str_has_prefix(word[i], "-height=")) {\n\t\t\ttoY = g_ascii_strtoull(word[i] + 8, &end, 10);\n\t\t\tif (end == word[i] + 8 || *end) return CMD_ARG_ERROR;\n' + branch)
+guard = '\timage_cfa_warning_check();\n\tgui_iface.set_busy(TRUE);'
+assert resample.count(guard) == 1
+resample = resample.replace(guard, '''\tif (toX < 1 || toY < 1) return CMD_ARG_ERROR;
+\tif (toX == gfit->rx && toY == gfit->ry) return CMD_OK;
+#ifdef OS_IOS
+\t/* Include output/copy/clamping buffers before allocating a large Mat. */
+\tdouble required = (double)toX * toY * (gfit->naxes[2] * sizeof(float) + 4) * (clamp ? 5 : 3);
+\tif (required > (double)get_available_memory() * 0.8) {
+\t\tsiril_log_error("Not enough iPad processing memory for these output dimensions\\n");
+\t\treturn CMD_ALLOC_ERROR;
+\t}
+#endif
+''' + guard)
+text = text[:start] + resample + text[end:]
+start = text.index("int process_rotate(")
+end = text.index("int process_rotatepi(", start)
+rotation = text[start:end]
+identity = '\t\tsiril_log_message(_("Angle is 0.0 or 360.0 degrees. Doing nothing...\\n"));\n\t\treturn CMD_ARG_ERROR;'
+assert rotation.count(identity) == 1
+rotation = rotation.replace(identity, '\t\tgui_iface.set_busy(FALSE);\n\t\treturn CMD_OK;')
+command.write_text(text[:start] + rotation + text[end:])
+
 # A script findstar normally frees its single-image results after reporting.
 # The native star-mask workflow needs that selected-channel result, just as the
 # desktop GUI does. Use the original locked ownership helpers; private/sequence
