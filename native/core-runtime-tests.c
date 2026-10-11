@@ -448,10 +448,34 @@ static int sequence_background_checks(const char *root) {
         }
         // Changing stochastic/dither/border options still runs original kernels.
         options.method = 0; options.interpolation = 1; options.correction = 0; options.dither = 1;
-        sampling.randomize = 1; sampling.gradient_descent = 1; sampling.border = 7;
+        sampling.randomize = 1; sampling.gradient_descent = 0; sampling.border = 7;
         CHECK(siril_sequence_background(process, "grad_.seq", "random_", &options, &sampling, error, sizeof error));
         CHECK(siril_sequence_inspect(process, "random_grad_.seq", 0, &info, output, 3, error, sizeof error) == 2);
         CHECK(!siril_sequence_background(process, "grad_.seq", "random_", &options, &sampling, error, sizeof error));
+        // Monotonic slopes can collapse dark-optimized samples. Compare the
+        // deterministic grid/descent result to upstream instead of requiring
+        // an impossible fit from a degenerate sample matrix.
+        sampling.randomize = 0; sampling.gradient_descent = 1; options.dither = 0;
+        int optimized = siril_sequence_background(process, "grad_.seq", "optimized_", &options, &sampling, error, sizeof error);
+        snprintf(script, sizeof script, "seqsubsky grad_ 1 -nodither -samples=10 -tolerance=3 -gradient -border=%s -prefix=optimizedref_\n", kind == 2 ? "7" : "7%");
+        int original_optimized = siril_run_commands(process, script, error, sizeof error);
+        CHECK(optimized == original_optimized);
+        if (optimized) {
+            CHECK(siril_sequence_inspect(process, "optimized_grad_.seq", 0, &info, output, 3, error, sizeof error) == 2);
+            for (int i = 0; i < 2; i++) {
+                snprintf(path, sizeof path, "%s/optimized_grad_%05d.fits", process, output[i].file_number);
+                CHECK(read_pixels(path, actual, count) == 0);
+                snprintf(path, sizeof path, "%s/optimizedref_grad_%05d.fits", process, output[i].file_number);
+                CHECK(read_pixels(path, expected, count) == 0);
+                for (int j = 0; j < count; j++) CHECK(isfinite(actual[j]) && fabs(actual[j] - expected[j]) < 1e-6);
+            }
+        }
+        if (kind == 2) {
+            sampling.randomize = 1;
+            CHECK(!siril_sequence_background(process, "grad_.seq", "degenerate_", &options, &sampling, error, sizeof error));
+            CHECK(strstr(error, "failed") != NULL);
+        }
+
         CHECK(!siril_sequence_background(process, "grad_.seq", "../unsafe_", &options, &sampling, error, sizeof error));
         sampling.border = 1e300;
         CHECK(!siril_sequence_background(process, "grad_.seq", "overflow_", &options, &sampling, error, sizeof error));
