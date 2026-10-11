@@ -83,6 +83,45 @@ extension SirilEngine {
             try require(try Data(contentsOf: file.url) == sourceBytes, "tool changed imported original")
             print("PASS: native tool \(tool.rawValue) executed original worker and preserved source")
         }
+        // A non-centred crop must select the same displayed pixels for both
+        // FITS storage directions. Symmetric selections can hide a double flip.
+        var bottomBytes = Data(bytes.prefix(2880))
+        let rowCard = "ROWORDER= 'BOTTOM-UP'".padding(toLength: 80, withPad: " ", startingAt: 0)
+        bottomBytes.replaceSubrange(6 * 80..<7 * 80, with: rowCard.utf8)
+        for c in 0..<3 { for row in 0..<height { for column in 0..<width {
+            var encoded = values[c * width * height + (height - 1 - row) * width + column].bitPattern.bigEndian
+            withUnsafeBytes(of: &encoded) { bottomBytes.append(contentsOf: $0) }
+        } } }
+        bottomBytes.append(contentsOf: repeatElement(UInt8(0), count: (2880 - bottomBytes.count % 2880) % 2880))
+        let bottomFixture = folder.appendingPathComponent("tools-bottom-up.fits"); try bottomBytes.write(to: bottomFixture)
+        let bottomFile = try importFile(bottomFixture)
+        let bottomSession = NativeToolSession(); try await bottomSession.open(bottomFile)
+        var crop = NativeToolRecipe(tool: .crop, file: bottomFile)
+        crop.values["x"] = 16; crop.values["y"] = 13; crop.values["width"] = 64; crop.values["height"] = 48
+        try await bottomSession.compute(crop, library: [bottomFile])
+        let bottomCorner = try await bottomSession.pixel(view: 1, x: 0, y: 0)
+        try require(bottomCorner == (0..<3).map { values[$0 * width * height + 13 * width + 16] }, "bottom-up crop displayed coordinates")
+        await bottomSession.close(); try fm.removeItem(at: bottomFile.url)
+        for mode in [1, 3, 4, 5] {
+            var recipe = NativeToolRecipe(tool: .negative, file: file)
+            recipe.mask.values["mode"] = Double(mode)
+            if mode == 3 { recipe.mask.sourceID = file.id }
+            if mode == 4 {
+                recipe.mask.values["red"] = Double(expected[0]); recipe.mask.values["green"] = Double(expected[1]); recipe.mask.values["blue"] = Double(expected[2])
+            }
+            try await session.compute(recipe, library: records)
+            let mask = try await session.pixel(view: 2, x: mode == 5 ? 45 : x, y: mode == 5 ? 48 : y)[0]
+            try require(mask.isFinite && (0...1).contains(mask), "mask source \(mode) did not produce normalized pixels")
+            if mode == 5 {
+                let outside = try await session.pixel(view: 2, x: 5, y: 5)[0]
+                try require(mask > 0.5 && outside == 0, "star mask did not cover the known star independently of background")
+            }
+        }
+        var guide = NativeToolRecipe(tool: .guided, file: file)
+        guide.guideID = file.id; guide.values["diameter"] = 2
+        try await session.compute(guide, library: records)
+        let guided = try await session.pixel(view: 1, x: x, y: y)
+        try require(guided.allSatisfy(\.isFinite), "external guide image was not processed")
         for depth in 0..<3 {
             var masked = NativeToolRecipe(tool: .negative, file: file)
             masked.mask.values["mode"] = 2; masked.mask.values["depth"] = Double(depth)

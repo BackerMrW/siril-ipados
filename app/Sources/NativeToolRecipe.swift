@@ -200,7 +200,7 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
         case 3: commands = ["mask_from_lum \(m.number("luminance") == 0 ? "-human" : "-even") -filename=mask-source.fits -bitdepth=\(depth)"]
         case 6: commands = ["mask_from_channel -channel=0 -filename=mask-source.fits -bitdepth=\(depth)"]
         case 4: commands = ["mask_from_color -cr=\(n("red")) -cg=\(n("green")) -cb=\(n("blue")) -tol=\(n("tolerance")) -lum_min=\(n("lumLow")) -lum_max=\(n("lumHigh")) -fr=\(n("colourFeather")) -bitdepth=\(depth)"]
-        case 5: commands = ["mask_from_stars \(n("channel")) -r=\(n("starRadius")) -feather=\(n("starFeather")) -bitdepth=\(depth)"]
+        case 5: commands = ["findstar -layer=\(n("channel"))", "mask_from_stars -r=\(n("starRadius")) -feather=\(n("starFeather")) -bitdepth=\(depth)"]
         default: throw EngineError.failed("蒙版来源无效。")
         }
         if m.number("stretch") == 1 { commands.append("mask_autostretch") }
