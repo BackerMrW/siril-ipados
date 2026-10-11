@@ -68,6 +68,10 @@ for attempt, seconds in enumerate((90, 180), start=1):
         break
     crashes = list((Path.home() / "Library/Logs/DiagnosticReports").glob("SirilPad*.ips"))
     if crashes:
+        progress = container / "Documents/native-tool-tests.log"
+        if progress.exists():
+            (root / "diagnostics/native-tool-tests.log").write_bytes(progress.read_bytes())
+            print(progress.read_text(), flush=True)
         for path in crashes:
             (root / "diagnostics" / path.name).write_bytes(path.read_bytes())
         raise RuntimeError("Native App crashed before producing its self-check report")

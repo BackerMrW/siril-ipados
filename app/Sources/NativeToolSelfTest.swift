@@ -15,7 +15,8 @@ extension SirilEngine {
         var values: [Float] = []
         for c in 0..<3 { for y in 0..<height { for x in 0..<width {
             let bases = [0.12, 0.32, 0.22]
-            let dx = Double(x - 45), dy = Double(y - 48)
+            let centresX = [45, 60, 30], centresY = [48, 32, 64]
+            let dx = Double(x - centresX[c]), dy = Double(y - centresY[c])
             let pixel = Float(bases[c] + 0.0002 * Double(x) + 0.0001 * Double(y) + 0.2 * exp(-(dx * dx + dy * dy) / 8))
             values.append(pixel)
         } } }
@@ -143,6 +144,10 @@ extension SirilEngine {
         try await session.compute(guide, library: records)
         let guided = try await session.pixel(view: 1, x: x, y: y)
         try require(guided.allSatisfy(\.isFinite), "external guide image was not processed")
+        guide.values["amount"] = 0
+        try await session.compute(guide, library: records)
+        let unchanged = try await session.pixel(view: 1, x: x, y: y)
+        try require(zip(unchanged, expected).allSatisfy { abs($0.0 - $0.1) < 2e-6 }, "zero guided-filter modulation changed original pixels")
         for depth in 0..<3 {
             checkpoint("START: original channel mask bit depth \(depth)")
             var masked = NativeToolRecipe(tool: .negative, file: file)

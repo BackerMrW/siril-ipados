@@ -124,6 +124,38 @@ old = 'process_mask_from_channel, STR_MASK_FROM_LUM'
 assert text.count(old) == 1
 command_table.write_text(text.replace(old, 'process_mask_from_lum, STR_MASK_FROM_LUM'))
 
+# The original bilateral history exceeds its fixed 90-byte stack buffer even
+# at default parameters. Preserve the full history with an owned string.
+command = source / "src/core/command.c"
+text = command.read_text()
+start = text.index("int process_epf(")
+end = text.index("int process_getref(", start)
+epf = text[start:end]
+assert epf.count("char log[90];") == 1
+epf = epf.replace("char log[90];", "gchar *log = NULL;")
+epf = epf.replace("sprintf(log,", "log = g_strdup_printf(")
+epf = epf.replace("g_slist_append(gfit->history, g_strdup(log))", "g_slist_append(gfit->history, log)")
+# The original GUI permits zero modulation (identity); the native command
+# parser unnecessarily rejected it even though the original worker handles it.
+epf = epf.replace("if (mod <= 0.0 || mod > 1.0)", "if (mod < 0.0 || mod > 1.0)")
+command.write_text(text[:start] + epf + text[end:])
+
+# A script findstar normally frees its single-image results after reporting.
+# The native star-mask workflow needs that selected-channel result, just as the
+# desktop GUI does. Use the original locked ownership helpers; private/sequence
+# callers keep their existing lifetime.
+finder = source / "src/algos/star_finder.c"
+text = finder.read_text()
+old = "\telse if (!args->update_GUI)\n\t\tfree_fitted_stars(stars);"
+assert text.count(old) == 1
+finder.write_text(text.replace(old, "\telse if (!args->update_GUI) {\n\t\tif (com.headless && !args->im.from_seq) replace_com_stars(stars);\n\t\telse free_fitted_stars(stars);\n\t}"))
+single = source / "src/io/single_image.c"
+text = single.read_text()
+text = '#include "algos/PSF.h"\n' + text
+old = "\tif (!com.headless)\n\t\tgui_iface.on_image_closed();"
+assert text.count(old) == 1
+single.write_text(text.replace(old, old + "\n\telse\n\t\treplace_com_stars(NULL);"))
+
 formats = source / "src/io/image_formats_libraries.c"
 text = formats.read_text()
 start = text.index("int readjpg(")
