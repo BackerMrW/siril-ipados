@@ -18,7 +18,12 @@ extension SirilEngine {
             let dx = Double(x - 45), dy = Double(y - 48)
             let pixel = Float(bases[c] + 0.0002 * Double(x) + 0.0001 * Double(y) + 0.2 * exp(-(dx * dx + dy * dy) / 8))
             values.append(pixel)
-            var encoded = pixel.bitPattern.bigEndian
+        } } }
+        // Siril's original FITS reader uses bottom-up storage even when the
+        // sensor ROWORDER metadata says TOP-DOWN. Encode known displayed pixels
+        // independently in FITS order rather than treating that tag as a flip.
+        for c in 0..<3 { for row in 0..<height { for column in 0..<width {
+            var encoded = values[c * width * height + (height - 1 - row) * width + column].bitPattern.bigEndian
             withUnsafeBytes(of: &encoded) { bytes.append(contentsOf: $0) }
         } } }
         bytes.append(contentsOf: repeatElement(UInt8(0), count: (2880 - bytes.count % 2880) % 2880))
@@ -30,7 +35,7 @@ extension SirilEngine {
         let x = 21, y = 25
         let expected = (0..<3).map { values[$0 * width * height + y * width + x] }
         let original = try await session.pixel(view: 0, x: x, y: y)
-        try require(original == expected, "independent top-down fixture did not read exact planes")
+        try require(original == expected, "independent FITS fixture did not read exact displayed planes: \(original) != \(expected)")
         var records = [file]
         var jobs: [ProcessingJob] = []
         // Every actual native tool must execute, return finite full-resolution
@@ -83,8 +88,8 @@ extension SirilEngine {
             try require(try Data(contentsOf: file.url) == sourceBytes, "tool changed imported original")
             print("PASS: native tool \(tool.rawValue) executed original worker and preserved source")
         }
-        // A non-centred crop must select the same displayed pixels for both
-        // FITS storage directions. Symmetric selections can hide a double flip.
+        // A non-centred crop must select the same displayed pixels with either
+        // sensor ROWORDER tag. Symmetric selections can hide a double flip.
         var bottomBytes = Data(bytes.prefix(2880))
         let rowCard = "ROWORDER= 'BOTTOM-UP'".padding(toLength: 80, withPad: " ", startingAt: 0)
         bottomBytes.replaceSubrange(6 * 80..<7 * 80, with: rowCard.utf8)
