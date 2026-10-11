@@ -51,7 +51,7 @@ extension SirilEngine {
         let url = root.appendingPathComponent(name).standardizedFileURL
         guard url.resolvingSymlinksInPath().path == url.path,
               url.deletingLastPathComponent().path == root.standardizedFileURL.path else {
-            throw EngineError.failed("不能访问 App 文件夹以外的文件或符号链接")
+            throw EngineError.failed("不能访问 App 文件夹以外的文件或符号链接：\(name)")
         }
         return url
     }

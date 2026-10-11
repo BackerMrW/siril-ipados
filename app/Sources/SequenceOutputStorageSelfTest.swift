@@ -9,7 +9,14 @@ extension SirilEngine {
         }
         let process = try sequenceFolder(source), root = process.deletingLastPathComponent()
         let sourcePaths = try sequenceFilePaths(source), siblingPaths = try sequenceFilePaths(sibling)
-        let untouched = try (sourcePaths + siblingPaths).map { path in (path, try Data(contentsOf: sequenceTrashPath(path, under: root))) }
+        // Upstream convert defaults to links into this job's lights folder.
+        // Read those owned inputs without treating them as removable outputs.
+        func preservedURL(_ path: String) throws -> URL {
+            let url = root.appendingPathComponent(path).resolvingSymlinksInPath()
+            guard url.path.hasPrefix(root.path + "/") else { throw EngineError.failed("Preservation fixture escaped its job") }
+            return url
+        }
+        let untouched = try (sourcePaths + siblingPaths).map { path in (path, try Data(contentsOf: preservedURL(path))) }
         let stackBytes = try Data(contentsOf: stacked)
         let snapshot = try inspectSequence(output)
         var selection = snapshot.selection; selection.included[0] = false
@@ -46,7 +53,7 @@ extension SirilEngine {
         try require(deletion.paths.contains(where: { $0.hasSuffix(".background.json") }) && deletion.paths.contains(where: { $0.contains("-quality-") }), "companion histories omitted")
         let record = try sequenceOutputRecords(job: source.job).first { $0.location == output }
         try require(record?.available == false && record?.trashID == id, "deleted run claimed available")
-        for (path, bytes) in untouched { try require(try Data(contentsOf: sequenceTrashPath(path, under: root)) == bytes, "other sequence changed") }
+        for (path, bytes) in untouched { try require(try Data(contentsOf: preservedURL(path)) == bytes, "other sequence changed") }
         try require(try Data(contentsOf: stacked) == stackBytes, "existing stack changed")
 
         // A crash before the deletion commit rolls the entire move back.
@@ -80,7 +87,7 @@ extension SirilEngine {
         guard let weight = paths.first(where: { $0.contains("/drizztmp/") }), let sourceFrame = sourcePaths.first(where: { $0.hasSuffix(".fit") }) else { throw EngineError.failed("Weight fixture missing") }
         let weightURL = try sequenceTrashPath(weight, under: root), weightBytes = try Data(contentsOf: weightURL)
         try fm.removeItem(at: weightURL)
-        try fm.createSymbolicLink(at: weightURL, withDestinationURL: sequenceTrashPath(sourceFrame, under: root))
+        try fm.createSymbolicLink(at: weightURL, withDestinationURL: preservedURL(sourceFrame))
         rejected = false
         do { _ = try trashSequenceOutput(output) } catch { rejected = true }
         try require(rejected && fm.fileExists(atPath: process.appendingPathComponent(output.name).path), "symlink deletion touched files")
@@ -98,7 +105,7 @@ extension SirilEngine {
         try permanentlyDeleteTrash([disposable])
         try require(storageSummary().trash < withTrash.trash && !sequenceLocations(job: source.job).contains(sibling), "permanent cleanup did not release selected output")
         for (path, bytes) in before { try require(try Data(contentsOf: sequenceTrashPath(path, under: root)) == bytes, "permanent cleanup damaged retained output") }
-        for path in sourcePaths { try require(fm.fileExists(atPath: sequenceTrashPath(path, under: root).path), "permanent cleanup removed inputs") }
+        for path in sourcePaths { try require(fm.fileExists(atPath: preservedURL(path).path), "permanent cleanup removed inputs") }
         try require(try Data(contentsOf: stacked) == stackBytes, "permanent cleanup removed stack")
     }
 }
