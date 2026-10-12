@@ -113,11 +113,12 @@ static int plate_solver_reference(const char *directory) {
     struct astrometry_data *args = calloc(1, sizeof(*args)); CHECK(args);
     args->fit = &fit; args->pixel_size = 3.76;
     args->focal_length = 206.26480624709636 * args->pixel_size / 2;
-    args->solver = SOLVER_SIRIL; args->manual = TRUE; args->for_sequence = TRUE;
+    args->solver = SOLVER_SIRIL; args->manual = TRUE; args->for_sequence = TRUE; args->verbose = TRUE;
     args->trans_order = 1; args->numthreads = 1;
     args->mag_mode = LIMIT_MAG_ABSOLUTE; args->magnitude_arg = 20;
     args->cat_center = siril_world_cs_new_from_a_d(120, 20);
     args->ref_stars = siril_catalog_new(CAT_SHOW);
+    args->ref_stars->columns |= 1 << CAT_FIELD_MAG;
     args->ref_stars->center_ra = 120; args->ref_stars->center_dec = 20;
     args->ref_stars->nbitems = 30;
     args->ref_stars->cat_items = calloc(30, sizeof(cat_item));
