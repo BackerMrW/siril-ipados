@@ -11,7 +11,7 @@ args = parser.parse_args()
 root = Path(__file__).resolve().parent.parent
 ui = args.source / "src/gui-gtk4/uifiles"
 panels = []
-for path in sorted(ui.glob("*.ui")):
+for path in sorted(ui.glob("*.ui"), key=lambda path: path.name):
     tree = ET.parse(path)
     controls = []
     titles = []
@@ -46,7 +46,7 @@ for obj in main.iter("object"):
             break
     connected = {
         "win.psf": "原版单星Gaussian/Moffat拟合与孔径测光已接入（其他交互/真机待验证）",
-        "win.dyn-psf": "原版星点检测、动态PSF表格/排序/多选/均值与导出、持久化删除撤销已接入（其他交互待补）",
+        "win.dyn-psf": "原版星点检测、动态PSF表格/排序/多选/均值与导出、所选星点到反卷积、持久化删除撤销已接入（其他交互待补）",
         "win.photometry": "单张孔径测光与序列原版PSF/差分光变已接入（标准星与其他分析交互待补）",
         "win.seq-psf": "原版序列PSF、选区跟踪、参与帧测光/报告与差分光变已接入（其他GUI细节待补）",
         "win.undo": "单张结果、序列帧选择和背景采样/参数撤销已接入（蒙版等仍待接入）",

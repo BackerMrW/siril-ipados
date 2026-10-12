@@ -323,7 +323,7 @@
       "id": "win.dyn-psf",
       "title": "Open Dynamic PSF dialog.",
       "group": "star",
-      "status": "原版星点检测、动态PSF表格/排序/多选/均值与导出、持久化删除撤销已接入（其他交互待补）"
+      "status": "原版星点检测、动态PSF表格/排序/多选/均值与导出、所选星点到反卷积、持久化删除撤销已接入（其他交互待补）"
     },
     {
       "id": "win.wavelets-processing",

@@ -11,7 +11,7 @@
 
 - 原版工作区：颜色通道、显示模式、直方图、像素读数、矩形/多边形选择、ROI、撤销重做、蒙版及对比预览。
 - 序列：基础浏览/排除帧/质量图/参考帧与选择撤销已接入；其他配准模式、畸变和外部参考仍待补齐；全局一遍/两遍配准、主要叠加算法和校准高级选项已接入，仍非完整序列工作区。
-- 颜色与分析：PCC/SPCC、星表/联网、解算与标注、测光与光变、PSF、像差/倾斜；单张/选区/CFA 和序列图像统计已接入，测光等仍待接入。
+- 颜色与分析：PCC/SPCC、星表/联网、解算与标注、像差/倾斜；单张/选区/CFA和序列统计、动态PSF/孔径测光、原版序列PSF/差分光变已接入；完整GUI、标准星/其他分析仍待补。
 - 完整单张工具：原版每个工具的参数、交互输入、应用/取消、作用于序列、蒙版和预览。
 - 格式和依赖：PNG/JPEG/TIFF原版读写已接入本轮构建；RAW、HEIF、JPEG XL、XISF、FFmpeg/FFMS2、curl/SQLite仍关闭并待适配。
 - 平台接口：StarNet 等外部程序、Python/插件、在线下载、文件权限、内存、后台生命周期。需要真正适配，不能把空按钮算完成。
@@ -26,8 +26,8 @@
 | win.chain-chan | Link/unlink channels in autostretch viewer mode. Current state: linked. | 待移植或待逐项验证 |
 | win.undo | Undo | 单张结果、序列帧选择和背景采样/参数撤销已接入（蒙版等仍待接入） |
 | win.redo | Redo | 单张结果、序列帧选择和背景采样/参数重做已接入（蒙版等仍待接入） |
-| win.psf | PSF | 待移植或待逐项验证 |
-| win.seq-psf | PSF for the Sequence | 待移植或待逐项验证 |
+| win.psf | PSF | 原版单星Gaussian/Moffat拟合与孔径测光已接入（其他交互/真机待验证） |
+| win.seq-psf | PSF for the Sequence | 原版序列PSF、选区跟踪、参与帧测光/报告与差分光变已接入（其他GUI细节待补） |
 | win.pickstar | Pick a Star | 待移植或待逐项验证 |
 | win.crop | Crop | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.rotation-processing | Rotate & Crop | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
@@ -73,7 +73,7 @@
 | win.star-remix-processing | Star Recomposition... | 待移植或待逐项验证 |
 | win.star-desaturate | Desaturate Stars | 待移植或待逐项验证 |
 | win.star-synthetic | Full Resynthesis | 待移植或待逐项验证 |
-| win.dyn-psf | Open Dynamic PSF dialog. | 待移植或待逐项验证 |
+| win.dyn-psf | Open Dynamic PSF dialog. | 原版星点检测、动态PSF表格/排序/多选/均值与导出、所选星点到反卷积、持久化删除撤销已接入（其他交互待补） |
 | win.wavelets-processing | À trous Wavelets Transform... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.fix-banding-processing | Banding Reduction... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.clahe-processing | Contrast-Limited Adaptive Histogram Equalization... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
@@ -115,7 +115,7 @@
 | win.histo_display | Show/hide histogram overlay | 直方图分析窗口已接入（工作区叠加仍待接入） |
 | win.annotate-object | Left-click to show object names if WCS information is available. Right-click to display a list of astro catalogs to choose from. | 待移植或待逐项验证 |
 | win.wcs-grid | Show celestial grid if WCS information is available | 待移植或待逐项验证 |
-| win.photometry | Switch to PSF/photometry mode. If a sequence is loaded, a right click on the displayed image applies the PSF/Photometry on the whole sequence. | 待移植或待逐项验证 |
+| win.photometry | Switch to PSF/photometry mode. If a sequence is loaded, a right click on the displayed image applies the PSF/Photometry on the whole sequence. | 单张孔径测光与序列原版PSF/差分光变已接入（标准星与其他分析交互待补） |
 | win.cut | Make an intensity profile cut, showing a graph of the pixel value along a line between two points | 待移植或待逐项验证 |
 | win.zoom-out | Shrink the image | 待移植或待逐项验证 |
 | win.zoom-in | Enlarge the image | 待移植或待逐项验证 |
