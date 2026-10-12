@@ -60,7 +60,7 @@ enum DeconvolutionFields {
 struct DeconvolutionEditor: View {
     @Binding var recipe: NativeToolRecipe
     let library: [FITSRecord]
-    let header: String
+    let optics: [String: Double]
     var body: some View {
         Section("PSF 与反卷积参数") {
             if recipe.number("estimateOnly") != 1 {
@@ -80,10 +80,8 @@ struct DeconvolutionEditor: View {
             if recipe.number("psfSource") == 2 && recipe.number("profile") == 3 {
                 Button("读取 FITS 光学参数") {
                     var next = recipe
-                    for (field, key) in [("diameter", "APERTURE"), ("focal", "FOCALLEN"), ("pixelSize", "XPIXSZ")] {
-                        let row = header.components(separatedBy: .newlines).first { $0.prefix(8).trimmingCharacters(in: .whitespaces) == key }
-                        if let row, let separator = row.firstIndex(of: "="), let text = row[row.index(after: separator)...].split(separator: "/").first,
-                           let value = Double(text.trimmingCharacters(in: .whitespaces)), let fieldInfo = DeconvolutionFields.all.first(where: { $0.id == field }), fieldInfo.valid(value) { next.values[field] = value }
+                    for field in ["diameter", "focal", "pixelSize"] {
+                        if let value = optics[field], let fieldInfo = DeconvolutionFields.all.first(where: { $0.id == field }), fieldInfo.valid(value) { next.values[field] = value }
                     }
                     recipe = next
                 }

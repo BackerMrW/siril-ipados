@@ -317,4 +317,20 @@ assert body.count("\tget_kernel(args);") == 1
 body = body.replace("\tget_kernel(args);", "\tretval = get_kernel(args);\n\tif (retval) goto ENDEST;")
 body = body.replace("\t\tsave_kernel(args->savepsf_filename, args);", "\t\tretval = save_kernel(args->savepsf_filename, args);")
 text = text[:start] + body + text[end:]
+# Kernel samples are in pixel coordinates. Angular FWHM is for presentation,
+# not for generating a pixel PSF: adding focal-length metadata must not change it.
+needle = "\t\tdouble fwhmx, fwhmy;\n\t\tchar *unit;\n\t\tget_fwhm_as_arcsec_if_possible(com.stars[i], &fwhmx, &fwhmy, &unit);"
+# Pinned source uses one more tab inside its while loop.
+needle = needle.replace("\t\t", "\t\t\t")
+assert text.count(needle) == 1
+text = text.replace(needle, "\t\t\tdouble fwhmx = com.stars[i]->fwhmx, fwhmy = com.stars[i]->fwhmy;")
 deconv.write_text(text)
+
+# Spectral irregularity originally assumes a 150px patch even for smaller
+# valid images. Preserve 150px for large inputs and bound small-image sampling.
+gf = source / "src/filters/deconvolution/gf_estimate.cpp"
+text = gf.read_text()
+needle = "    assert(blurredImage.d == 1);"
+assert text.count(needle) == 1
+text = text.replace(needle, needle + "\n    windowSize = std::min(windowSize, std::min(static_cast<int>(blurredImage.w), static_cast<int>(blurredImage.h)));\n")
+gf.write_text(text)

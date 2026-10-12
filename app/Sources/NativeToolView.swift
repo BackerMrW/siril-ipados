@@ -33,7 +33,7 @@ struct NativeToolView: View {
     @State private var recipe: NativeToolRecipe
     @State private var history: NativeToolHistory?
     @State private var library: [FITSRecord] = []
-    @State private var sourceHeader = ""
+    @State private var sourceOptics: [String: Double] = [:]
     @State private var kernelWidth = 1
     @State private var kernelHeight = 1
     @State private var originalImage: UIImage?
@@ -135,7 +135,7 @@ struct NativeToolView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             if recipe.tool == .deconvolution {
-                DeconvolutionEditor(recipe: $recipe, library: library, header: sourceHeader)
+                DeconvolutionEditor(recipe: $recipe, library: library, optics: sourceOptics)
             } else if recipe.tool == .curves {
                 CurveEditor(settings: Binding(get: { recipe.curveSettings }, set: { recipe.curveSettings = $0 }),
                             pipetteEnabled: $curvePipette, pipetteValue: curveTone,
@@ -235,7 +235,8 @@ struct NativeToolView: View {
                 history?.record(recipe)
             }
             try await session.open(file)
-            sourceHeader = try await session.header(view: 0)
+            let opticalInfo = try await session.info(view: 0)
+            sourceOptics = ["diameter": opticalInfo.aperture, "focal": opticalInfo.focal_length, "pixelSize": opticalInfo.pixel_size_x]
             let bytes = try await session.preview(view: 0, channel: channel, automatic: automatic)
             originalImage = bytes.uiImage; loaded = true
             if recipe.tool == .curves { originalCurveHistograms = try await session.curveHistograms(view: 0) }

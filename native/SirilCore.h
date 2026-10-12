@@ -66,6 +66,7 @@ typedef struct {
     int32_t working_bitpix, gain, offset; /* loaded representation; imports are normalized float */
     double exposure, temperature;
     char object[80], bayer[80];
+    double focal_length, aperture, pixel_size_x, pixel_size_y;
 } SirilImageInfo;
 typedef struct {
     uint32_t width, height;

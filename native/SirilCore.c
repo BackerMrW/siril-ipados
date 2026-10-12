@@ -667,6 +667,8 @@ int siril_image_info(const SirilImage *image, SirilImageInfo *info) {
     info->top_down = fit->top_down;
     info->gain = fit->keywords.key_gain; info->offset = fit->keywords.key_offset;
     info->exposure = fit->keywords.exposure; info->temperature = fit->keywords.ccd_temp;
+    info->focal_length = fit->keywords.focal_length; info->aperture = fit->keywords.aperture;
+    info->pixel_size_x = fit->keywords.pixel_size_x; info->pixel_size_y = fit->keywords.pixel_size_y;
     snprintf(info->object, sizeof info->object, "%.*s", FLEN_VALUE, fit->keywords.object);
     snprintf(info->bayer, sizeof info->bayer, "%.*s", FLEN_VALUE, fit->keywords.bayer_pattern);
     g_mutex_unlock(&engine_mutex);

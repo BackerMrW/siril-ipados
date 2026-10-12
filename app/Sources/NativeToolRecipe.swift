@@ -143,6 +143,7 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
         if tool == .deconvolution {
             if number("psfSource") == 3 && psfID == nil { throw EngineError.failed("请选择 PSF 图像。") }
             if number("psfSource") != 3 && Int(number("ks")) % 2 != 1 { throw EngineError.failed("PSF 尺寸必须为奇数。") }
+            if number("psfSource") == 0 && number("ks") > Double(min(file.width, file.height)) { throw EngineError.failed("盲估计的 PSF 核必须能放入图像。") }
             if number("psfSource") == 0 && number("blindMethod") == 1 {
                 guard number("gamma") > 0, number("lambdaRatio") > 0, number("lambdaRatio") < 1 else { throw EngineError.failed("ℓ0估计要求 γ > 0、0 < λ比例 < 1。") }
                 if number("multiscale") == 1 && !(number("scaleFactor") > 0 && number("scaleFactor") < 1) { throw EngineError.failed("多尺度比例必须严格介于0和1，避免无法缩小图像。") }

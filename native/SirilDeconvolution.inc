@@ -63,6 +63,7 @@ static int advanced_apply_deconv(SirilImage *image, yyjson_val *root) {
 #undef DC_REAL
 #undef DC_INT
     if (source != 3 && !(data->ks % 2)) goto done;
+    if (source == 0 && data->ks > MIN(image->fit.rx, image->fit.ry)) goto done;
     if (source == 0 && data->blindtype == BLIND_L0 &&
         (data->gamma <= 0 || data->lambda_ratio <= 0 || data->lambda_ratio >= 1 ||
          (data->multiscale && (data->scalefactor <= 0 || data->scalefactor >= 1)))) goto done;

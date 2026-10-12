@@ -123,6 +123,22 @@ extension SirilEngine {
         try await session.compute(generated, library: records)
         let measured = try await session.pixel(view: 4, x: 5, y: 4)[0]
         try require(abs(measured - exp(-0.125)) < 0.035, "star PSF did not use measured known Gaussian width")
+        var opticalBytes = sourceBytes
+        for (index, card) in ["FOCALLEN=               1000.0", "APERTURE=                150.0", "XPIXSZ  =                 3.76", "YPIXSZ  =                 3.76", "END"].enumerated() {
+            let text = card.padding(toLength: 80, withPad: " ", startingAt: 0)
+            let offset = (7 + index) * 80
+            opticalBytes.replaceSubrange(offset..<(offset + 80), with: text.utf8)
+        }
+        let opticalURL = folder.appendingPathComponent("optical-metadata.fits"); try opticalBytes.write(to: opticalURL)
+        let optical = try importFile(opticalURL); records.append(optical)
+        let opticalSession = NativeToolSession(); try await opticalSession.open(optical)
+        let opticalInfo = try await opticalSession.info(view: 0)
+        try require(opticalInfo.focal_length == 1000 && opticalInfo.aperture == 150 && abs(opticalInfo.pixel_size_x - 3.76) < 0.00001, "original parsed FITS optical metadata bridge")
+        let opticalRecipe = generated
+        try await opticalSession.compute(opticalRecipe, library: records)
+        let opticalKernel = try await opticalSession.pixel(view: 4, x: 5, y: 4)[0]
+        try require(abs(opticalKernel - measured) < 0.00003, "angular metadata changed the pixel PSF width")
+        await opticalSession.close()
         generated.values["psfSource"] = 0; generated.values["ks"] = 7; generated.values["blindIterations"] = 1
         for blind in [1, 0] {
             generated.values["blindMethod"] = Double(blind); generated.values["inner"] = 2; generated.values["outer"] = 1; generated.values["tries"] = 4
