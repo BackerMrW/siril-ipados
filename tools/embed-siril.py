@@ -25,6 +25,22 @@ assert text.count(needle) == 1
 # Explicit sensor options must win over the desktop's saved camera mode.
 text = text.replace(needle, 'if (oscsensor || (!monosensor && mono_or_osc == 1)) {')
 commands.write_text(text)
+formats = source / "src/io/image_formats_libraries.c"
+text = formats.read_text()
+start = text.index('static int readraw_in_cfa(')
+end = text.index('int open_raw_files(', start)
+body = text[start:end]
+needle = '\tlibraw_data_t *raw = libraw_init(0);'
+assert body.count(needle) == 1
+body = body.replace(needle, needle + '\n\tif (!raw) return OPEN_IMAGE_ERROR;')
+# The decoder's early open/unpack/no-CFA failures must release its handle.
+needle = '\t\tsiril_log_error("Error in libraw %s\\n", libraw_strerror(ret));\n\t\treturn OPEN_IMAGE_ERROR;'
+assert body.count(needle) == 2
+body = body.replace(needle, '\t\tsiril_log_error("Error in libraw %s\\n", libraw_strerror(ret));\n\t\tlibraw_close(raw);\n\t\treturn OPEN_IMAGE_ERROR;')
+needle = '\t\t\t\t"no RAW data available.\\n"));\n\t\treturn OPEN_IMAGE_ERROR;'
+assert body.count(needle) == 1
+body = body.replace(needle, '\t\t\t\t"no RAW data available.\\n"));\n\t\tlibraw_close(raw);\n\t\treturn OPEN_IMAGE_ERROR;')
+formats.write_text(text[:start] + body + text[end:])
 destination = source / "src/ipados"
 destination.mkdir(exist_ok=True)
 for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "core-link-probe.c", "core-runtime-tests.c"):

@@ -85,6 +85,17 @@ extension SirilEngine {
         do { try await session.compute(pcc, library: records) } catch { pccRejected = true }
         try require(pccRejected, "PCC without WCS accepted")
         checkpoint("PASS: PCC/SPCC settings, original spectral model list, whole-token quoting, persisted selections and missing-WCS rejection")
+        guard let rawFixture = Bundle.main.url(forResource: "linear-cfa", withExtension: "dng") else { throw EngineError.failed("DNG fixture missing") }
+        let rawRecord = try importFile(rawFixture)
+        let rawImage = try read(rawRecord.url)
+        var rawInfo = SirilImageInfo(); _ = siril_image_info(rawImage, &rawInfo)
+        var rawPixel = [Float](repeating: 0, count: 3)
+        let rawChannels = siril_image_pixel(rawImage, 21, 25, &rawPixel)
+        siril_image_free(rawImage)
+        try require(rawRecord.width == 256 && rawRecord.height == 256 && rawChannels == 1 && abs(rawPixel[0] - 1421 / 65535) < 1e-7, "DNG import pixel precision or orientation")
+        try require(withUnsafePointer(to: rawInfo.bayer) { $0.withMemoryRebound(to: CChar.self, capacity: 80) { String(cString: $0) } } == "RGGB", "DNG CFA metadata lost during working FITS conversion")
+        try fm.removeItem(at: rawRecord.url)
+        checkpoint("PASS: native DNG import and working FITS round-trip retained exact normalized raw samples and Bayer metadata")
         // Every actual native tool must execute, return finite full-resolution
         // pixels and preserve the original. No fake success from command text.
         for tool in NativeTool.allCases.filter({ ![.fftInverse, .plateSolve, .pcc, .spcc].contains($0) }) {

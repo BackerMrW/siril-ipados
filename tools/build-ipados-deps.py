@@ -217,12 +217,19 @@ def autotools(name, url, digest, options):
     if len(folders) != 1:
         raise RuntimeError(f"Unexpected source archive layout: {name}")
     source = folders[0]
+    licenses = ROOT / "ThirdPartyLicenses" / name
+    licenses.mkdir(parents=True, exist_ok=True)
+    for pattern in ("LICENSE*", "COPYING*", "COPYRIGHT*"):
+        for path in source.glob(pattern):
+            if path.is_file():
+                (licenses / path.name).write_bytes(path.read_bytes())
     build = WORK / f"{name}-build"
     build.mkdir()
     flags = shlex.join(["-target", TARGET, "-isysroot", SDK, "-O2", "-fPIC"])
     cc = subprocess.check_output(["xcrun", "--sdk", SDK_NAME, "--find", "clang"], text=True).strip()
     cpp = subprocess.check_output(["xcrun", "--sdk", SDK_NAME, "--find", "clang++"], text=True).strip()
-    env = dict(ENV, CC=cc, CXX=cpp, CFLAGS=flags, CXXFLAGS=flags, LDFLAGS=flags,
+    env = dict(ENV, CC=cc, CXX=cpp, CFLAGS=flags, CXXFLAGS=flags,
+               CPPFLAGS=f"-I{STAGE}/include", LDFLAGS=f"{flags} -L{STAGE}/lib",
                AR="/usr/bin/ar", RANLIB="/usr/bin/ranlib")
     run([source / "configure", f"--prefix={STAGE}", "--host=aarch64-apple-darwin",
          "--disable-shared", "--enable-static", *options], f"{name}-configure", cwd=build, env=env)
@@ -267,6 +274,9 @@ def main():
     cmake("libtiff", "https://gitlab.com/libtiff/libtiff.git", "8300e0f79b1599c18dd6dc50caa9ab9200d11889",
           ["-Dtiff-tools=OFF", "-Dtiff-tests=OFF", "-Dtiff-contrib=OFF", "-Dtiff-docs=OFF",
            "-Djpeg=ON", "-Dlerc=OFF", "-Dzstd=OFF", "-Dlzma=OFF", "-Dwebp=OFF", "-Djbig=OFF"])
+    autotools("libraw", "https://www.libraw.org/data/LibRaw-0.22.2.tar.gz",
+              "de86b035655accff8d4010f1a221fdf50d353cb7b1422ba26f14a0db92612cfa",
+              ["--disable-examples", "--disable-openmp", "--enable-jpeg", "--enable-zlib", "--enable-lcms"])
     meson("cairo", "https://gitlab.freedesktop.org/cairo/cairo.git", "4541e0cd3a751b85e52e2a83d02ac6145a5efa85",
           ["-Dtests=disabled", "-Dxlib=disabled", "-Dxcb=disabled", "-Dfontconfig=disabled",
            "-Dfreetype=disabled", "-Dquartz=enabled", "-Dpng=enabled", "-Dglib=enabled",
@@ -292,7 +302,7 @@ def main():
            "-DWITH_WEBP=OFF", "-DWITH_OPENEXR=OFF", "-DWITH_JASPER=OFF", "-DWITH_OPENJPEG=OFF",
            "-DWITH_ITT=OFF", "-DWITH_PROTOBUF=OFF", "-DOPENCV_GENERATE_PKGCONFIG=ON", "-DIOS_INSTALL_COMBINED=OFF"], ios_opencv_metadata)
     run(["pkg-config", "--modversion", "glib-2.0", "gio-2.0", "cairo", "pango", "pangocairo",
-         "gdk-pixbuf-2.0", "gsl", "lcms2", "fftw3f", "cfitsio", "opencv4", "libcurl", "sqlite3"], "core-dependency-versions")
+         "gdk-pixbuf-2.0", "gsl", "lcms2", "fftw3f", "cfitsio", "opencv4", "libcurl", "sqlite3", "libraw"], "core-dependency-versions")
 
 
 if __name__ == "__main__":

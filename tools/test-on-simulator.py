@@ -75,6 +75,7 @@ try:
                  SIMCTL_CHILD_XDG_CONFIG_HOME=str(tls / "config"),
                  SIMCTL_CHILD_XDG_CACHE_HOME=str(tls / "cache"),
                  SIMCTL_CHILD_SIRIL_SPCC_DIR=str(root / "app/Resources/SPCC"),
+                 SIMCTL_CHILD_SIRIL_FORMAT_FIXTURES=str(root / "app/TestAssets"),
                  SIMCTL_CHILD_SIRIL_TLS_TEST_URL=f"https://localhost:{server.server_port}/catalog",
                  SIMCTL_CHILD_SIRIL_TLS_WRONG_HOST=f"https://127.0.0.1:{server.server_port}/catalog",
                  SIMCTL_CHILD_SIRIL_TLS_UNTRUSTED_CA=str(root / "app/Resources/cacert.pem")))
@@ -199,7 +200,7 @@ for tab, screenshot in ((0, "native-analysis-simulator.png"), (1, "native-histog
                     str(root / "diagnostics" / screenshot)], check=True, timeout=30)
 
 # Load deletion/restore controls and the processing undo workspace in the real App.
-for feature in ("workspace", "storage", "batch", "batch-registration", "batch-stacking", "batch-drizzle", "sequence-frames", "sequence-quality", "sequence-registration", "sequence-apply", "sequence-background", "sequence-photometry", "sequence-outputs", "sequence-results", "tools-ghs", "tools-masks", "tools-filters", "tools-geometry", "tools-curves", "tools-pixelmath", "tools-fft", "tools-fft-phase", "tools-fft-inverse", "tools-deconv", "tools-deconv-psf"):
+for feature in ("workspace", "storage", "batch", "batch-registration", "batch-stacking", "batch-drizzle", "sequence-frames", "sequence-quality", "sequence-registration", "sequence-apply", "sequence-background", "sequence-photometry", "sequence-outputs", "sequence-results", "tools-ghs", "tools-masks", "tools-filters", "tools-geometry", "tools-curves", "tools-pixelmath", "tools-fft", "tools-fft-phase", "tools-fft-inverse", "tools-deconv", "tools-deconv-psf", "tools-platesolve", "tools-pcc", "tools-spcc"):
     subprocess.run(["xcrun", "simctl", "terminate", udid, "com.backermrw.sirilpad"], check=True, timeout=30)
     ready = container / f"Documents/simulator-{feature}-ready.txt"
     ready.unlink(missing_ok=True)

@@ -283,7 +283,7 @@ jobs:
         meson setup siril-ios-build siril-src --cross-file ipados-cross.ini --native-file macos-tools.ini \
           --wrap-mode=nodownload -Dembedded=true -Dgtk=false \
           -Dopenmp=false -Darch_native=false -Dcriterion=false \
-          -Dexiv2=false -Dlibraw=false -Dlibtiff=true -Dlibjpeg=true \
+          -Dexiv2=false -Dlibraw=true -Dlibtiff=true -Dlibjpeg=true \
           -Dlibpng=true -Dlibheif=false -DlibXISF=false -Dlibjxl=false \
           -Dlibgit2=false -Dffms2=false -Dffmpeg=false -Dlibcurl=true -Dsqlite=true \
           2>&1 | tee diagnostics/siril-configure.log
@@ -311,6 +311,7 @@ jobs:
       run: |
         set -euo pipefail
         python3 tools/prepare-spcc-resources.py
+        python3 tools/prepare-format-fixtures.py
         brew install xcodegen
         xcodegen generate --spec app/project.yml
         destination='generic/platform=iOS'

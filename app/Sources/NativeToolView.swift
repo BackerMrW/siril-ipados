@@ -271,7 +271,20 @@ struct NativeToolView: View {
             if recipe.tool == .curves { originalCurveHistograms = try await session.curveHistograms(view: 0) }
             if ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_VIEW_CHECK"] == "1" {
                 let section = ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_SECTION"] ?? "ghs"
-                recipe = NativeToolRecipe(tool: section.hasPrefix("deconv") ? .deconvolution : section == "fft-inverse" ? .fftInverse : section.hasPrefix("fft") ? .fftDirect : section == "curves" ? .curves : section == "pixelmath" ? .pixelMath : section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)
+                recipe = NativeToolRecipe(tool: section == "platesolve" ? .plateSolve : section == "pcc" ? .pcc : section == "spcc" ? .spcc : section.hasPrefix("deconv") ? .deconvolution : section == "fft-inverse" ? .fftInverse : section.hasPrefix("fft") ? .fftDirect : section == "curves" ? .curves : section == "pixelmath" ? .pixelMath : section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)
+                if ["platesolve", "pcc", "spcc"].contains(section) {
+                    if section == "spcc" {
+                        var selected = recipe.spectralSettings
+                        selected.oscSensor = SpectralModels.names("OSC_SENSOR").first ?? ""
+                        recipe.spectralSettings = selected
+                        try selected.validate(mono: false, dslr: true)
+                    }
+                    guard originalImage != nil else { throw EngineError.failed("Astrometry source preview missing") }
+                    try? await Task.sleep(for: .milliseconds(500))
+                    let marker = await engine.documents.appendingPathComponent("simulator-tools-\(section)-ready.txt")
+                    try "PASS: native \(section) workspace loaded original input and parameter controls; spectral selections validated. Calculation verified separately.\n".write(to: marker, atomically: true, encoding: .utf8)
+                    return
+                }
                 if section.hasPrefix("deconv") {
                     recipe.values["psfSource"] = 2; recipe.values["ks"] = 9
                     recipe.values["profile"] = section == "deconv-psf" ? 1 : 0

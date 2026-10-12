@@ -33,6 +33,7 @@ GIT_SOURCES = [
     ("OpenCV", "https://github.com/opencv/opencv.git", "31b0eeea0b44b370fd0712312df4214d4ae1b158", None),
 ]
 TAR_SOURCES = [
+    ("LibRaw", "https://www.libraw.org/data/LibRaw-0.22.2.tar.gz", "de86b035655accff8d4010f1a221fdf50d353cb7b1422ba26f14a0db92612cfa", "LibRaw-0.22.2.tar.gz"),
     ("FFTW", "https://www.fftw.org/fftw-3.3.10.tar.gz", "56c932549852cddcfafdab3820b0200c7742675be92179e59e6215b340e26467", "fftw-3.3.10.tar.gz"),
     ("GSL", "https://ftp.gnu.org/gnu/gsl/gsl-2.8.tar.gz", "6a99eeed15632c6354895b1dd542ed5a855c0f15d9ad1326c6fe2b2c9e423190", "gsl-2.8.tar.gz"),
     ("PCRE2", "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.44/pcre2-10.44.tar.bz2", "d34f02e113cf7193a1ebf2770d3ac527088d485d4e047ed10e5d217c6ef5de96", "pcre2-10.44.tar.bz2"),

@@ -613,6 +613,16 @@ int main(int argc, char **argv) {
     CHECK(!response && network_error);
     puts("PASS: original catalog HTTP fetch over verified HTTPS; incorrect hostnames and untrusted roots rejected");
     CHECK(plate_solver_reference(argv[1]) == 0);
+    CHECK(getenv("SIRIL_FORMAT_FIXTURES"));
+    char raw_path[4096]; snprintf(raw_path, sizeof raw_path, "%s/linear-cfa.dng", getenv("SIRIL_FORMAT_FIXTURES"));
+    SirilImage *raw = siril_image_read_any(raw_path, error, sizeof error); CHECK(raw);
+    SirilImageInfo raw_info; CHECK(siril_image_info(raw, &raw_info));
+    CHECK(raw_info.width == 256 && raw_info.height == 256 && raw_info.channels == 1 && !strcmp(raw_info.bayer, "RGGB"));
+    float raw_pixel[3];
+    CHECK(siril_image_pixel(raw, 21, 25, raw_pixel) == 1);
+    CHECK(fabs(raw_pixel[0] - 1421.0 / 65535) < 1e-7);
+    siril_image_free(raw);
+    puts("PASS: original LibRaw/Siril decoder imported an independent DNG with exact 16-bit Bayer pixels, full dimensions and CFA metadata");
     SirilImageInfo info;
     CHECK(siril_image_info(image, &info));
     CHECK(info.width == 2 && info.height == 2 && info.channels == 1);
