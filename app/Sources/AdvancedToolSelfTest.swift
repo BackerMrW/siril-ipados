@@ -18,7 +18,8 @@ extension SirilEngine {
         var monoBytes = Data(sourceBytes.prefix(2880))
         let monoCard = "NAXIS   =                    2".padding(toLength: 80, withPad: " ", startingAt: 0)
         monoBytes.replaceSubrange(2 * 80..<3 * 80, with: monoCard.utf8)
-        monoBytes.replaceSubrange(5 * 80..<6 * 80, with: String(repeating: " ", count: 80).utf8)
+        let exposureCard = "EXPTIME =                 20.0".padding(toLength: 80, withPad: " ", startingAt: 0)
+        monoBytes.replaceSubrange(5 * 80..<6 * 80, with: exposureCard.utf8)
         monoBytes.append(sourceBytes.subdata(in: 2880..<2880 + count * 4))
         let padding = (2880 - monoBytes.count % 2880) % 2880
         monoBytes.append(Data(repeating: 0, count: padding))
@@ -123,6 +124,24 @@ extension SirilEngine {
         _ = try await analysis.open(pmReplay.folder.appendingPathComponent("process/result.fits"))
         let replayedPM = try await analysis.pixel(x: x, y: y).values
         try require(equal(replayedPM, combined, 0.000002), "copied variable manifest and original PixelMath script replay")
+        recipe = NativeToolRecipe(tool: .pixelMath, file: file)
+        recipe.mathSettings.bindings = [PMBinding(name: "I1", imageID: mono.id), PMBinding(name: "I10", imageID: mono.id)]
+        recipe.mathSettings.expressions[0] = "I1+I10"
+        try await session.compute(recipe, library: [file, mono])
+        var metadata = try await session.info(view: 1)
+        try require(abs(metadata.exposure - 40) < 0.000001, "summed used-image exposure metadata")
+        recipe.mathSettings.doSum = false
+        try await session.compute(recipe, library: [file, mono])
+        metadata = try await session.info(view: 1)
+        try require(abs(metadata.exposure - 20) < 0.000001, "averaged used-image exposure metadata")
+        recipe.mathSettings.doSum = true; recipe.mathSettings.expressions[0] = "I10"
+        try await session.compute(recipe, library: [file, mono])
+        metadata = try await session.info(view: 1)
+        try require(abs(metadata.exposure - 20) < 0.000001, "I1 name prefix incorrectly contributed unused image metadata")
+        recipe.mathSettings.expressions[0] = "mean(I10)"
+        try await session.compute(recipe, library: [file, mono])
+        metadata = try await session.info(view: 1)
+        try require(abs(metadata.exposure - 20) < 0.000001, "statistics-only image expression lost used input metadata")
         recipe = NativeToolRecipe(tool: .pixelMath, file: file)
         recipe.mathSettings.expressions[0] = "0.25"
         recipe.mathSettings.rescale = true; recipe.mathSettings.low = 0.1; recipe.mathSettings.high = 0.9

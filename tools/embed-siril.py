@@ -141,6 +141,17 @@ text = text.replace("/ (maximum - minimum)) + args->min",
 needle = "if (com.headless) {\n\t\tif (!failed) {\n\t\t\tclearfits(gfit);"
 assert text.count(needle) == 1
 text = text.replace(needle, "if (com.headless) {\n\t\tif (!failed) {\n\t\t\tclose_single_image();")
+# Whole variable tokens prevent I1 from contributing metadata merely because
+# I10 appears. Statistics-only use is still a use of that variable's image.
+needle = '\t\tconst gchar *test = g_strrstr(result, image[j]);\n\t\tif (test) {'
+assert text.count(needle) == 1
+text = text.replace(needle, '\t\tgchar *escaped = g_regex_escape_string(image[j], -1);\n'
+    '\t\tgchar *pattern = g_strconcat("\\\\b", escaped, "\\\\b", NULL);\n'
+    '\t\tgboolean used = g_regex_match_simple(pattern, result, 0, 0);\n'
+    '\t\tg_free(pattern); g_free(escaped);\n\t\tif (used) {')
+needle = '\t\t\t\t\tif (g_strcmp0(param, image[j]) == 0) {'
+assert text.count(needle) == 1
+text = text.replace(needle, needle + '\n\t\t\t\t\t\tvar_fit_mask[j] = TRUE;')
 runner.write_text(text)
 
 # The original bilateral history exceeds its fixed 90-byte stack buffer even

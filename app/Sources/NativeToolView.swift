@@ -78,6 +78,14 @@ struct NativeToolView: View {
             .interactiveDismissDisabled(busy)
             .task { await open() }
             .onChange(of: recipe) { _, value in edited(value) }
+            .onChange(of: recipe.tool) { _, tool in
+                if tool == .curves && originalCurveHistograms.isEmpty {
+                    Task {
+                        do { originalCurveHistograms = try await session.curveHistograms(view: 0) }
+                        catch { message = error.localizedDescription }
+                    }
+                }
+            }
             .onChange(of: view) { _, _ in refresh() }
             .onChange(of: channel) { _, _ in refresh() }
             .onChange(of: automatic) { _, _ in refresh() }
@@ -126,7 +134,8 @@ struct NativeToolView: View {
             if recipe.tool == .curves {
                 CurveEditor(settings: Binding(get: { recipe.curveSettings }, set: { recipe.curveSettings = $0 }),
                             pipetteEnabled: $curvePipette, pipetteValue: curveTone,
-                            histograms: validPreview && view != 0 ? resultCurveHistograms : originalCurveHistograms)
+                            histograms: validPreview && view != 0 ? resultCurveHistograms : originalCurveHistograms,
+                            isRGB: file.channels == 3)
             } else if recipe.tool == .pixelMath {
                 PixelMathEditor(settings: Binding(get: { recipe.mathSettings }, set: { recipe.mathSettings = $0 }), library: library, file: file)
             } else {
@@ -207,7 +216,7 @@ struct NativeToolView: View {
             try await session.open(file)
             let bytes = try await session.preview(view: 0, channel: channel, automatic: automatic)
             originalImage = bytes.uiImage; loaded = true
-            originalCurveHistograms = try await session.curveHistograms(view: 0)
+            if recipe.tool == .curves { originalCurveHistograms = try await session.curveHistograms(view: 0) }
             if ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_VIEW_CHECK"] == "1" {
                 let section = ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_SECTION"] ?? "ghs"
                 recipe = NativeToolRecipe(tool: section == "curves" ? .curves : section == "pixelmath" ? .pixelMath : section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)

@@ -164,7 +164,7 @@
   {
     "name": "sign",
     "prototype": "sign ( x )",
-    "help": "Sign of x:\n\n\t +1 if x &gt; 0\n\t −1 if x &lt; 0\n\t  0 if x = 0.",
+    "help": "Sign of x:\n\n\t +1 if x > 0\n\t −1 if x < 0\n\t  0 if x = 0.",
     "group": "函数"
   },
   {

@@ -184,12 +184,16 @@ static int advanced_apply_pm(SirilImage *image, yyjson_val *root) {
         if (load_pm_var(path, i, &w, &h, &c) || w != image->fit.rx || h != image->fit.ry ||
                 (!single && c != 1) ||
                 (i && c != var_fit[0].naxes[2]) ||
-                (args->has_gfit && c != gfit->naxes[2])) goto fail;
+                (args->has_gfit && c != gfit->naxes[2])) {
+            capture_log("PixelMath variables must have matching dimensions/channels; three-expression RGB composition requires mono inputs.\n", NULL);
+            goto fail;
+        }
     }
     int channels = single ? (count ? var_fit[0].naxes[2] : image->fit.naxes[2]) : 3;
     if (new_fit_image(&args->fit, image->fit.rx, image->fit.ry, channels, DATA_FLOAT)) goto fail;
     int failed = GPOINTER_TO_INT(apply_pixel_math_operation(args));
     args = NULL; /* Original worker owns its inputs/strings/output struct. */
+    if (!failed) icc_auto_assign(gfit, ICC_ASSIGN_ON_COMPOSITION);
     if (!failed && copyfits(gfit, &image->fit, CP_ALLOC | CP_DEEPCOPY | CP_COPYMASK, 0) == 0) {
         close_single_image(); return 1;
     }

@@ -7,6 +7,7 @@ struct CurveEditor: View {
     @Binding var pipetteEnabled: Bool
     let pipetteValue: Double?
     let histograms: [[UInt64]]
+    let isRGB: Bool
     @State private var selected = 0
     @State private var panning = false
     private var channel: Binding<CurveChannel> {
@@ -16,7 +17,7 @@ struct CurveEditor: View {
     var body: some View {
         Section("原版曲线") {
             Picker("编辑通道", selection: $settings.selectedChannel) {
-                ForEach(0..<7, id: \.self) { Text(CurveRecipe.channels[$0]).tag($0) }
+                ForEach(0..<7, id: \.self) { Text(CurveRecipe.channels[$0]).tag($0).disabled($0 > 0 && !isRGB) }
             }.onChange(of: settings.selectedChannel) { _, _ in selected = 0 }
             Picker("插值", selection: $settings.current.algorithm) {
                 Text("三次样条").tag(0); Text("线性").tag(1); Text("Akima 样条").tag(2)
