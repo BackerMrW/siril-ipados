@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Run real FITS arithmetic checks and launch the native App on an iPad simulator."""
 import json
+import http.server
 import os
 from pathlib import Path
+import ssl
 import subprocess
 import tempfile
+import threading
 import time
 
 root = Path.cwd()
@@ -33,8 +36,47 @@ except subprocess.TimeoutExpired:
         raise RuntimeError("iPad simulator did not boot within the bounded launch attempts")
     print("bootstatus timed out; testing the Booted device directly", flush=True)
 directory = tempfile.mkdtemp(prefix="siril-numeric-")
+tls = Path(directory)
+(tls / "openssl.cnf").write_text("""[req]
+distinguished_name = dn
+x509_extensions = extensions
+prompt = no
+[dn]
+CN = localhost
+[extensions]
+subjectAltName = DNS:localhost
+basicConstraints = critical,CA:TRUE
+keyUsage = critical,digitalSignature,keyEncipherment,keyCertSign
+extendedKeyUsage = serverAuth
+""")
+subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+                "-keyout", str(tls / "key.pem"), "-out", str(tls / "root.pem"),
+                "-days", "1", "-config", str(tls / "openssl.cnf")], check=True,
+               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+class CatalogFixture(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b"siril-catalog-tls-fixture\n"
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *args):
+        pass
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), CatalogFixture)
+context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+context.load_cert_chain(tls / "root.pem", tls / "key.pem")
+server.socket = context.wrap_socket(server.socket, server_side=True)
+threading.Thread(target=server.serve_forever, daemon=True).start()
 command = ["xcrun", "simctl", "spawn", udid, str(root / "siril-ios-build/src/siril-ipados-runtime-tests"), directory]
-result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=180)
+try:
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=180,
+        env=dict(os.environ, SIMCTL_CHILD_CURL_CA_BUNDLE=str(tls / "root.pem"),
+                 SIMCTL_CHILD_SIRIL_TLS_TEST_URL=f"https://localhost:{server.server_port}/catalog",
+                 SIMCTL_CHILD_SIRIL_TLS_WRONG_HOST=f"https://127.0.0.1:{server.server_port}/catalog",
+                 SIMCTL_CHILD_SIRIL_TLS_UNTRUSTED_CA=str(root / "app/Resources/cacert.pem")))
+finally:
+    server.shutdown()
+    server.server_close()
 (root / "diagnostics/core-runtime-tests.log").write_text(result.stdout)
 print(result.stdout, flush=True)
 result.check_returncode()

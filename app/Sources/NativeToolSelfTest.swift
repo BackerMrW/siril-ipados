@@ -44,9 +44,30 @@ extension SirilEngine {
             checks.append(line)
             try? checks.joined(separator: "\n").write(to: documents.appendingPathComponent("native-tool-tests.log"), atomically: true, encoding: .utf8)
         }
+        guard let certificates = Bundle.main.url(forResource: "cacert", withExtension: "pem") else { throw EngineError.failed("TLS certificates missing") }
+        try require(try Data(contentsOf: certificates).count > 100000, "TLS certificate bundle incomplete")
+        var solve = NativeToolRecipe(tool: .plateSolve, file: file)
+        solve.values["headerPosition"] = 0; solve.values["ra"] = 120; solve.values["dec"] = -20
+        solve.values["headerOptics"] = 0; solve.values["catalog"] = 3
+        solve.values["magnitudeMode"] = 1; solve.values["magnitude"] = -2
+        solve.values["force"] = 1; solve.values["flip"] = 0; solve.values["distortion"] = 1
+        let solveCommands = try solve.commands(file: file, topDown: true)
+        try require(solveCommands.contains("platesolve 120,-20 -focal=500 -pixelsize=3.76 -catalog=gaia -limitmag=-2 -order=1 -noflip -force -disto=process/distortion.fits"), "plate solve degree coordinates or options")
+        let restoredSolve = try JSONDecoder().decode(NativeToolRecipe.self, from: JSONEncoder().encode(solve))
+        try require(restoredSolve == solve, "plate solve parameter history")
+        var solveRejected = false
+        solve.values["magnitudeMode"] = 2
+        do { try solve.validate(file: file) } catch { solveRejected = true }
+        try require(solveRejected, "negative absolute magnitude parsed as offset")
+        solve = NativeToolRecipe(tool: .plateSolve, file: file)
+        solveRejected = false
+        do { try await session.compute(solve, library: records) } catch { solveRejected = true }
+        try require(solveRejected, "missing target metadata must fail before downloading a catalog")
+        try require(try Data(contentsOf: file.url) == sourceBytes, "failed plate solve changed input")
+        checkpoint("PASS: plate solve degree coordinates, option encoding, persisted parameters, bundled TLS certificates and missing-metadata failure preserve original input")
         // Every actual native tool must execute, return finite full-resolution
         // pixels and preserve the original. No fake success from command text.
-        for tool in NativeTool.allCases.filter({ $0 != .fftInverse }) {
+        for tool in NativeTool.allCases.filter({ $0 != .fftInverse && $0 != .plateSolve }) {
             do {
                 checkpoint("START: native tool \(tool.rawValue)")
                 var recipe = NativeToolRecipe(tool: tool, file: file)

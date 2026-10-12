@@ -40,7 +40,7 @@ struct ToolInventoryView: View {
                     Button("动态 PSF 与孔径测光") { dismiss(); onAnalysis(3) }.disabled(!canUseNativeTools)
                     Button("FITS 文件头 · FITS Header") { dismiss(); onAnalysis(2) }
                 }
-                ForEach(["拉伸", "颜色", "滤镜", "几何", "曲线与表达式", "频谱", "反卷积"], id: \.self) { group in
+                ForEach(["拉伸", "颜色", "滤镜", "几何", "曲线与表达式", "频谱", "反卷积", "天文分析"], id: \.self) { group in
                     Section(group) {
                         ForEach(NativeTool.allCases.filter { $0.group == group }) { tool in
                             Button(tool.title) { dismiss(); onNativeTool(tool) }.disabled(!canUseNativeTools)

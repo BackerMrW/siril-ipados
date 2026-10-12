@@ -8,6 +8,10 @@
 #include "algos/statistics.h"
 #include "io/image_format_fits.h"
 #include "core/siril_networking.h"
+#include "algos/astrometry_solver.h"
+#include "algos/PSF.h"
+#include "algos/siril_wcs.h"
+#include "core/processing_thread.h"
 #include <curl/curl.h>
 #include <sqlite3.h>
 #include <fitsio.h>
@@ -91,6 +95,64 @@ static int star_fixture(const char *path, double dx, double dy) {
     fits_close_file(file, &status);
     free(pixels);
     return status;
+}
+static gpointer test_plate_solver_worker(gpointer args) {
+    gpointer result = plate_solver(args);
+    stop_processing_thread();
+    return result;
+}
+static int plate_solver_reference(const char *directory) {
+    char path[4096], solved[4096];
+    snprintf(path, sizeof path, "%s/plate-reference.fits", directory);
+    snprintf(solved, sizeof solved, "%s/plate-solved.fits", directory);
+    CHECK(star_fixture(path, 0, 0) == 0);
+    fits fit = {0}; CHECK(readfits(path, &fit, NULL, TRUE) == 0);
+    struct astrometry_data *args = calloc(1, sizeof(*args)); CHECK(args);
+    args->fit = &fit; args->pixel_size = 3.76;
+    args->focal_length = 206.26480624709636 * args->pixel_size / 2;
+    args->solver = SOLVER_SIRIL; args->manual = TRUE; args->for_sequence = TRUE;
+    args->trans_order = 1; args->numthreads = 1;
+    args->mag_mode = LIMIT_MAG_ABSOLUTE; args->magnitude_arg = 20;
+    args->cat_center = siril_world_cs_new_from_a_d(120, 20);
+    args->ref_stars = siril_catalog_new(CAT_SHOW);
+    args->ref_stars->center_ra = 120; args->ref_stars->center_dec = 20;
+    args->ref_stars->nbitems = 30;
+    args->ref_stars->cat_items = calloc(30, sizeof(cat_item));
+    args->stars = new_fitted_stars(30); CHECK(args->ref_stars->cat_items && args->stars);
+    unsigned state = 987321;
+    for (int i = 0; i < 30; i++) {
+        state = state * 1664525u + 1013904223u;
+        double x = 25 + (i % 6) * 40 + (state % 13);
+        state = state * 1664525u + 1013904223u;
+        double y = 25 + (i / 6) * 44 + (state % 13);
+        if (i == 0) { x = 30; y = 31; }
+        args->stars[i] = new_psf_star(); CHECK(args->stars[i]);
+        args->stars[i]->xpos = x; args->stars[i]->ypos = y;
+        args->stars[i]->mag = 10 + i * .1;
+        // Independent inverse TAN projection: 2 arcsec/pixel at RA=120, Dec=20.
+        double xi = (x - 128) * 2 * M_PI / (180 * 3600);
+        double eta = (128 - y) * 2 * M_PI / (180 * 3600);
+        double dec0 = 20 * M_PI / 180;
+        double denom = cos(dec0) - eta * sin(dec0);
+        cat_item *star = &args->ref_stars->cat_items[i];
+        star->ra = 120 + atan2(xi, denom) * 180 / M_PI;
+        star->dec = atan2(sin(dec0) + eta * cos(dec0), hypot(denom, xi)) * 180 / M_PI;
+        star->mag = args->stars[i]->mag; star->included = TRUE;
+    }
+    args->stars[30] = NULL;
+    process_plate_solver_input(args);
+    waiting_for_thread();
+    CHECK(start_in_new_thread(test_plate_solver_worker, args));
+    CHECK(GPOINTER_TO_INT(waiting_for_thread()) == 0);
+    CHECK(has_wcs(&fit));
+    CHECK(fabs(fit.keywords.wcslib->crval[0] - 120) < 1e-5 && fabs(fit.keywords.wcslib->crval[1] - 20) < 1e-5);
+    CHECK(fabs(get_wcs_image_resolution(&fit) * 3600 - 2) < 1e-4);
+    CHECK(savefits(solved, &fit) == 0); clearfits(&fit);
+    CHECK(readfits(solved, &fit, NULL, TRUE) == 0 && has_wcs(&fit));
+    CHECK(fabs(get_wcs_image_resolution(&fit) * 3600 - 2) < 1e-4);
+    clearfits(&fit);
+    puts("PASS: original plate solver matched an independent TAN reference catalog at known center and scale; WCS survived FITS round-trip");
+    return 0;
 }
 static int drizzle_fixture(const char *path, double dx, double dy, int bayer) {
     if (star_fixture(path, dx, dy)) return 1;
@@ -523,6 +585,20 @@ int main(int argc, char **argv) {
     SirilImage *image = siril_image_read(light, error, sizeof error);
     SirilImage *calibration = siril_image_read(dark, error, sizeof error);
     CHECK(image && calibration);
+    const char *tls_url = getenv("SIRIL_TLS_TEST_URL");
+    CHECK(tls_url && getenv("SIRIL_TLS_WRONG_HOST") && getenv("SIRIL_TLS_UNTRUSTED_CA"));
+    gsize response_length = 0; int network_error = 0;
+    char *response = fetch_url(tls_url, &response_length, &network_error, TRUE);
+    CHECK(response && !network_error && response_length == strlen("siril-catalog-tls-fixture\n") &&
+        !strcmp(response, "siril-catalog-tls-fixture\n"));
+    free(response);
+    response = fetch_url(getenv("SIRIL_TLS_WRONG_HOST"), &response_length, &network_error, TRUE);
+    CHECK(!response && network_error);
+    setenv("CURL_CA_BUNDLE", getenv("SIRIL_TLS_UNTRUSTED_CA"), 1);
+    response = fetch_url(tls_url, &response_length, &network_error, TRUE);
+    CHECK(!response && network_error);
+    puts("PASS: original catalog HTTP fetch over verified HTTPS; incorrect hostnames and untrusted roots rejected");
+    CHECK(plate_solver_reference(argv[1]) == 0);
     SirilImageInfo info;
     CHECK(siril_image_info(image, &info));
     CHECK(info.width == 2 && info.height == 2 && info.channels == 1);

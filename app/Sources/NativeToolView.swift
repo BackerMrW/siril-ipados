@@ -158,6 +158,12 @@ struct NativeToolView: View {
             if recipe.tool == .fftDirect {
                 Section { Text("应用会分别保存幅度谱和相位谱并加入图库。幅度谱作为处理结果，原图保留；逆变换时打开幅度谱并选择配对相位谱。") }
             }
+            if recipe.tool == .plateSolve {
+                Section("解算") {
+                    Text("使用原版 Siril 星点匹配和 WCS 求解。在线星表需要联网；目标坐标、焦距和像元可从文件头读取，也可手动填写。赤经、赤纬的十进制单位均为度。")
+                    Text("已有 WCS 默认保留；打开重新解算可重新匹配。畸变模型随处理记录保存，原始 FITS 保留。")
+                }
+            }
             if recipe.tool == .guided {
                 Section("引导图") {
                     Picker("引导来源", selection: $recipe.guideID) {
@@ -198,6 +204,14 @@ struct NativeToolView: View {
         }.disabled(busy || !loaded)
     }
     private var visibleToolFields: [ToolField] {
+        if recipe.tool == .plateSolve {
+            return recipe.tool.fields.filter {
+                if ["ra", "dec"].contains($0.id) { return recipe.number("headerPosition") == 0 }
+                if ["focal", "pixel"].contains($0.id) { return recipe.number("headerOptics") == 0 }
+                if $0.id == "magnitude" { return recipe.number("magnitudeMode") != 0 }
+                return true
+            }
+        }
         guard recipe.tool == .resample else { return recipe.tool.fields }
         let mode = recipe.number("mode")
         let names: Set<String> = mode == 0 ? ["mode", "scale", "interp", "clamp"] : mode == 4 ? ["mode", "width", "height", "interp", "clamp"] : ["mode", "size", "interp", "clamp"]
