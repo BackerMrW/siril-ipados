@@ -231,7 +231,8 @@ struct NativeToolView: View {
             if recipe.tool == .curves { originalCurveHistograms = try await session.curveHistograms(view: 0) }
             if ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_VIEW_CHECK"] == "1" {
                 let section = ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_SECTION"] ?? "ghs"
-                recipe = NativeToolRecipe(tool: section == "fft" ? .fftDirect : section == "curves" ? .curves : section == "pixelmath" ? .pixelMath : section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)
+                recipe = NativeToolRecipe(tool: section == "fft-inverse" ? .fftInverse : section.hasPrefix("fft") ? .fftDirect : section == "curves" ? .curves : section == "pixelmath" ? .pixelMath : section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)
+                if section == "fft-inverse" { recipe.phaseID = library.last(where: { $0.url.lastPathComponent.hasSuffix("fft-phase.fits") })?.id }
                 if section == "ghs" { recipe.values["D"] = 1.2; recipe.values["SP"] = 0.1 }
                 if section == "masks" { recipe.mask.values["mode"] = 1; recipe.mask.values["invert"] = 1 }
                 if section == "geometry" { recipe.values["x"] = 16; recipe.values["y"] = 24; recipe.values["width"] = 96; recipe.values["height"] = 80 }
@@ -250,11 +251,11 @@ struct NativeToolView: View {
                 if recipe.tool == .curves { resultCurveHistograms = try await session.curveHistograms(view: 1) }
                 resultImage = try await session.preview(view: 1, channel: -1, automatic: false).uiImage
                 if recipe.mask.number("mode") != 0 || section == "curves" { maskImage = try await session.preview(view: 2, channel: -1, automatic: false).uiImage }
-                view = section == "masks" ? 2 : section == "geometry" ? 0 : 1; validPreview = true
+                view = section == "fft-phase" ? 3 : section == "masks" ? 2 : section == "geometry" ? 0 : 1; validPreview = true
                 if section == "geometry" { region = ImageSelection(x: 16, y: 24, width: 96, height: 80); selecting = true }
                 guard originalImage != nil, resultImage != nil, section != "masks" || maskImage != nil else { throw EngineError.failed("Native tool preview image missing") }
                 try? await Task.sleep(for: .milliseconds(500))
-                guard validPreview, resultImage != nil else { throw EngineError.failed("Native tool controls invalidated the computed preview") }
+                guard validPreview, resultImage != nil, section != "fft-phase" || maskImage != nil else { throw EngineError.failed("Native tool controls invalidated the computed preview") }
                 let marker = await engine.documents.appendingPathComponent("simulator-tools-\(section)-ready.txt")
                 try "PASS: native tools \(section) loaded original parameters, computed pixels and preview/apply controls.\n".write(to: marker, atomically: true, encoding: .utf8)
             }

@@ -79,6 +79,21 @@ extension SirilEngine {
                     for c in 0..<channels { try require(abs(restored[c] - values[c * n + (h - 1 - y) * w + x]) < 0.000005, "inverse round-trip full-resolution pixels") }
                 } }
                 if channels == 3 && !blank {
+                    let existing = loadLibrary()
+                    let imported = try importNativeResult(amplitudeURL, parent: file.id)
+                    records += imported
+                    try require(imported.count == 2 && imported[0].url.lastPathComponent.hasSuffix("fft-phase.fits") && imported[1].parentID == file.id, "actual App pair import/parent linkage")
+                    try saveLibrary(existing + imported)
+                    let pairBytes = try imported.map { try Data(contentsOf: $0.url) }
+                    _ = try moveToTrash(ids: Set(imported.map(\.id)))
+                    guard let pairTrash = trashEntries().first(where: { Set($0.records.map(\.id)) == Set(imported.map(\.id)) }) else { throw EngineError.failed("FFT gallery pair trash missing") }
+                    _ = try restoreTrash(pairTrash.id)
+                    try require(try imported.map { try Data(contentsOf: $0.url) } == pairBytes, "gallery pair restored with exact FITS bytes")
+                    _ = try moveToTrash(ids: Set(imported.map(\.id)))
+                    try permanentlyDeleteTrash(Set(trashEntries().filter { $0.records.contains(where: { imported.map(\.id).contains($0.id) }) }.map(\.id)))
+                    try require(imported.allSatisfy { !fm.fileExists(atPath: $0.url.path) }, "gallery pair permanent cleanup retained storage")
+                    try saveLibrary(existing)
+
                     let replay = try prepareNativeToolJob(file: amplitude, recipe: inverse, library: records); jobs.append(replay)
                     _ = try run(replay)
                     let reader = ImageAnalysisEngine(); _ = try await reader.open(replay.folder.appendingPathComponent("process/result.fits"))
@@ -104,6 +119,28 @@ extension SirilEngine {
                     rejected = false
                     do { try await inverseSession.compute(inverse, library: records) } catch { rejected = true }
                     try require(rejected, "ordinary input incorrectly accepted as phase spectrum")
+                    // A syntactically valid opposite-order phase must not reach FFTI.
+                    var wrongOrder = phaseBytes
+                    guard let orderCard = wrongOrder.range(of: Data("DFTORD  ".utf8)) else { throw EngineError.failed("DFT order keyword missing") }
+                    let otherOrder = order == 0 ? "REGULAR" : "CENTERED"
+                    let card = "DFTORD  = '\(otherOrder)'".padding(toLength: 80, withPad: " ", startingAt: 0)
+                    wrongOrder.replaceSubrange(orderCard.lowerBound..<(orderCard.lowerBound + 80), with: card.utf8)
+                    let wrongURL = folder.appendingPathComponent("wrong-order.fits"); try wrongOrder.write(to: wrongURL)
+                    let wrong = try importFile(wrongURL, role: .results); records.append(wrong)
+                    inverse.phaseID = wrong.id
+                    rejected = false
+                    do { try await inverseSession.compute(inverse, library: records) } catch { rejected = true }
+                    try require(rejected, "opposite-order phase accepted")
+                    let badFolder = folder.appendingPathComponent("broken-pair")
+                    try fm.createDirectory(at: badFolder, withIntermediateDirectories: true)
+                    try phaseBytes.write(to: badFolder.appendingPathComponent("fft-phase.fits"))
+                    let badResult = badFolder.appendingPathComponent("result.fits"); try Data("not FITS".utf8).write(to: badResult)
+                    let gallery = documents.appendingPathComponent("FITS")
+                    let beforeFailure = Set(try fm.contentsOfDirectory(atPath: gallery.path))
+                    rejected = false
+                    do { _ = try importNativeResult(badResult, parent: file.id) } catch { rejected = true }
+                    try require(rejected && Set(try fm.contentsOfDirectory(atPath: gallery.path)) == beforeFailure, "failed pair import left an orphan phase file")
+
                 }
                 await inverseSession.close()
                 try require(try Data(contentsOf: amplitude.url) == spectrumBytes && Data(contentsOf: phase.url) == phaseBytes, "inverse changed pair inputs")

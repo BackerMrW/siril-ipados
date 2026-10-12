@@ -298,7 +298,11 @@ int siril_image_advanced(SirilImage *image, const char *json, int preview,
     return ok;
 }
 static int run_advanced_locked(const char *path, char *error, size_t capacity) {
-    if (!path || !gfit || !gfit->fdata) return 0;
+    if (!path || !gfit) return 0;
+    // set32bits controls output precision but load retains integer input.
+    // Promote the detached command image with the original bit-depth converter.
+    if (gfit->type == DATA_USHORT && gfit->data && soper(gfit, 1.f, OPER_MUL, TRUE)) return 0;
+    if (gfit->type != DATA_FLOAT || !gfit->fdata) return 0;
     if ((double)gfit->rx * gfit->ry * gfit->naxes[2] * sizeof(float) * 3 >
             (double)get_available_memory() * 0.8) return 0;
     FILE *file = fopen(path, "rb");

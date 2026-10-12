@@ -17,6 +17,27 @@ struct NativeToolHistory: Codable, Sendable {
     }
 }
 extension SirilEngine {
+    // Import a generated FFT pair together; roll back newly copied records if
+    // either FITS cannot be decoded. The existing gallery is never changed here.
+    func importNativeResult(_ result: URL, parent: UUID?) throws -> [FITSRecord] {
+        var records: [FITSRecord] = []
+        do {
+            let phase = result.deletingLastPathComponent().appendingPathComponent("fft-phase.fits")
+            if result.lastPathComponent == "result.fits", FileManager.default.fileExists(atPath: phase.path) {
+                records.append(try importFile(phase, role: .results))
+            }
+            var record = try importFile(result, role: .results)
+            record.parentID = parent; records.append(record)
+            return records
+        } catch {
+            for record in records {
+                try? FileManager.default.removeItem(at: record.url)
+                try? FileManager.default.removeItem(at: record.url.appendingPathExtension("mask.fits"))
+            }
+            throw error
+        }
+    }
+
     private func toolHistoryURL(_ file: FITSRecord) throws -> URL {
         let root = documents.appendingPathComponent("FITS")
         let source = try owned(file.url.lastPathComponent, under: root)
