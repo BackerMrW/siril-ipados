@@ -10,6 +10,12 @@ extension SirilEngine {
         func equal(_ actual: [Float], _ expected: [Float], _ tolerance: Float = 0.00004) -> Bool {
             actual.count == expected.count && zip(actual, expected).allSatisfy { abs($0.0 - $0.1) < tolerance }
         }
+        func headerNumber(_ header: String, _ keyword: String) -> Double? {
+            let row = header.components(separatedBy: .newlines).first { $0.prefix(8).trimmingCharacters(in: .whitespaces) == keyword }
+            guard let row, let split = row.firstIndex(of: "=") else { return nil }
+            let value = row[row.index(after: split)...].split(separator: "/", maxSplits: 1).first
+            return value.flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+        }
         let count = width * height, offset = y * width + x
         let expected: [Float] = (0..<3).map { values[$0 * count + offset] }
         let sourceBytes = try Data(contentsOf: file.url)
@@ -129,19 +135,23 @@ extension SirilEngine {
         recipe.mathSettings.expressions[0] = "I1+I10"
         try await session.compute(recipe, library: [file, mono])
         var metadata = try await session.info(view: 1)
-        try require(abs(metadata.exposure - 40) < 0.000001, "summed used-image exposure metadata")
+        var header = try await session.header(view: 1)
+        try require(abs(metadata.exposure - 20) < 0.000001 && headerNumber(header, "LIVETIME") == 40 && headerNumber(header, "STACKCNT") == 2, "average subexposure and summed integration/frame metadata")
         recipe.mathSettings.doSum = false
         try await session.compute(recipe, library: [file, mono])
         metadata = try await session.info(view: 1)
-        try require(abs(metadata.exposure - 20) < 0.000001, "averaged used-image exposure metadata")
+        header = try await session.header(view: 1)
+        try require(abs(metadata.exposure - 20) < 0.000001 && headerNumber(header, "LIVETIME") == 20 && headerNumber(header, "STACKCNT") == 1, "non-summed integration/frame metadata")
         recipe.mathSettings.doSum = true; recipe.mathSettings.expressions[0] = "I10"
         try await session.compute(recipe, library: [file, mono])
         metadata = try await session.info(view: 1)
-        try require(abs(metadata.exposure - 20) < 0.000001, "I1 name prefix incorrectly contributed unused image metadata")
+        header = try await session.header(view: 1)
+        try require(abs(metadata.exposure - 20) < 0.000001 && headerNumber(header, "LIVETIME") == 20, "I1 name prefix incorrectly contributed unused image metadata")
         recipe.mathSettings.expressions[0] = "mean(I10)"
         try await session.compute(recipe, library: [file, mono])
         metadata = try await session.info(view: 1)
-        try require(abs(metadata.exposure - 20) < 0.000001, "statistics-only image expression lost used input metadata")
+        header = try await session.header(view: 1)
+        try require(abs(metadata.exposure - 20) < 0.000001 && headerNumber(header, "LIVETIME") == 20, "statistics-only image expression lost used input metadata")
         recipe = NativeToolRecipe(tool: .pixelMath, file: file)
         recipe.mathSettings.expressions[0] = "0.25"
         recipe.mathSettings.rescale = true; recipe.mathSettings.low = 0.1; recipe.mathSettings.high = 0.9

@@ -268,6 +268,7 @@ static int run_advanced_locked(const char *path, char *error, size_t capacity) {
             kind, (long long)clip[0], (long long)clip[1]);
         gfit->history = g_slist_append(gfit->history, g_strdup(history));
         capture_log(history, NULL); capture_log("\n", NULL); g_free(history);
+        update_fits_header(gfit);
     } else ok = 0;
 done:
     if (!ok && error && capacity) snprintf(error, capacity, "Advanced original worker/settings failed");

@@ -174,6 +174,13 @@ actor NativeToolSession {
         guard siril_image_curve_histograms(pointer, &counts, 256) != 0 else { throw EngineError.failed("曲线直方图读取失败。") }
         return (0..<7).map { Array(counts[($0 * 256)..<(($0 + 1) * 256)]) }
     }
+    func header(view: Int) throws -> String {
+        guard let pointer = view == 0 ? original : result else { throw EngineError.failed("没有可读文件头。") }
+        let count = Int(siril_image_copy_header(pointer, nil, 0))
+        var bytes = [CChar](repeating: 0, count: max(1, count))
+        guard siril_image_copy_header(pointer, &bytes, bytes.count) == count else { throw EngineError.failed("文件头读取失败。") }
+        return String(cString: bytes)
+    }
     func curvePipette(_ recipe: CurveRecipe, x: Int, y: Int) throws -> Double {
         let pixel: [Float]
         if recipe.stages.isEmpty { pixel = try self.pixel(view: 0, x: x, y: y) }

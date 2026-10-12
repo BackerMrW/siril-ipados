@@ -223,7 +223,8 @@ struct PixelMathEditor: View {
                                  focused: { active = i }).frame(height: 100)
             }
             Button("函数、图像统计与运算符") { reference = true }
-            Toggle("合并曝光元数据时求和", isOn: $settings.doSum)
+            Toggle("累计总积分时间与叠加帧数", isOn: $settings.doSum)
+            Text("原版 EXPTIME 保留平均单帧曝光；打开累计选项时，LIVETIME 和 STACKCNT 累加所用图像。").font(.caption).foregroundStyle(.secondary)
             Toggle("重缩放输出", isOn: $settings.rescale)
             if settings.rescale {
                 number("输出下限", value: $settings.low)
