@@ -5,6 +5,7 @@ module SirilCore {
     link "z"
     link "iconv"
     link "resolv"
+    link "sqlite3"
     link framework "Foundation"
     link framework "Security"
     link framework "CoreFoundation"

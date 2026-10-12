@@ -7,6 +7,9 @@
 #include "io/single_image.h"
 #include "algos/statistics.h"
 #include "io/image_format_fits.h"
+#include "core/siril_networking.h"
+#include <curl/curl.h>
+#include <sqlite3.h>
 #include <fitsio.h>
 #include <math.h>
 #include <stdio.h>
@@ -493,6 +496,21 @@ static int sequence_background_checks(const char *root) {
 }
 int main(int argc, char **argv) {
     CHECK(argc == 2);
+    CHECK(siril_compiled_with_networking());
+    const curl_version_info_data *network = curl_version_info(CURLVERSION_NOW);
+    CHECK(network && (network->features & CURL_VERSION_SSL) && network->ssl_version);
+    CHECK(sqlite3_threadsafe());
+    sqlite3 *database = NULL;
+    char cache[4096]; snprintf(cache, sizeof cache, "%s/catalog-cache.sqlite", argv[1]);
+    CHECK(sqlite3_open(cache, &database) == SQLITE_OK);
+    CHECK(sqlite3_exec(database, "CREATE TABLE stars(id INTEGER PRIMARY KEY, flux REAL); INSERT INTO stars VALUES(1,0.125);", NULL, NULL, NULL) == SQLITE_OK);
+    CHECK(sqlite3_close(database) == SQLITE_OK);
+    CHECK(sqlite3_open(cache, &database) == SQLITE_OK);
+    sqlite3_stmt *statement = NULL;
+    CHECK(sqlite3_prepare_v2(database, "SELECT flux FROM stars WHERE id=1", -1, &statement, NULL) == SQLITE_OK);
+    CHECK(sqlite3_step(statement) == SQLITE_ROW && sqlite3_column_double(statement, 0) == .125);
+    CHECK(sqlite3_finalize(statement) == SQLITE_OK && sqlite3_close(database) == SQLITE_OK);
+    puts("PASS: networking is compiled with TLS and thread-safe Apple SQLite persists catalog flux values");
     char light[4096], dark[4096], output[4096], missing[4096];
     snprintf(light, sizeof light, "%s/light.fits", argv[1]);
     snprintf(dark, sizeof dark, "%s/dark.fits", argv[1]);

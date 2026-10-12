@@ -39,6 +39,11 @@ enum EngineError: LocalizedError {
 // All upstream calls stay on one actor and its C ABI serializes global state.
 actor SirilEngine {
     var activeJobIDs: Set<String> = []
+    init() {
+        if let certificates = Bundle.main.url(forResource: "cacert", withExtension: "pem") {
+            setenv("CURL_CA_BUNDLE", certificates.path, 1)
+        }
+    }
     func read(_ url: URL) throws -> OpaquePointer {
         var error = [CChar](repeating: 0, count: 512)
         let capacity = error.count

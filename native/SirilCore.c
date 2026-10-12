@@ -27,6 +27,9 @@
 #include "io/conversion.h"
 #include <gsl/gsl_errno.h>
 #include <fftw3.h>
+#ifdef HAVE_LIBCURL
+#include <curl/curl.h>
+#endif
 #include <stdio.h>
 #include <limits.h>
 #include <string.h>
@@ -67,6 +70,9 @@ static void initialize(void) {
         gsl_set_error_handler_off();
         siril_initialize_rng();
         initialize_default_settings();
+#ifdef HAVE_LIBCURL
+        curl_global_init(CURL_GLOBAL_ALL);
+#endif
 #if defined(HAVE_FFTW3F_THREADS) || defined(HAVE_FFTW3F_OMP)
         fftwf_init_threads();
 #endif

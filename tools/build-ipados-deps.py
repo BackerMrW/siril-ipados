@@ -173,6 +173,11 @@ def ios_opencv_metadata(source):
     p.write_text(text)
 
 
+def mbedtls_framework(source):
+    run(["git", "submodule", "update", "--init", "--depth", "1", "framework"],
+        "mbedtls-framework", cwd=source)
+
+
 def cmake(name, url, revision, options, patch=None):
     identity = {"revision": revision, "options": options,
                 "patch": hashlib.sha256(inspect.getsource(patch).encode()).hexdigest() if patch else None}
@@ -235,6 +240,18 @@ def main():
     pcdir.mkdir(parents=True, exist_ok=True)
     (pcdir / "zlib.pc").write_text(
         f"Name: zlib\nDescription: Apple iPhoneOS SDK zlib\nVersion: {version}\nLibs: -lz\nCflags:\n")
+    version = re.search(r'^#define SQLITE_VERSION\s+"([^"]+)"',
+                        (Path(SDK) / "usr/include/sqlite3.h").read_text(), re.MULTILINE).group(1)
+    (pcdir / "sqlite3.pc").write_text(
+        f"Name: SQLite\nDescription: Apple iOS SDK SQLite\nVersion: {version}\nLibs: -lsqlite3\nCflags:\n")
+    cmake("mbedtls", "https://github.com/Mbed-TLS/mbedtls.git", "068ff080b369adfac81509f9b57b2afabaf82dc5",
+          ["-DENABLE_PROGRAMS=OFF", "-DENABLE_TESTING=OFF", "-DUSE_SHARED_MBEDTLS_LIBRARY=OFF",
+           "-DUSE_STATIC_MBEDTLS_LIBRARY=ON"], mbedtls_framework)
+    cmake("curl", "https://github.com/curl/curl.git", "01346829096c61b372692f6dc43ffa778c6caccd",
+          ["-DBUILD_CURL_EXE=OFF", "-DBUILD_TESTING=OFF", "-DBUILD_LIBCURL_DOCS=OFF",
+           "-DHTTP_ONLY=ON", "-DCURL_USE_MBEDTLS=ON", "-DCURL_USE_OPENSSL=OFF",
+           "-DCURL_USE_LIBPSL=OFF", "-DCURL_USE_LIBSSH2=OFF", "-DUSE_NGHTTP2=OFF",
+           "-DUSE_LIBIDN2=OFF", "-DCURL_BROTLI=OFF", "-DCURL_ZSTD=OFF"])
     meson("lcms", "https://github.com/mm2/Little-CMS.git", "453bafeb85b4ef96498866b7a8eadcc74dff9223",
           ["-Djpeg=disabled", "-Dtiff=disabled", "-Dutils=false", "-Dsamples=false"])
     autotools("fftw", "https://www.fftw.org/fftw-3.3.10.tar.gz",
@@ -275,7 +292,7 @@ def main():
            "-DWITH_WEBP=OFF", "-DWITH_OPENEXR=OFF", "-DWITH_JASPER=OFF", "-DWITH_OPENJPEG=OFF",
            "-DWITH_ITT=OFF", "-DWITH_PROTOBUF=OFF", "-DOPENCV_GENERATE_PKGCONFIG=ON", "-DIOS_INSTALL_COMBINED=OFF"], ios_opencv_metadata)
     run(["pkg-config", "--modversion", "glib-2.0", "gio-2.0", "cairo", "pango", "pangocairo",
-         "gdk-pixbuf-2.0", "gsl", "lcms2", "fftw3f", "cfitsio", "opencv4"], "core-dependency-versions")
+         "gdk-pixbuf-2.0", "gsl", "lcms2", "fftw3f", "cfitsio", "opencv4", "libcurl", "sqlite3"], "core-dependency-versions")
 
 
 if __name__ == "__main__":

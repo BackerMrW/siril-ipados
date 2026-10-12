@@ -12,6 +12,9 @@ import urllib.request
 import zipfile
 
 GIT_SOURCES = [
+    ("curl", "https://github.com/curl/curl.git", "01346829096c61b372692f6dc43ffa778c6caccd", None),
+    ("MbedTLS", "https://github.com/Mbed-TLS/mbedtls.git", "068ff080b369adfac81509f9b57b2afabaf82dc5", None),
+    ("MbedTLS-framework", "https://github.com/Mbed-TLS/mbedtls-framework.git", "dde0c4a0e448a0552f18817dcea633bb851fd288", None),
     ("Siril", "https://gitlab.com/free-astro/siril.git", "2a724774dc4b2f9218d4d9055e81289b77ca9be3", "siril-ipados"),
     ("CFITSIO", "https://github.com/HEASARC/cfitsio.git", "1d2f37b1bc8e6d5e8cf8cd497314680322063468", "cfitsio-upstream"),
     ("GLib", "https://github.com/GNOME/glib.git", "41eca60845d3fc309af361f5e7f801ba339099aa", "glib-ipados-upstream"),
