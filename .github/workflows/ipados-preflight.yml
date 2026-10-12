@@ -5,10 +5,14 @@ jobs:
   preflight:
     runs-on: macos-15
     timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.sdk) || '["iphoneos","iphonesimulator"]') }}
     env:
-      SIRIL_SDK: ${{ inputs.sdk || 'iphoneos' }}
-      SIRIL_TARGET: ${{ inputs.sdk == 'iphonesimulator' && 'arm64-apple-ios17.0-simulator' || 'arm64-apple-ios17.0' }}
-      CACHE_SUFFIX: ${{ inputs.sdk == 'iphonesimulator' && '-simulator' || '' }}
+      SIRIL_SDK: ${{ matrix.sdk }}
+      SIRIL_TARGET: ${{ matrix.sdk == 'iphonesimulator' && 'arm64-apple-ios17.0-simulator' || 'arm64-apple-ios17.0' }}
+      CACHE_SUFFIX: ${{ matrix.sdk == 'iphonesimulator' && '-simulator' || '' }}
     steps:
     - name: Check out port build scripts
       uses: actions/checkout@v4
@@ -299,7 +303,7 @@ jobs:
     - name: Upload native core for App integration
       uses: actions/upload-artifact@v4
       with:
-        name: SirilCore-iPadOS-arm64
+        name: SirilCore-iPadOS-arm64${{ env.CACHE_SUFFIX }}
         path: dist/
         if-no-files-found: error
     - name: Build native iPad App without a signing identity
@@ -348,12 +352,19 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: siril-ipados-build-diagnostics
+        name: siril-ipados-build-diagnostics${{ env.CACHE_SUFFIX }}
         path: |
           diagnostics/
           ipados-stage/
         if-no-files-found: warn
 'on':
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'native/**'
+      - 'tools/**'
+      - '.github/workflows/ipados-preflight.yml'
   workflow_dispatch:
     inputs:
       sdk:

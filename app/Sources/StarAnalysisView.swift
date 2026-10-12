@@ -4,6 +4,8 @@ import SirilCore
 
 struct StarAnalysisView: View {
     let file: FITSRecord
+    let processingEngine: SirilEngine
+    let onOutput: (URL) -> Void
     @Binding var selection: ImageSelection?
     @Environment(\.dismiss) private var dismiss
     @State private var engine = ImageAnalysisEngine()
@@ -19,6 +21,7 @@ struct StarAnalysisView: View {
     @State private var ascending = true
     @State private var exports: [URL] = []
     @State private var summary = ""
+    @State private var showDeconvolution = false
     private let columns = ["Channel", "B", "A", "x0", "y0", "RA", "Dec", "FWHMx px", "FWHMy px", "Mag", "Beta", "r", "Angle °", "RMSE"]
     private var sorted: [StarMeasurement] {
         edit.stars.sorted { a, b in
@@ -41,6 +44,9 @@ struct StarAnalysisView: View {
             .onChange(of: automatic) { _, _ in Task { await preview() } }
             .onChange(of: edit.settings.channel) { _, _ in Task { await preview() } }
             .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+            .sheet(isPresented: $showDeconvolution) {
+                NativeToolView(file: file, tool: .deconvolution, engine: processingEngine, onOutput: onOutput)
+            }
         }
     }
     private var imagePanel: some View {
@@ -84,6 +90,7 @@ struct StarAnalysisView: View {
                     Button("清空星表", role: .destructive) { selected = Set(edit.stars.map(\.id)); removeSelected() }.disabled(edit.stars.isEmpty)
                 }
                 Button("所选星点平均 PSF") { averageSelected() }.disabled(selected.isEmpty)
+                Button("所选星点 → 反卷积 PSF") { Task { await useSelectedPSF() } }.disabled(selected.isEmpty)
                 if !summary.isEmpty { Text(summary).font(.caption.monospaced()).textSelection(.enabled) }
                 ScrollView(.horizontal) {
                     VStack(alignment: .leading) {
@@ -165,6 +172,18 @@ struct StarAnalysisView: View {
         let fx = mean(\.fwhmX), fy = mean(\.fwhmY)
         summary = String(format: "有效 %d / %d · B=%.6g A=%.6g\nFWHM=%.5f × %.5f px · r=%.5f\nAngle=%.5f° β=%.5f RMSE=%.5g", valid.count, rows.count, mean(\.background), mean(\.amplitude), fx, fy, fy / fx, mean(\.angle), mean(\.beta), mean(\.rmse))
         if first.angularX > 0 { summary += String(format: "\nFWHM=%.5f × %.5f arcsec", mean(\.angularX), mean(\.angularY)) }
+    }
+    @MainActor private func useSelectedPSF() async {
+        guard !busy else { return }; busy = true; message = ""; defer { busy = false }
+        do {
+            let stars = edit.stars.filter { selected.contains($0.id) }
+            var toolHistory = try await processingEngine.nativeToolHistory(file, tool: .deconvolution)
+            var recipe = toolHistory.current
+            try recipe.useSelectedStars(stars, file: file)
+            toolHistory.record(recipe)
+            try await processingEngine.saveNativeToolHistory(toolHistory, file: file)
+            commit(edit); showDeconvolution = true
+        } catch { message = error.localizedDescription }
     }
     @MainActor private func open() async {
         busy = true; defer { busy = false }

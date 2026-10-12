@@ -61,6 +61,42 @@ struct StarEdit: Codable, Equatable, Sendable {
     var settings = StarSettings()
     var stars: [StarMeasurement] = []
 }
+extension NativeToolRecipe {
+    // Mirrors calculate_parameters in the original Dynamic PSF workflow.
+    // Measurements retain pixel FWHM separately from angular display units.
+    mutating func useSelectedStars(_ stars: [StarMeasurement], file: FITSRecord) throws {
+        guard tool == .deconvolution, !stars.isEmpty, stars.count <= 10000,
+              let first = stars.first,
+              stars.allSatisfy({ $0.channel == first.channel && $0.profile == first.profile &&
+                  ($0.angularX > 0) == (first.angularX > 0) }),
+              (0..<file.channels).contains(first.channel), (0...1).contains(first.profile) else {
+            throw EngineError.failed("所选星点必须来自相同通道、模型和单位。")
+        }
+        let valid = stars.filter { !$0.saturated }
+        guard !valid.isEmpty else { throw EngineError.failed("所选星点均已饱和，不能生成 PSF。") }
+        func mean(_ key: KeyPath<StarMeasurement, Double>) -> Double {
+            valid.map { $0[keyPath: key] }.reduce(0, +) / Double(valid.count)
+        }
+        let fx = mean(\.fwhmX), fy = mean(\.fwhmY)
+        // The bridge displays the opposite angle to the original fitter.
+        let originalAngle = -mean(\.angle)
+        let angle = originalAngle.truncatingRemainder(dividingBy: 360)
+        var next = self
+        next.values["psfSource"] = 2; next.values["profile"] = Double(first.profile)
+        next.values["fwhm"] = fx
+        next.values["ratio"] = number("symmetric") == 1 ? 1 : fx / fy
+        next.values["angle"] = angle < 0 ? angle + 360 : angle
+        if first.profile == 1 { next.values["beta"] = mean(\.beta) }
+        try next.validate(file: file)
+        if number("autoSize") == 1 {
+            var size = max(Int(number("ks")), Int(fx * 4))
+            if size % 2 == 0 { size += 1 }; next.values["ks"] = Double(size)
+        }
+        // Do not silently clamp measured widths or ratios to editor limits.
+        try next.validate(file: file)
+        self = next
+    }
+}
 struct StarHistory: Codable, Equatable, Sendable {
     let sourceID: UUID, width: Int, height: Int
     var current = StarEdit(), past: [StarEdit] = [], future: [StarEdit] = []

@@ -1,5 +1,8 @@
 name: Publish native iPad test release
 on:
+  push:
+    branches: [main]
+    paths: ['docs/RELEASE-REQUEST.json']
   workflow_dispatch:
     inputs:
       build_run:
@@ -13,7 +16,7 @@ on:
       tag:
         description: Test release tag
         required: true
-        default: v0.18.0
+        default: v0.19.0
         type: string
 permissions:
   contents: write
@@ -29,6 +32,21 @@ jobs:
       SIMULATOR_RUN: ${{ inputs.simulator_run }}
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve explicit release request from local development
+        if: github.event_name == 'push'
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          request = json.loads(Path('docs/RELEASE-REQUEST.json').read_text())
+          assert set(request) == {'tag', 'build_run', 'simulator_run'}
+          assert re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+', request['tag'])
+          assert all(isinstance(request[k], int) and request[k] > 0 for k in ('build_run', 'simulator_run'))
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write('RELEASE_TAG=' + request['tag'] + '\n')
+              env.write('BUILD_RUN=' + str(request['build_run']) + '\n')
+              env.write('SIMULATOR_RUN=' + str(request['simulator_run']) + '\n')
+          PY
       - name: Verify device build and matching App source
         shell: bash
         run: |
@@ -63,7 +81,7 @@ jobs:
         with:
           name: SirilPad-unsigned
           path: release-files
-          run-id: ${{ inputs.build_run }}
+          run-id: ${{ env.BUILD_RUN }}
           github-token: ${{ github.token }}
       - name: Collect corresponding sources and validate App metadata
         shell: bash

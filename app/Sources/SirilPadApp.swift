@@ -274,7 +274,11 @@ struct ContentView: View {
         }
         .fullScreenCover(isPresented: $showAnalysis) {
             if let file = activeFile {
-                if analysisTab == 3 { StarAnalysisView(file: file, selection: $imageSelection) }
+                if analysisTab == 3 {
+                    StarAnalysisView(file: file, processingEngine: engine, onOutput: { result in
+                        importResult(result, parent: file.id)
+                    }, selection: $imageSelection)
+                }
                 else { ImageAnalysisView(file: file, selection: $imageSelection, initialTab: analysisTab) }
             }
         }

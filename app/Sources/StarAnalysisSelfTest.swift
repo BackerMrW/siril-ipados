@@ -43,6 +43,37 @@ extension SirilEngine {
         let expectedMagnitude = -2.5 * log10(flux), poisson = sqrt(flux * 2.3 * 65535)
         try require(measured.photometryValid && abs(measured.magnitude - expectedMagnitude) < 0.001, "independent wide-aperture integrated Gaussian magnitude \(measured.magnitude) != \(expectedMagnitude)")
         try require(abs(measured.magnitudeError - 1.0857 / poisson) < 0.00002 && abs(measured.snr - 10 * log10(poisson)) < 0.02, "independent Poisson uncertainty/SNR")
+        // Hand-selected fits must drive the real original PSF generator,
+        // with saturated stars excluded and pixel units retained.
+        var saturatedNative = measured.native
+        saturatedNative.saturated = 1; saturatedNative.fwhm_x = 99
+        let saturated = try StarMeasurement(saturatedNative)
+        var selectedRecipe = NativeToolRecipe(tool: .deconvolution, file: gaussianFile)
+        selectedRecipe.values["ks"] = 9; selectedRecipe.values["estimateOnly"] = 1
+        try selectedRecipe.useSelectedStars([measured, star, saturated], file: gaussianFile)
+        try require(selectedRecipe.number("psfSource") == 2 && abs(selectedRecipe.number("fwhm") - 3 * factor) < 0.02 &&
+            abs(selectedRecipe.number("ratio") - 1.5) < 0.01, "selected PSF means, saturated exclusion and pixel units")
+        let selectedSession = NativeToolSession(); try await selectedSession.open(gaussianFile)
+        try await selectedSession.compute(selectedRecipe, library: records)
+        let center = try await selectedSession.pixel(view: 4, x: 4, y: 4)[0]
+        let adjacent = try await selectedSession.pixel(view: 4, x: 5, y: 4)[0]
+        try require(abs(adjacent / center - Float(exp(-1.0 / 18))) < 0.002, "selected original Gaussian kernel pixels")
+        await selectedSession.close()
+        let selectedJSON = try JSONEncoder().encode(selectedRecipe)
+        let restoredSelection = try JSONDecoder().decode(NativeToolRecipe.self, from: selectedJSON)
+        try require(restoredSelection == selectedRecipe, "selected PSF parameter replay")
+        var symmetricRecipe = selectedRecipe; symmetricRecipe.values["symmetric"] = 1; symmetricRecipe.values["autoSize"] = 1
+        try symmetricRecipe.useSelectedStars([measured], file: gaussianFile)
+        try require(symmetricRecipe.number("ratio") == 1 && symmetricRecipe.number("ks") == 29, "selected symmetric PSF and original automatic kernel size")
+        var invalidSelection = selectedRecipe
+        var selectionRejected = false
+        do { try invalidSelection.useSelectedStars([saturated], file: gaussianFile) } catch { selectionRejected = true }
+        try require(selectionRejected && invalidSelection == selectedRecipe, "all-saturated selection changed PSF")
+        var mixedNative = measured.native; mixedNative.channel = 1
+        let mixed = try StarMeasurement(mixedNative)
+        selectionRejected = false
+        do { try invalidSelection.useSelectedStars([measured, mixed], file: gaussianFile) } catch { selectionRejected = true }
+        try require(selectionRejected && invalidSelection == selectedRecipe, "mixed-channel selection changed PSF")
         settings.forceRadius = false
         let dynamic = try await analysis.fitStar(region: area, settings: settings)
         try require(dynamic.photometryValid && abs(dynamic.magnitude - expectedMagnitude) < 0.001, "original dynamic aperture")
