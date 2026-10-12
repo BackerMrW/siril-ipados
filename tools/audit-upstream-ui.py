@@ -55,7 +55,7 @@ for obj in main.iter("object"):
         "win.image-information": "只读元数据已接入（原版编辑仍待接入）",
         "win.histo_display": "直方图分析窗口已接入（工作区叠加仍待接入）",
     }
-    native_tools = {"histo-processing", "asinh-processing", "payne-processing", "saturation-processing", "remove-green-processing", "negative-processing", "unpurple-processing", "ccm-processing", "medianfilter-processing", "clahe-processing", "fix-banding-processing", "epf-processing", "denoise-processing", "wavelets-processing", "crop", "rotation-processing", "rotation90-processing", "rotation270-processing", "mirrorx-processing", "mirrory-processing", "binning-processing", "resample-processing"}
+    native_tools = {"histo-processing", "asinh-processing", "payne-processing", "saturation-processing", "remove-green-processing", "negative-processing", "unpurple-processing", "ccm-processing", "medianfilter-processing", "clahe-processing", "fix-banding-processing", "epf-processing", "denoise-processing", "wavelets-processing", "crop", "rotation-processing", "rotation90-processing", "rotation270-processing", "mirrorx-processing", "mirrory-processing", "binning-processing", "resample-processing", "curves-processing", "pixel-math"}
     if action.removeprefix("win.") in native_tools:
         connected[action] = "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     state = connected.get(action, "简化参数界面，未达到原版完整功能" if action.removeprefix("win.") in partial else "待移植或待逐项验证")

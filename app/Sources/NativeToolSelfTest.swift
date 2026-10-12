@@ -130,6 +130,9 @@ extension SirilEngine {
         var tooLargeRejected = false
         do { try await session.compute(oversized, library: records) } catch { tooLargeRejected = true }
         try require(tooLargeRejected, "oversized resampling attempted an unsafe allocation")
+        checkpoint("START: original advanced curves and PixelMath")
+        jobs += try await advancedToolsSelfTest(file: file, values: values, width: width, height: height, x: x, y: y)
+        checkpoint("PASS: original curves/interpolators/L-C-S channels/stages/range masks and PixelMath RGB/statistics/variables/parameters/three-expression composition/constant rescaling/failure guards; saved script replay and restored advanced history")
         // A non-centred crop must select the same displayed pixels with either
         // sensor ROWORDER tag. Symmetric selections can hide a double flip.
         var bottomBytes = Data(bytes.prefix(2880))

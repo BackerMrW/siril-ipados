@@ -39,7 +39,7 @@ struct ToolInventoryView: View {
                     Button("直方图与像素读数") { dismiss(); onAnalysis(1) }
                     Button("FITS 文件头 · FITS Header") { dismiss(); onAnalysis(2) }
                 }
-                ForEach(["拉伸", "颜色", "滤镜", "几何"], id: \.self) { group in
+                ForEach(["拉伸", "颜色", "滤镜", "几何", "曲线与表达式"], id: \.self) { group in
                     Section(group) {
                         ForEach(NativeTool.allCases.filter { $0.group == group }) { tool in
                             Button(tool.title) { dismiss(); onNativeTool(tool) }.disabled(!canUseNativeTools)

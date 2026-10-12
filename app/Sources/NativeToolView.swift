@@ -45,6 +45,10 @@ struct NativeToolView: View {
     @State private var region: ImageSelection?
     @State private var busy = false
     @State private var loaded = false
+    @State private var curvePipette = false
+    @State private var curveTone: Double?
+    @State private var originalCurveHistograms: [[UInt64]] = []
+    @State private var resultCurveHistograms: [[UInt64]] = []
     @State private var validPreview = false
     @State private var message = ""
     @State private var log = ""
@@ -99,7 +103,7 @@ struct NativeToolView: View {
                             recipe.values["x"] = Double(selection.x); recipe.values["y"] = Double(selection.y)
                             recipe.values["width"] = Double(selection.width); recipe.values["height"] = Double(selection.height)
                         }
-                    }, onTap: nil)
+                    }, onTap: recipe.tool == .curves && curvePipette && view == 0 ? { x, y in pickCurveTone(x: x, y: y) } : nil)
                     .background(.black)
             } else { ContentUnavailableView(view == 2 ? "当前没有蒙版预览" : "请计算预览", systemImage: "photo") }
             HStack {
@@ -119,7 +123,15 @@ struct NativeToolView: View {
                 Text("每次预览从未修改的输入计算。改参数会清除旧预览；应用保存当前计算结果和蒙版，原图保留。")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section("参数") { ToolFieldControls(fields: visibleToolFields, values: $recipe.values) }
+            if recipe.tool == .curves {
+                CurveEditor(settings: Binding(get: { recipe.curveSettings }, set: { recipe.curveSettings = $0 }),
+                            pipetteEnabled: $curvePipette, pipetteValue: curveTone,
+                            histograms: validPreview && view != 0 ? resultCurveHistograms : originalCurveHistograms)
+            } else if recipe.tool == .pixelMath {
+                PixelMathEditor(settings: Binding(get: { recipe.mathSettings }, set: { recipe.mathSettings = $0 }), library: library, file: file)
+            } else {
+                Section("参数") { ToolFieldControls(fields: visibleToolFields, values: $recipe.values) }
+            }
             if recipe.tool == .guided {
                 Section("引导图") {
                     Picker("引导来源", selection: $recipe.guideID) {
@@ -195,20 +207,33 @@ struct NativeToolView: View {
             try await session.open(file)
             let bytes = try await session.preview(view: 0, channel: channel, automatic: automatic)
             originalImage = bytes.uiImage; loaded = true
+            originalCurveHistograms = try await session.curveHistograms(view: 0)
             if ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_VIEW_CHECK"] == "1" {
                 let section = ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_SECTION"] ?? "ghs"
-                recipe = NativeToolRecipe(tool: section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)
+                recipe = NativeToolRecipe(tool: section == "curves" ? .curves : section == "pixelmath" ? .pixelMath : section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)
                 if section == "ghs" { recipe.values["D"] = 1.2; recipe.values["SP"] = 0.1 }
                 if section == "masks" { recipe.mask.values["mode"] = 1; recipe.mask.values["invert"] = 1 }
                 if section == "geometry" { recipe.values["x"] = 16; recipe.values["y"] = 24; recipe.values["width"] = 96; recipe.values["height"] = 80 }
+                if section == "curves" {
+                    recipe.curveSettings.current.channels[0].points.insert(CurveKnot(x: 0.5, y: 0.8), at: 1)
+                    recipe.curveSettings.current.channels[0].rangeEnabled = true
+                    recipe.curveSettings.current.channels[0].low = 0.05
+                }
+                if section == "pixelmath" {
+                    recipe.mathSettings.expressions[0] = "$T * gain"
+                    recipe.mathSettings.parameters = [PMParameter(name: "gain", expression: "1.2")]
+                }
+                history?.record(recipe)
                 try await session.compute(recipe, library: library)
                 let info = try await session.info(view: 1); resultWidth = Int(info.width); resultHeight = Int(info.height)
+                if recipe.tool == .curves { resultCurveHistograms = try await session.curveHistograms(view: 1) }
                 resultImage = try await session.preview(view: 1, channel: -1, automatic: false).uiImage
-                if recipe.mask.number("mode") != 0 { maskImage = try await session.preview(view: 2, channel: -1, automatic: false).uiImage }
+                if recipe.mask.number("mode") != 0 || section == "curves" { maskImage = try await session.preview(view: 2, channel: -1, automatic: false).uiImage }
                 view = section == "masks" ? 2 : section == "geometry" ? 0 : 1; validPreview = true
                 if section == "geometry" { region = ImageSelection(x: 16, y: 24, width: 96, height: 80); selecting = true }
                 guard originalImage != nil, resultImage != nil, section != "masks" || maskImage != nil else { throw EngineError.failed("Native tool preview image missing") }
                 try? await Task.sleep(for: .milliseconds(500))
+                guard validPreview, resultImage != nil else { throw EngineError.failed("Native tool controls invalidated the computed preview") }
                 let marker = await engine.documents.appendingPathComponent("simulator-tools-\(section)-ready.txt")
                 try "PASS: native tools \(section) loaded original parameters, computed pixels and preview/apply controls.\n".write(to: marker, atomically: true, encoding: .utf8)
             }
@@ -220,7 +245,17 @@ struct NativeToolView: View {
     }
     @MainActor private func invalidate() {
         validPreview = false; resultImage = nil; maskImage = nil; view = 0; message = ""
+        curveTone = nil; resultCurveHistograms = []
         previewTask?.cancel()
+    }
+    @MainActor private func pickCurveTone(x: Double, y: Double) {
+        let current = recipe.curveSettings
+        Task {
+            do {
+                let tone = try await session.curvePipette(current, x: Int(x), y: Int(y))
+                if current == recipe.curveSettings { curveTone = tone }
+            } catch { message = error.localizedDescription }
+        }
     }
     @MainActor private func saveHistory() {
         persistTask?.cancel()
@@ -256,8 +291,11 @@ struct NativeToolView: View {
                 await persistTask?.value
                 try await session.compute(current, library: library)
                 let info = try await session.info(view: 1); resultWidth = Int(info.width); resultHeight = Int(info.height)
+                if current.tool == .curves { resultCurveHistograms = try await session.curveHistograms(view: 1) }
                 resultImage = try await session.preview(view: 1, channel: channel, automatic: automatic).uiImage
-                if current.mask.number("mode") != 0 { maskImage = try await session.preview(view: 2, channel: -1, automatic: false).uiImage }
+                if current.mask.number("mode") != 0 || (current.tool == .curves && current.curveSettings.current.channels[current.curveSettings.selectedChannel].rangeEnabled) {
+                    maskImage = try await session.preview(view: 2, channel: -1, automatic: false).uiImage
+                } else { maskImage = nil }
                 validPreview = recipe == current; view = 1
             } catch { message = error.localizedDescription; resultImage = nil; maskImage = nil; view = 0 }
         }

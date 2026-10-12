@@ -1,0 +1,392 @@
+[
+  {
+    "name": "abs",
+    "prototype": "abs ( x )",
+    "help": "Absolute value of x.",
+    "group": "函数"
+  },
+  {
+    "name": "acos",
+    "prototype": "acos ( x )",
+    "help": "Arc cosine of x.",
+    "group": "函数"
+  },
+  {
+    "name": "acosh",
+    "prototype": "acosh ( x )",
+    "help": "Hyperbolic arc cosine of x.",
+    "group": "函数"
+  },
+  {
+    "name": "asin",
+    "prototype": "asin ( x )",
+    "help": "Arc sine of x.",
+    "group": "函数"
+  },
+  {
+    "name": "asinh",
+    "prototype": "asinh ( x )",
+    "help": "Hyperbolic arc sine of x.",
+    "group": "函数"
+  },
+  {
+    "name": "atan",
+    "prototype": "atan ( x )",
+    "help": "Arc tangent of x.",
+    "group": "函数"
+  },
+  {
+    "name": "atan2",
+    "prototype": "atan2 ( y, x )",
+    "help": "Arc tangent of y/x.",
+    "group": "函数"
+  },
+  {
+    "name": "atanh",
+    "prototype": "atanh ( x )",
+    "help": "Hyperbolic arc tangent of x.",
+    "group": "函数"
+  },
+  {
+    "name": "ceil",
+    "prototype": "ceil ( x )",
+    "help": "Round x upwards to the nearest integer.",
+    "group": "函数"
+  },
+  {
+    "name": "cos",
+    "prototype": "cos ( x )",
+    "help": "Cosine of x.",
+    "group": "函数"
+  },
+  {
+    "name": "cosh",
+    "prototype": "cosh ( x )",
+    "help": "Hyperbolic cosine of x.",
+    "group": "函数"
+  },
+  {
+    "name": "e",
+    "prototype": "e",
+    "help": "The constant e=2.718282...",
+    "group": "函数"
+  },
+  {
+    "name": "exp",
+    "prototype": "exp ( x )",
+    "help": "Exponential function.",
+    "group": "函数"
+  },
+  {
+    "name": "fac",
+    "prototype": "fac( x )",
+    "help": "Factorial function.",
+    "group": "函数"
+  },
+  {
+    "name": "iif",
+    "prototype": "iif( cond, expr_true, expr_false )",
+    "help": "Conditional function (or inline if function).\n\nReturns expr_true if cond evaluates to nonzero.\nReturns expr_false if cond evaluates to zero.",
+    "group": "函数"
+  },
+  {
+    "name": "floor",
+    "prototype": "floor ( x )",
+    "help": "Highest integer less than or equal to x.",
+    "group": "函数"
+  },
+  {
+    "name": "ln",
+    "prototype": "ln ( x )",
+    "help": "Natural logarithm of x.",
+    "group": "函数"
+  },
+  {
+    "name": "log",
+    "prototype": "log ( x )",
+    "help": "Base-10 logarithm of x.",
+    "group": "函数"
+  },
+  {
+    "name": "log10",
+    "prototype": "log10 ( x )",
+    "help": "Base-10 logarithm of x.",
+    "group": "函数"
+  },
+  {
+    "name": "log2",
+    "prototype": "log2 ( x )",
+    "help": "Base-2 logarithm of x.",
+    "group": "函数"
+  },
+  {
+    "name": "max",
+    "prototype": "max ( x, y )",
+    "help": "Maximum function.",
+    "group": "函数"
+  },
+  {
+    "name": "min",
+    "prototype": "min ( x, y )",
+    "help": "Minimum function.",
+    "group": "函数"
+  },
+  {
+    "name": "mtf",
+    "prototype": "mtf ( m, x )",
+    "help": "Midtones Transfer Function (MTF) of x for a midtones balance parameter m in the [0, 1] range.",
+    "group": "函数"
+  },
+  {
+    "name": "ncr",
+    "prototype": "ncr ( x, y )",
+    "help": "Combinations function.",
+    "group": "函数"
+  },
+  {
+    "name": "npr",
+    "prototype": "npr ( x, y )",
+    "help": "Permutations function.",
+    "group": "函数"
+  },
+  {
+    "name": "pi",
+    "prototype": "pi",
+    "help": "The constant π=3.141592...",
+    "group": "函数"
+  },
+  {
+    "name": "pow",
+    "prototype": "pow ( x, y )",
+    "help": "Exponentiation function.",
+    "group": "函数"
+  },
+  {
+    "name": "sign",
+    "prototype": "sign ( x )",
+    "help": "Sign of x:\n\n\t +1 if x &gt; 0\n\t −1 if x &lt; 0\n\t  0 if x = 0.",
+    "group": "函数"
+  },
+  {
+    "name": "sin",
+    "prototype": "sin ( x )",
+    "help": "Sine of x.",
+    "group": "函数"
+  },
+  {
+    "name": "sinh",
+    "prototype": "sinh ( x )",
+    "help": "Hyperbolic sine of x.",
+    "group": "函数"
+  },
+  {
+    "name": "sqrt",
+    "prototype": "sqrt ( x )",
+    "help": "Square root of x.",
+    "group": "函数"
+  },
+  {
+    "name": "tan",
+    "prototype": "tan ( x )",
+    "help": "Tangent of x.",
+    "group": "函数"
+  },
+  {
+    "name": "tanh",
+    "prototype": "tanh ( x )",
+    "help": "Hyperbolic tangent of x.",
+    "group": "函数"
+  },
+  {
+    "name": "trunc",
+    "prototype": "trunc ( x )",
+    "help": "Truncated integer part of x.",
+    "group": "函数"
+  },
+  {
+    "name": "adev",
+    "prototype": "adev ( Image )",
+    "help": "Average absolute deviation of the image.",
+    "group": "图像统计"
+  },
+  {
+    "name": "bwmv",
+    "prototype": "bwmv ( Image )",
+    "help": "Biweight midvariance of the image.",
+    "group": "图像统计"
+  },
+  {
+    "name": "height",
+    "prototype": "height ( Image )",
+    "help": "Height in pixels of the specified image.",
+    "group": "图像统计"
+  },
+  {
+    "name": "mad",
+    "prototype": "mad ( Image )",
+    "help": "Median absolute deviation of the image.",
+    "group": "图像统计"
+  },
+  {
+    "name": "max",
+    "prototype": "max ( Image )",
+    "help": "Pixel maximum of the image.",
+    "group": "图像统计"
+  },
+  {
+    "name": "mdev",
+    "prototype": "mdev ( Image )",
+    "help": "Median absolute deviation of the image.",
+    "group": "图像统计"
+  },
+  {
+    "name": "mean",
+    "prototype": "mean ( Image )",
+    "help": "Mean of the image.",
+    "group": "图像统计"
+  },
+  {
+    "name": "med",
+    "prototype": "med ( Image )",
+    "help": "Median of the image.",
+    "group": "图像统计"
+  },
+  {
+    "name": "median",
+    "prototype": "median ( Image )",
+    "help": "Median of the image.",
+    "group": "图像统计"
+  },
+  {
+    "name": "min",
+    "prototype": "min ( Image )",
+    "help": "Pixel minimum of the image.",
+    "group": "图像统计"
+  },
+  {
+    "name": "noise",
+    "prototype": "noise ( Image )",
+    "help": "Estimation of Gaussian noise in the image.",
+    "group": "图像统计"
+  },
+  {
+    "name": "sdev",
+    "prototype": "sdev ( Image )",
+    "help": "Standard deviation of the image.",
+    "group": "图像统计"
+  },
+  {
+    "name": "width",
+    "prototype": "width ( Image )",
+    "help": "Width in pixels of the specified image.",
+    "group": "图像统计"
+  },
+  {
+    "name": "~",
+    "prototype": "~x",
+    "help": "Pixel Inversion operator.",
+    "group": "运算符"
+  },
+  {
+    "name": "-",
+    "prototype": "-x",
+    "help": "Unary Minus operator (sign change).",
+    "group": "运算符"
+  },
+  {
+    "name": "+",
+    "prototype": "+x",
+    "help": "Unary Plus operator.",
+    "group": "运算符"
+  },
+  {
+    "name": "!",
+    "prototype": "!x",
+    "help": "Logical NOT operator.",
+    "group": "运算符"
+  },
+  {
+    "name": "^",
+    "prototype": "x ^ y",
+    "help": "Exponentiation operator.",
+    "group": "运算符"
+  },
+  {
+    "name": "*",
+    "prototype": "x * y",
+    "help": "Multiplication operator.",
+    "group": "运算符"
+  },
+  {
+    "name": "/",
+    "prototype": "x / y",
+    "help": "Division operator.",
+    "group": "运算符"
+  },
+  {
+    "name": "%",
+    "prototype": "x % y",
+    "help": "Modulus operator.",
+    "group": "运算符"
+  },
+  {
+    "name": "+",
+    "prototype": "x + y",
+    "help": "Addition operator.",
+    "group": "运算符"
+  },
+  {
+    "name": "-",
+    "prototype": "x - y",
+    "help": "Subtraction operator.",
+    "group": "运算符"
+  },
+  {
+    "name": "<",
+    "prototype": "x &lt; y",
+    "help": "Less Than relational operator.",
+    "group": "运算符"
+  },
+  {
+    "name": "<=",
+    "prototype": "x &lt;= y",
+    "help": "Less Than Or Equal relational operator.",
+    "group": "运算符"
+  },
+  {
+    "name": ">",
+    "prototype": "x &gt; y",
+    "help": "Greater Than relational operator.",
+    "group": "运算符"
+  },
+  {
+    "name": ">=",
+    "prototype": "x &gt;= y",
+    "help": "Greater Than Or Equal relational operator.",
+    "group": "运算符"
+  },
+  {
+    "name": "==",
+    "prototype": "x == y",
+    "help": "Equal To relational operator.",
+    "group": "运算符"
+  },
+  {
+    "name": "!=",
+    "prototype": "x != y",
+    "help": "Not Equal To relational operator.",
+    "group": "运算符"
+  },
+  {
+    "name": "&&",
+    "prototype": "x &amp;&amp; y",
+    "help": "Logical AND operator.",
+    "group": "运算符"
+  },
+  {
+    "name": "||",
+    "prototype": "x || y",
+    "help": "Logical OR operator.",
+    "group": "运算符"
+  }
+]

@@ -7,7 +7,7 @@ root = Path.cwd()
 source = root / "siril-src"
 destination = source / "src/ipados"
 destination.mkdir(exist_ok=True)
-for name in ("SirilCore.c", "SirilCore.h", "core-link-probe.c", "core-runtime-tests.c"):
+for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "core-link-probe.c", "core-runtime-tests.c"):
     shutil.copy2(root / "native" / name, destination / name)
 meson = source / "src/meson.build"
 text = meson.read_text()
@@ -123,6 +123,25 @@ text = command_table.read_text()
 old = 'process_mask_from_channel, STR_MASK_FROM_LUM'
 assert text.count(old) == 1
 command_table.write_text(text.replace(old, 'process_mask_from_lum, STR_MASK_FROM_LUM'))
+
+# PixelMath's original integer branch used variable slot zero for plane bounds
+# even for $T-only evaluation. Match the existing float branch's actual bounds.
+# Constant rescaling must remain finite; failed expressions must not rescale an
+# uninitialized output. Release the previous headless single-image owner.
+runner = source / "src/pixelMath/pixel_math_runner.c"
+text = runner.read_text()
+assert text.count("var_fit[0].naxes[0] * var_fit[0].naxes[1]") == 2
+text = text.replace("var_fit[0].naxes[0] * var_fit[0].naxes[1]", "width * height")
+assert text.count("if (args->rescale) {") == 1
+text = text.replace("if (args->rescale) {", "if (args->rescale && !failed) {")
+text = text.replace("/ (float)(maximum - minimum) + args->min",
+                    "/ (float)(maximum == minimum ? 1.f : maximum - minimum) + args->min")
+text = text.replace("/ (maximum - minimum)) + args->min",
+                    "/ (maximum == minimum ? 1.f : maximum - minimum)) + args->min")
+needle = "if (com.headless) {\n\t\tif (!failed) {\n\t\t\tclearfits(gfit);"
+assert text.count(needle) == 1
+text = text.replace(needle, "if (com.headless) {\n\t\tif (!failed) {\n\t\t\tclose_single_image();")
+runner.write_text(text)
 
 # The original bilateral history exceeds its fixed 90-byte stack buffer even
 # at default parameters. Preserve the full history with an owned string.

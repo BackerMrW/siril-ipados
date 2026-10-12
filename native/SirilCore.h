@@ -128,6 +128,15 @@ void siril_cancel_processing(void);
 void siril_release_workspace(void);
 /* Runtime catalog from the configured upstream command table: name<TAB>usage. */
 const char *siril_command_catalog(void);
+/* JSON settings call the original curve and PixelMath kernels on an owned
+ * scratch image. The imported original remains separate and unchanged.
+ * range_preview renders the curve's original luminance mask, never an output
+ * intended for saving. clipped receives low/high curve counts. */
+int siril_image_advanced(SirilImage *image, const char *settings, int range_preview,
+    int64_t *clipped, char *error, size_t capacity);
+int siril_curve_plot(const char *stage, int channel, float *samples, size_t count);
+float siril_curve_tone(int channel, float red, float green, float blue);
+int siril_image_curve_histograms(SirilImage *image, uint64_t *counts, size_t bins);
 /* Interactive background extraction uses the same upstream GUI image hook.
  * A session owns an unchanged original, its samples, and a computed result.
  * Invalidating/editing samples discards the preview; no import is overwritten. */

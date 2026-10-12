@@ -1,0 +1,273 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+/* Mobile input/ownership adapters. Interpolation, color transforms and
+ * expression evaluation remain in the pinned upstream implementations. */
+#include "filters/curve_transform.h"
+#include "pixelMath/pixel_math_runner.h"
+#include "yyjson.h"
+float siril_curve_tone(int channel, float r, float g, float b) {
+    r = CLAMP(r, 0.f, 1.f); g = CLAMP(g, 0.f, 1.f); b = CLAMP(b, 0.f, 1.f);
+    switch (channel) {
+    case CHAN_R: return r; case CHAN_G: return g; case CHAN_B: return b;
+    case CHAN_L: return curve_lab_L_norm(r, g, b);
+    case CHAN_C: return curve_lab_chroma_norm(r, g, b);
+    case CHAN_S: { float high = fmaxf(r, fmaxf(g, b));
+        return high > 0 ? (high - fminf(r, fminf(g, b))) / high : 0; }
+    default: return (r + g + b) / 3.f;
+    }
+}
+int siril_image_curve_histograms(SirilImage *image, uint64_t *counts, size_t bins) {
+    if (!image || !counts || bins < 2 || bins > 65536) return 0;
+    g_mutex_lock(&engine_mutex);
+    fits *fit = &image->fit;
+    int ok = fit->type == DATA_FLOAT && fit->fdata;
+    if (ok) {
+        memset(counts, 0, CHAN_COUNT * bins * sizeof(uint64_t));
+        size_t n = (size_t)fit->rx * fit->ry;
+        for (size_t i = 0; i < n; i++) {
+            float r = fit->fpdata[0][i], g = fit->fpdata[1][i], b = fit->fpdata[2][i];
+            for (int c = 0; c < CHAN_COUNT; c++) {
+                float v = siril_curve_tone(c, r, g, b);
+                if (isfinite(v)) {
+                    size_t bin = MIN((size_t)(CLAMP(v, 0.f, 1.f) * bins), bins - 1);
+                    counts[c * bins + bin]++;
+                }
+            }
+        }
+    }
+    g_mutex_unlock(&engine_mutex); return ok;
+}
+
+static gboolean advanced_number(yyjson_val *object, const char *name,
+        double low, double high, double *value) {
+    yyjson_val *v = yyjson_obj_get(object, name);
+    if (!yyjson_is_num(v)) return FALSE;
+    *value = yyjson_get_num(v);
+    return isfinite(*value) && *value >= low && *value <= high;
+}
+static struct curve_params *advanced_curve(yyjson_val *stage) {
+    double algorithm;
+    yyjson_val *channels = yyjson_obj_get(stage, "channels");
+    if (!advanced_number(stage, "algorithm", 0, 2, &algorithm) ||
+            algorithm != floor(algorithm) || yyjson_arr_size(channels) != CHAN_COUNT) return NULL;
+    struct curve_params *params = new_curve_params();
+    if (!params) return NULL;
+    params->algorithm = (int)algorithm;
+    for (int c = 0; c < CHAN_COUNT; c++) {
+        yyjson_val *channel = yyjson_arr_get(channels, c);
+        yyjson_val *points = yyjson_obj_get(channel, "points");
+        size_t count = yyjson_arr_size(points);
+        double low, high, feather;
+        if (count < 2 || count > MAX_POINTS ||
+                !advanced_number(channel, "low", 0, 1, &low) ||
+                !advanced_number(channel, "high", low, 1, &high) ||
+                !advanced_number(channel, "feather", 0, 1, &feather)) goto fail;
+        curve_channel_config *cfg = &params->channels[c];
+        cfg->range_enabled = yyjson_get_bool(yyjson_obj_get(channel, "rangeEnabled"));
+        cfg->lum_min = low; cfg->lum_max = high; cfg->feather = feather;
+        double previous = -1;
+        for (size_t i = 0; i < count; i++) {
+            double x, y;
+            yyjson_val *v = yyjson_arr_get(points, i);
+            if (!advanced_number(v, "x", 0, 1, &x) ||
+                    !advanced_number(v, "y", 0, 1, &y) || x <= previous ||
+                    (i == 0 && x != 0) || (i == count - 1 && x != 1)) goto fail;
+            point *p = g_try_new(point, 1);
+            if (!p) goto fail;
+            p->x = x; p->y = y;
+            cfg->points = g_list_append(cfg->points, p); previous = x;
+        }
+        cfg->active = TRUE; /* Original kernel detects the identity itself. */
+    }
+    return params;
+fail:
+    free_curve_params(params);
+    return NULL;
+}
+int siril_curve_plot(const char *json, int channel, float *samples, size_t count) {
+    if (!json || !samples || channel < 0 || channel >= CHAN_COUNT || count < 2 || count > 4096) return 0;
+    yyjson_doc *doc = yyjson_read(json, strlen(json), 0);
+    if (!doc) return 0;
+    g_mutex_lock(&engine_mutex);
+    struct curve_params *params = advanced_curve(yyjson_doc_get_root(doc));
+    int ok = params != NULL;
+    if (params) {
+        GList *points = params->channels[channel].points;
+        double slopes[MAX_POINTS] = {0};
+        cubic_spline_data cubic = {0}; akima_spline_data akima = {0};
+        if (params->algorithm == LINEAR) linear_fit(points, slopes);
+        else if (params->algorithm == AKIMA_SPLINE) akima_spline_fit(points, &akima);
+        else cubic_spline_fit(points, &cubic);
+        for (size_t i = 0; i < count; i++) {
+            float x = (float)i / (count - 1);
+            samples[i] = params->algorithm == LINEAR ? linear_interpolate(x, points, slopes) :
+                params->algorithm == AKIMA_SPLINE ? akima_spline_interpolate(x, &akima) : cubic_spline_interpolate(x, &cubic);
+        }
+        free_curve_params(params);
+    }
+    g_mutex_unlock(&engine_mutex); yyjson_doc_free(doc);
+    return ok;
+}
+static int advanced_apply_curves(SirilImage *image, yyjson_val *root,
+        int preview, int64_t *clipped) {
+    yyjson_val *stages = yyjson_obj_get(root, "stages");
+    yyjson_val *current = yyjson_obj_get(root, "current");
+    double selected;
+    size_t count = yyjson_arr_size(stages);
+    if (count > 30 || !advanced_number(root, "selectedChannel", 0, 6, &selected) ||
+            selected != floor(selected)) return 0;
+    for (size_t i = 0; i <= count; i++) {
+        if (g_atomic_int_get(&cancel_requested)) return 0;
+        struct curve_params *params = advanced_curve(i == count ? current : yyjson_arr_get(stages, i));
+        if (!params) return 0;
+        long clip[2] = {0}; params->clipped_count = clip;
+        params->target_channel = (int)selected;
+        params->for_preview = preview && i == count; params->show_mask = params->for_preview;
+        struct generic_img_args args = { .user = params };
+        int ok = curve_image_hook(&args, &image->fit, 1) == 0;
+        if (clipped) { clipped[0] += clip[0]; clipped[1] += clip[1]; }
+        free_curve_params(params);
+        if (!ok) return 0;
+    }
+    invalidate_stats_from_fit(&image->fit);
+    return 1;
+}
+static gboolean advanced_symbol(const gchar *name) {
+    if (!name || !*name || strlen(name) > 64 ||
+            !(g_ascii_isalpha(*name) || *name == '_') ||
+            !strcmp(name, "gfit") || !strcmp(name, "T") || !strcmp(name, "e") || !strcmp(name, "pi")) return FALSE;
+    for (const gchar *p = name; *p; p++) if (!g_ascii_isalnum(*p) && *p != '_') return FALSE;
+    return TRUE;
+}
+static int advanced_apply_pm(SirilImage *image, yyjson_val *root) {
+    yyjson_val *expressions = yyjson_obj_get(root, "expressions");
+    yyjson_val *bindings = yyjson_obj_get(root, "bindings");
+    size_t count = yyjson_arr_size(bindings);
+    gboolean single = yyjson_get_bool(yyjson_obj_get(root, "singleRGB"));
+    double low, high;
+    if (count > (size_t)pm_get_max_images() || yyjson_arr_size(expressions) != 3 ||
+            !advanced_number(root, "low", 0, 1, &low) ||
+            !advanced_number(root, "high", low, 1, &high)) return 0;
+    double required = (double)image->fit.rx * image->fit.ry * sizeof(float) *
+        (image->fit.naxes[2] * (count + 3) + 3);
+    if (required > (double)get_available_memory() * 0.8) {
+        capture_log("Not enough remaining iPad memory for PixelMath inputs/output.\n", NULL); return 0;
+    }
+    close_sequence(FALSE); close_single_image(); free_pm_var(pm_get_max_images());
+    com.pref.force_16bit = FALSE;
+    if (copyfits(&image->fit, gfit, CP_ALLOC | CP_DEEPCOPY | CP_COPYMASK, 0)) return 0;
+    create_uniq_from_gfit(g_strdup("Native PixelMath input"), FALSE);
+    struct pixel_math_data *args = g_try_new0(struct pixel_math_data, 1);
+    if (!args) goto done;
+    args->single_rgb = single; args->do_sum = yyjson_get_bool(yyjson_obj_get(root, "doSum"));
+    args->rescale = yyjson_get_bool(yyjson_obj_get(root, "rescale"));
+    args->min = low; args->max = high;
+    args->nb_rows = (int)count;
+    args->varname = g_new0(gchar *, count);
+    gchar **dest[3] = { &args->expression1, &args->expression2, &args->expression3 };
+    for (int c = 0; c < (single ? 1 : 3); c++) {
+        const char *text = yyjson_get_str(yyjson_arr_get(expressions, c));
+        if (!text || !*text || strlen(text) > 16384) goto fail;
+        *dest[c] = g_strdup(text); remove_spaces_from_str(*dest[c]);
+    }
+    if (replace_t_with_gfit(args) && !single) goto fail;
+    /* A constant expression still operates on the currently opened image. */
+    if (!count && single) args->has_gfit = TRUE;
+    if (!single && !count) goto fail;
+    for (size_t i = 0; i < count; i++) {
+        yyjson_val *item = yyjson_arr_get(bindings, i);
+        const char *name = yyjson_get_str(yyjson_obj_get(item, "name"));
+        const char *path = yyjson_get_str(yyjson_obj_get(item, "path"));
+        if (!advanced_symbol(name) || !path || !*path) goto fail;
+        for (size_t j = 0; j < i; j++) if (!strcmp(name, args->varname[j])) goto fail;
+        args->varname[i] = g_strdup(name);
+        int w, h, c;
+        if (load_pm_var(path, i, &w, &h, &c) || w != image->fit.rx || h != image->fit.ry ||
+                (!single && c != 1) ||
+                (i && c != var_fit[0].naxes[2]) ||
+                (args->has_gfit && c != gfit->naxes[2])) goto fail;
+    }
+    int channels = single ? (count ? var_fit[0].naxes[2] : image->fit.naxes[2]) : 3;
+    if (new_fit_image(&args->fit, image->fit.rx, image->fit.ry, channels, DATA_FLOAT)) goto fail;
+    int failed = GPOINTER_TO_INT(apply_pixel_math_operation(args));
+    args = NULL; /* Original worker owns its inputs/strings/output struct. */
+    if (!failed && copyfits(gfit, &image->fit, CP_ALLOC | CP_DEEPCOPY | CP_COPYMASK, 0) == 0) {
+        close_single_image(); return 1;
+    }
+    goto done;
+fail:
+    if (args) {
+        for (int c = 0; c < 3; c++) g_free(*dest[c]);
+        for (size_t i = 0; i < count; i++) g_free(args->varname[i]);
+        g_free(args->varname);
+        if (args->fit) { clearfits(args->fit); g_free(args->fit); }
+        g_free(args);
+    }
+done:
+    free_pm_var(pm_get_max_images()); close_single_image();
+    return 0;
+}
+int siril_image_advanced(SirilImage *image, const char *json, int preview,
+        int64_t *clipped, char *error, size_t capacity) {
+    if (error && capacity) error[0] = 0;
+    if (clipped) clipped[0] = clipped[1] = 0;
+    if (!image || image->fit.type != DATA_FLOAT || !image->fit.fdata || !json || strlen(json) > 2 * 1024 * 1024) return 0;
+    yyjson_doc *doc = yyjson_read(json, strlen(json), 0);
+    if (!doc) return 0;
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    const char *kind = yyjson_get_str(yyjson_obj_get(root, "kind"));
+    g_mutex_lock(&engine_mutex);
+    initialize();
+    int ok = kind && (!strcmp(kind, "curves") ? advanced_apply_curves(image, root, preview, clipped) :
+        !strcmp(kind, "pixelMath") && !preview ? advanced_apply_pm(image, root) : 0);
+    if (ok) {
+        size_t count = (size_t)image->fit.rx * image->fit.ry * image->fit.naxes[2];
+        for (size_t i = 0; i < count; i++) if (!isfinite(image->fit.fdata[i])) { ok = 0; break; }
+    }
+    if (g_atomic_int_get(&cancel_requested)) ok = 0;
+    if (!ok && error && capacity) snprintf(error, capacity,
+        "Original %s computation failed, was cancelled, or returned nonfinite pixels; see the processing log",
+        kind ? kind : "advanced tool");
+    g_mutex_unlock(&engine_mutex); yyjson_doc_free(doc);
+    return ok;
+}
+static int run_advanced_locked(const char *path, char *error, size_t capacity) {
+    if (!path || !gfit || !gfit->fdata) return 0;
+    if ((double)gfit->rx * gfit->ry * gfit->naxes[2] * sizeof(float) * 3 >
+            (double)get_available_memory() * 0.8) return 0;
+    FILE *file = fopen(path, "rb");
+    if (!file) return 0;
+    int ok = 0;
+    gchar *json = NULL;
+    SirilImage image = {0};
+    yyjson_doc *doc = NULL;
+    if (fseek(file, 0, SEEK_END)) goto done;
+    long size = ftell(file);
+    if (size <= 0 || size > 2 * 1024 * 1024 || fseek(file, 0, SEEK_SET)) goto done;
+    json = g_try_malloc(size + 1);
+    if (!json || fread(json, 1, size, file) != (size_t)size) goto done;
+    json[size] = 0;
+    doc = yyjson_read(json, size, 0);
+    if (!doc || copyfits(gfit, &image.fit, CP_ALLOC | CP_DEEPCOPY | CP_COPYMASK, 0)) goto done;
+    yyjson_val *root = yyjson_doc_get_root(doc);
+    const char *kind = yyjson_get_str(yyjson_obj_get(root, "kind"));
+    int64_t clip[2] = {0};
+    ok = kind && (!strcmp(kind, "curves") ? advanced_apply_curves(&image, root, 0, clip) :
+        !strcmp(kind, "pixelMath") ? advanced_apply_pm(&image, root) : 0);
+    if (ok) {
+        size_t n = (size_t)image.fit.rx * image.fit.ry * image.fit.naxes[2];
+        for (size_t i = 0; i < n; i++) if (!isfinite(image.fit.fdata[i])) { ok = 0; break; }
+    }
+    if (ok && !g_atomic_int_get(&cancel_requested)) {
+        ok = copyfits(&image.fit, gfit, CP_ALLOC | CP_DEEPCOPY | CP_COPYMASK, 0) == 0;
+        if (ok && !com.uniq) create_uniq_from_gfit(g_strdup("Native advanced result"), FALSE);
+        gchar *history = g_strdup_printf("Original %s; curve clipped low/high: %lld/%lld",
+            kind, (long long)clip[0], (long long)clip[1]);
+        gfit->history = g_slist_append(gfit->history, g_strdup(history));
+        capture_log(history, NULL); capture_log("\n", NULL); g_free(history);
+    } else ok = 0;
+done:
+    if (!ok && error && capacity) snprintf(error, capacity, "Advanced original worker/settings failed");
+    clearfits(&image.fit); if (doc) yyjson_doc_free(doc);
+    g_free(json); fclose(file);
+    return ok;
+}

@@ -34,6 +34,7 @@ extension SirilEngine {
         // but never accept foreign fields or nonfinite stored data.
         for recipe in history.past + [history.current] + history.future {
             guard Set(recipe.values.keys) == Set(recipe.tool.fields.map(\.id)), recipe.values.values.allSatisfy(\.isFinite), Set(recipe.mask.values.keys) == Set(ToolMask.fields.map(\.id)), recipe.mask.values.values.allSatisfy(\.isFinite) else { throw EngineError.failed("工具历史中的参数无效。") }
+            try recipe.validateAdvancedStorage()
         }
         if history.current.tool != tool { history.record(NativeToolRecipe(tool: tool, file: file)) }
         return history
@@ -44,6 +45,12 @@ extension SirilEngine {
     }
     func prepareNativeToolJob(file: FITSRecord, recipe: NativeToolRecipe, library: [FITSRecord]) throws -> ProcessingJob {
         var inputs = [file]
+        if recipe.tool == .pixelMath {
+            for binding in recipe.mathSettings.bindings {
+                guard let id = binding.imageID, let input = library.first(where: { $0.id == id }) else { throw EngineError.failed("像素数学图像已删除，请恢复或重新选择。") }
+                if !inputs.contains(where: { $0.id == id }) { inputs.append(input) }
+            }
+        }
         for id in [recipe.guideID, recipe.mask.number("mode") == 3 ? recipe.mask.sourceID : nil].compactMap({ $0 }) where !inputs.contains(where: { $0.id == id }) {
             guard let record = library.first(where: { $0.id == id }) else { throw EngineError.failed("蒙版或引导图已删除，请先恢复。") }; inputs.append(record)
         }
@@ -58,6 +65,10 @@ extension SirilEngine {
         if let id = recipe.guideID { script = script.replacingOccurrences(of: "guide.fits", with: try copied(id)) }
         if recipe.mask.number("mode") == 3, let id = recipe.mask.sourceID { script = script.replacingOccurrences(of: "mask-source.fits", with: try copied(id)) }
         let job = try prepareJob(files: inputs, script: script + "save process/result.fits\nclose\n")
+        let paths = try Dictionary(uniqueKeysWithValues: inputs.map { ($0.id, try copied($0.id)) })
+        if let json = try recipe.advancedSettings(paths: paths) {
+            try json.write(to: job.folder.appendingPathComponent("advanced-tool.json"), atomically: true, encoding: .utf8)
+        }
         if recipe.mask.number("mode") == 6 {
             let saved = try owned(file.url.lastPathComponent + ".mask.fits", under: documents.appendingPathComponent("FITS"))
             try FileManager.default.copyItem(at: saved, to: job.folder.appendingPathComponent("mask-source.fits"))
@@ -72,10 +83,10 @@ extension SirilEngine {
 actor NativeToolSession {
     private var folder: URL?
     private var source: FITSRecord?
-    private var original: OpaquePointer?, result: OpaquePointer?, maskImage: OpaquePointer?
+    private var original: OpaquePointer?, result: OpaquePointer?, maskImage: OpaquePointer?, rangeImage: OpaquePointer?
     private var computed: NativeToolRecipe?
     deinit {
-        for pointer in [original, result, maskImage].compactMap({ $0 }) { siril_image_free(pointer) }
+        for pointer in [original, result, maskImage, rangeImage].compactMap({ $0 }) { siril_image_free(pointer) }
         if let folder { try? FileManager.default.removeItem(at: folder) }
     }
     func open(_ file: FITSRecord) throws {
@@ -89,8 +100,8 @@ actor NativeToolSession {
         guard original != nil else { close(); throw EngineError.failed(String(cString: error)) }
     }
     func close() {
-        for pointer in [original, result, maskImage].compactMap({ $0 }) { siril_image_free(pointer) }
-        original = nil; result = nil; maskImage = nil; computed = nil; source = nil
+        for pointer in [original, result, maskImage, rangeImage].compactMap({ $0 }) { siril_image_free(pointer) }
+        original = nil; result = nil; maskImage = nil; rangeImage = nil; computed = nil; source = nil
         if let folder { try? FileManager.default.removeItem(at: folder) }; folder = nil
     }
     func compute(_ recipe: NativeToolRecipe, library: [FITSRecord]) throws {
@@ -115,13 +126,36 @@ actor NativeToolSession {
             try FileManager.default.copyItem(at: saved, to: target)
         }
         if let id = recipe.guideID, recipe.tool == .guided { try copyReference(id, name: "guide.fits", mask: false) }
+        var paths: [UUID: String] = [:]
+        if recipe.tool == .pixelMath {
+            for (index, binding) in recipe.mathSettings.bindings.enumerated() {
+                guard let id = binding.imageID else { throw EngineError.failed("请选择像素数学图像。") }
+                if paths[id] == nil {
+                    let name = String(format: "pm-%02d.fits", index + 1)
+                    try copyReference(id, name: name, mask: false); paths[id] = name
+                }
+            }
+        }
+        let advanced = try recipe.advancedSettings(paths: paths)
+        if let advanced { try advanced.write(to: folder.appendingPathComponent("advanced-tool.json"), atomically: true, encoding: .utf8) }
         var error = [CChar](repeating: 0, count: 4096); let size = error.count
         guard let output = folder.path.withCString({ directory in script.withCString { siril_tool_compute(directory, $0, &error, size) } }) else { throw EngineError.failed(String(cString: error)) }
-        if let result { siril_image_free(result) }; if let maskImage { siril_image_free(maskImage) }
+        var range: OpaquePointer?
+        if recipe.tool == .curves, recipe.curveSettings.current.channels[recipe.curveSettings.selectedChannel].rangeEnabled, let advanced {
+            let base = "set32bits\nload input.fits\n"
+            range = folder.path.withCString { directory in base.withCString { siril_tool_compute(directory, $0, &error, size) } }
+            var clip = [Int64](repeating: 0, count: 2)
+            guard let range, advanced.withCString({ siril_image_advanced(range, $0, 1, &clip, &error, size) }) != 0 else {
+                if let range { siril_image_free(range) }; siril_image_free(output)
+                throw EngineError.failed(String(cString: error))
+            }
+        }
+        if let result { siril_image_free(result) }; if let maskImage { siril_image_free(maskImage) }; if let rangeImage { siril_image_free(rangeImage) }
+        rangeImage = range
         result = output; maskImage = siril_image_mask_copy(output); computed = recipe
     }
     func preview(view: Int, channel: Int, automatic: Bool) throws -> PreviewBytes {
-        let pointer = view == 0 ? original : view == 2 ? maskImage : result
+        let pointer = view == 0 ? original : view == 2 ? (rangeImage ?? maskImage) : result
         guard let pointer else { throw EngineError.failed(view == 2 ? "当前没有蒙版。" : "请先计算预览。") }
         var info = SirilImageInfo(); _ = siril_image_info(pointer, &info)
         var p = SirilPreview()
@@ -130,12 +164,39 @@ actor NativeToolSession {
         return PreviewBytes(data: Data(bytes: rgba, count: Int(p.width) * Int(p.height) * 4), width: Int(p.width), height: Int(p.height))
     }
     func info(view: Int) throws -> SirilImageInfo {
-        let pointer = view == 0 ? original : view == 2 ? maskImage : result
+        let pointer = view == 0 ? original : view == 2 ? (rangeImage ?? maskImage) : result
         guard let pointer else { throw EngineError.failed("没有可读图像。") }
         var info = SirilImageInfo(); guard siril_image_info(pointer, &info) != 0 else { throw EngineError.failed("图像信息读取失败。") }; return info
     }
+    func curveHistograms(view: Int) throws -> [[UInt64]] {
+        guard let pointer = view == 0 ? original : result else { throw EngineError.failed("没有曲线直方图输入。") }
+        var counts = [UInt64](repeating: 0, count: 7 * 256)
+        guard siril_image_curve_histograms(pointer, &counts, 256) != 0 else { throw EngineError.failed("曲线直方图读取失败。") }
+        return (0..<7).map { Array(counts[($0 * 256)..<(($0 + 1) * 256)]) }
+    }
+    func curvePipette(_ recipe: CurveRecipe, x: Int, y: Int) throws -> Double {
+        let pixel: [Float]
+        if recipe.stages.isEmpty { pixel = try self.pixel(view: 0, x: x, y: y) }
+        else {
+            guard let folder else { throw EngineError.failed("曲线会话已关闭。") }
+            var input = recipe; input.current = CurveStage()
+            let json = String(data: try JSONEncoder().encode(input), encoding: .utf8)!
+            let base = "set32bits\nload input.fits\n"
+            var error = [CChar](repeating: 0, count: 1024); let size = error.count
+            guard let image = folder.path.withCString({ directory in base.withCString { siril_tool_compute(directory, $0, &error, size) } }) else { throw EngineError.failed(String(cString: error)) }
+            defer { siril_image_free(image) }
+            var clip = [Int64](repeating: 0, count: 2)
+            guard json.withCString({ siril_image_advanced(image, $0, 0, &clip, &error, size) }) != 0 else { throw EngineError.failed(String(cString: error)) }
+            var values = [Float](repeating: 0, count: 3)
+            let count = siril_image_pixel(image, Int32(x), Int32(y), &values)
+            guard count > 0 else { throw EngineError.failed("取样点超出原图。") }
+            pixel = Array(values.prefix(Int(count)))
+        }
+        let r = pixel[0], g = pixel.count == 3 ? pixel[1] : r, b = pixel.count == 3 ? pixel[2] : r
+        return Double(siril_curve_tone(Int32(recipe.selectedChannel), r, g, b))
+    }
     func pixel(view: Int, x: Int, y: Int) throws -> [Float] {
-        let pointer = view == 0 ? original : view == 2 ? maskImage : result
+        let pointer = view == 0 ? original : view == 2 ? (rangeImage ?? maskImage) : result
         guard let pointer else { throw EngineError.failed("没有可读图像。") }
         var values = [Float](repeating: 0, count: 3)
         let count = siril_image_pixel(pointer, Int32(x), Int32(y), &values)

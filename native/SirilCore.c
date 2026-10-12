@@ -908,6 +908,7 @@ void siril_release_workspace(void) {
     g_mutex_unlock(&engine_mutex);
 }
 
+static int run_advanced_locked(const char *path, char *error, size_t capacity);
 static int run_commands_locked(const char *directory, const char *script, char *error, size_t capacity) {
     if (error && capacity) error[0] = 0;
     if (!directory || !script) return 0;
@@ -948,8 +949,13 @@ static int run_commands_locked(const char *directory, const char *script, char *
         gboolean unsupported = line[0] == '@' || (count &&
             (!g_ascii_strcasecmp(word[0], "exit") || !g_ascii_strcasecmp(word[0], "livestack") ||
              !g_ascii_strcasecmp(word[0], "stop_ls")));
+        int result;
+        if (valid_name && !g_ascii_strcasecmp(word[0], "native_advanced") && count == 2) {
+            gchar *settings_path = g_shell_unquote(word[1], NULL);
+            result = run_advanced_locked(settings_path, error, capacity) ? CMD_OK : CMD_GENERIC_ERROR;
+            g_free(settings_path);
+        } else result = !valid_name ? CMD_NOT_FOUND : unsupported ? CMD_NOT_SCRIPTABLE : processcommand(line, TRUE);
         g_free(parsed);
-        int result = !valid_name ? CMD_NOT_FOUND : unsupported ? CMD_NOT_SCRIPTABLE : processcommand(line, TRUE);
         if (result || g_atomic_int_get(&cancel_requested)) {
             if (error && capacity) snprintf(error, capacity, "Line %zu: %s (%s)", i + 1,
                 line, g_atomic_int_get(&cancel_requested) ? "cancelled" : cmd_err_to_str(result));
@@ -1018,3 +1024,4 @@ SirilImage *siril_image_mask_copy(SirilImage *image) {
     g_mutex_unlock(&engine_mutex);
     return result;
 }
+#include "SirilAdvanced.inc"
