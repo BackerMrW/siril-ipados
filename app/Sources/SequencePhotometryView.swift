@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import SwiftUI
 import Charts
+import SirilCore
 
 struct SequencePhotometryView: View {
     let location: SequenceLocation
@@ -25,7 +26,10 @@ struct SequencePhotometryView: View {
                 }
             }
             .navigationTitle("序列 PSF、测光与光变").navigationBarTitleDisplayMode(.inline)
-            .toolbar { Button("关闭") { dismiss() }.disabled(busy) }
+             .toolbar {
+                Button("关闭") { dismiss() }.disabled(busy)
+                if busy { Button("中止", role: .destructive) { siril_cancel_processing() } }
+            }
             .task { await open() }
             .onChange(of: recipe.current) { _, _ in Task { await preview() } }
             .onChange(of: recipe.settings.channel) { _, _ in Task { await preview() } }
@@ -130,9 +134,14 @@ struct SequencePhotometryView: View {
             runs = try await engine.sequencePhotometryReports(location)
             if let latest = runs.last { load(latest) }
             if ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] == "photometry" {
-                guard snapshot != nil, image != nil else { throw EngineError.failed("Sequence photometry source did not load") }
+                guard let snapshot, image != nil else { throw EngineError.failed("Sequence photometry source did not load") }
+                let scale = Double(snapshot.info.width) / 256
+                recipe.regions = [ImageSelection(x: max(0, Int(30 * scale) - 25), y: max(0, Int(31 * scale) - 25), width: 51, height: 51)]
+                recipe.settings.inner = 18; recipe.settings.outer = 23; recipe.settings.aperture = 10
+                let output = try await engine.sequencePhotometry(location, recipe: recipe); load(output)
+                guard report?.rows.contains(where: { $0.measurement?.photometryValid == true }) == true else { throw EngineError.failed("Sequence view did not compute actual valid photometry") }
                 let marker = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-sequence-photometry-ready.txt")
-                try "PASS: native sequence photometry workspace loaded actual frame selection, original PSF/photometry controls and tracking modes.\n".write(to: marker, atomically: true, encoding: .utf8)
+                try "PASS: native sequence photometry workspace computed original per-frame photometry and loaded actual frame selection, controls, tracking modes and saved results.\n".write(to: marker, atomically: true, encoding: .utf8)
             }
         } catch { message = error.localizedDescription }
     }
@@ -142,13 +151,23 @@ struct SequencePhotometryView: View {
         catch { message = error.localizedDescription }
     }
     @MainActor private func save() {
-        guard var h = history else { return }; h.record(recipe)
-        Task { do { try await engine.savePhotometryHistory(h); history = h } catch { message = error.localizedDescription } }
+        guard !busy, var h = history else { return }; h.record(recipe); busy = true
+        Task {
+            defer { busy = false }
+            do { try await engine.savePhotometryHistory(h); history = h } catch { message = error.localizedDescription }
+        }
     }
     @MainActor private func step(redo: Bool) {
-        guard var h = history else { return }
+        guard !busy, var h = history else { return }
         if redo { h.redo() } else { h.undo() }
-        Task { do { try await engine.savePhotometryHistory(h); history = h; recipe = h.current; await preview() } catch { message = error.localizedDescription } }
+        busy = true
+        Task {
+            defer { busy = false }
+            do {
+                try await engine.savePhotometryHistory(h); history = h; recipe = h.current
+                image = try await engine.sequencePreview(location, index: recipe.current, channel: recipe.settings.channel).uiImage
+            } catch { message = error.localizedDescription }
+        }
     }
     @MainActor private func load(_ url: URL) {
         do {

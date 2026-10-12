@@ -75,6 +75,17 @@ extension SirilEngine {
             let r = try await analysis.fitStar(region: area, settings: settings)
             try require(r.channel == c && abs(r.amplitude - (0.2 + 0.1 * Double(c))) < 0.001, "original RGB channel selection")
         }
+        let cfa = try fixture("cfa", extra: ["BAYERPAT= 'BGGR'"]) { x, y, _ in Float(gaussian(x, y)) }
+        _ = try await analysis.open(cfa.url); settings = StarSettings()
+        let cfaStars = try await analysis.findStars(region: nil, settings: settings)
+        try require(cfaStars.contains(where: { abs($0.x - 40.5) < 0.3 && abs($0.y - 45.5) < 0.3 }), "original CFA green-interpolation finder")
+        var badSettings = settings; badSettings.sigma = .nan
+        var invalidSucceeded = false
+        do { _ = try await analysis.fitStar(region: area, settings: badSettings); invalidSucceeded = true } catch {}
+        try require(!invalidSucceeded, "nonfinite star settings accepted")
+        invalidSucceeded = false
+        do { _ = try await analysis.fitStar(region: ImageSelection(x: -1, y: 0, width: 71, height: 71), settings: settings); invalidSucceeded = true } catch {}
+        try require(!invalidSucceeded, "outside-image PSF region accepted")
         _ = try await analysis.open(gaussianFile.url); settings = StarSettings()
         let lst = folder.appendingPathComponent("stars.lst"), table = folder.appendingPathComponent("stars.fits")
         try await analysis.saveStars([measured], settings: settings, to: lst, fitsTable: false)
@@ -97,6 +108,34 @@ extension SirilEngine {
         try require(!fm.fileExists(atPath: try StarHistory.url(for: gaussianFile).path), "star sidecar left after gallery deletion")
         _ = try restoreTrash(trash.id)
         try require(try Data(contentsOf: StarHistory.url(for: gaussianFile)) == historyBytes && Data(contentsOf: gaussianFile.url) == sourceBytes, "star history/source byte-exact restoration")
+        // Five reference stars each lose a different frame: every reference
+        // passes the original 80% rule, but their simultaneous intersection is empty.
+        // The original engine must reject the curve without a zero-sized GSL plot.
+        var disjoint: [FITSRecord] = []
+        for frame in 0..<5 {
+            disjoint.append(try fixture("disjoint-\(frame)", w: 512, h: 96) { x, y, _ in
+                var signal = 0.03
+                for index in 0..<6 {
+                    let amplitude = index > 0 && index - 1 == frame ? 1.1 : 0.15
+                    signal += amplitude * exp(-(pow(Double(x - (40 + index * 80)), 2) + pow(Double(y - 45), 2)) / 18)
+                }
+                return Float(signal)
+            })
+        }
+        let disjointJob = try createSequence(files: disjoint)
+        defer { try? fm.removeItem(at: disjointJob.folder) }
+        guard let disjointLocation = sequenceLocations(job: disjointJob.folder.lastPathComponent).first else { throw EngineError.failed("Missing disjoint-reference sequence") }
+        var disjointRecipe = SequencePhotometryRecipe(); disjointRecipe.framing = 0; disjointRecipe.settings.aperture = 12
+        disjointRecipe.regions = (0..<6).map { ImageSelection(x: 5 + $0 * 80, y: 10, width: 71, height: 71) }
+        let disjointReportURL = try sequencePhotometry(disjointLocation, recipe: disjointRecipe)
+        let disjointReport = try JSONDecoder().decode(SequencePhotometryReport.self, from: Data(contentsOf: disjointReportURL.appendingPathComponent("report.json")))
+        for index in 1..<6 {
+            try require(disjointReport.rows.filter { $0.star == index && $0.measurement?.photometryValid == true }.count == 4, "disjoint references did not exercise the original 80% rule")
+        }
+        disjointRecipe.lightCurve = true; disjointRecipe.settings.forceRadius = false
+        var emptyCurveSucceeded = false
+        do { _ = try sequencePhotometry(disjointLocation, recipe: disjointRecipe); emptyCurveSucceeded = true } catch {}
+        try require(!emptyCurveSucceeded, "empty simultaneous reference intersection created a light curve")
         try await sequencePhotometrySelfTest(folder: folder, fixture: { name, factor, shift, minute in
             try fixture(name, w: 256, h: 128, extra: ["DATE-OBS= '2026-10-12T10:0\(minute):00.000'"]) { x, y, _ in
                 let dx = Double(x) - (64 + shift), dy = Double(y - 64)
@@ -124,6 +163,14 @@ extension SirilEngine {
         var recipe = SequencePhotometryRecipe()
         recipe.current = 0; recipe.framing = 1; recipe.lightCurve = true; recipe.settings.aperture = 12
         recipe.regions = [ImageSelection(x: 29, y: 29, width: 71, height: 71), ImageSelection(x: 157, y: 29, width: 71, height: 71)]
+        var edits = SequencePhotometryHistory(source: location)
+        edits.record(recipe)
+        var removed = recipe; removed.regions.removeLast(); edits.record(removed); edits.undo()
+        try savePhotometryHistory(edits)
+        let reopened = SirilEngine(); var restored = try await reopened.photometryHistory(location)
+        try require(restored.current == recipe && !restored.future.isEmpty, "persisted sequence region undo")
+        restored.redo(); try require(restored.current == removed, "sequence region redo")
+        restored.undo(); restored.record(SequencePhotometryRecipe()); try require(restored.future.isEmpty, "sequence photometry history branch")
         let result = try sequencePhotometry(location, recipe: recipe)
         let reportURL = result.appendingPathComponent("report.json")
         let report = try JSONDecoder().decode(SequencePhotometryReport.self, from: Data(contentsOf: reportURL))

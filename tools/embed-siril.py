@@ -334,3 +334,20 @@ needle = "    assert(blurredImage.d == 1);"
 assert text.count(needle) == 1
 text = text.replace(needle, needle + "\n    windowSize = std::min(windowSize, std::min(static_cast<int>(blurredImage.w), static_cast<int>(blurredImage.h)));\n")
 gf.write_text(text)
+
+# The original light-curve engine leaks its SNR scratch buffer and can enter
+# GSL/plot operations with zero simultaneous valid target/reference frames.
+# Preserve its reference selection and math; reject the empty dataset before
+# allocations/plotting and release the same scratch buffers on every path.
+photometry = source / "src/algos/photometry.c"
+text = photometry.read_text()
+start = text.index("int new_light_curve(")
+end = text.index("static gboolean end_light_curve_worker", start)
+body = text[start:end]
+needle = "\tint nb_valid_images = j;"
+assert body.count(needle) == 1
+body = body.replace(needle, needle + "\n\tif (!nb_valid_images) {\n\t\tfree(date); free(vmag); free(err); free(snr_opt);\n\t\tfree_siril_plot_data(spl_data);\n\t\treturn -1;\n\t}\n")
+needle = "\tfree(err);\n\treturn ret;"
+assert body.count(needle) == 1
+body = body.replace(needle, "\tfree(err);\n\tfree(snr_opt);\n\treturn ret;")
+photometry.write_text(text[:start] + body + text[end:])

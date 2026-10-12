@@ -133,12 +133,16 @@ struct StarAnalysisView: View {
         }.font(.caption).textSelection(.enabled)
     }
     private var csv: String {
-        "# source=\(file.displayName.replacingOccurrences(of: "\n", with: " ")) id=\(file.id)\n" +
-        columns.joined(separator: ",") + ",angular_x_arcsec,angular_y_arcsec,saturated,photometry_valid,magnitude_error,snr_dB,photometry_error\n" +
-        sorted.map { star in
-            star.fields.map { String(format: "%.12g", $0) }.joined(separator: ",") + "," +
-            [star.angularX, star.angularY, star.saturated ? 1 : 0, star.photometryValid ? 1 : 0, star.magnitudeError, star.snr, Double(star.photometryError)].map { String(format: "%.12g", $0) }.joined(separator: ",")
-        }.joined(separator: "\n") + "\n"
+        var lines = ["# source=\(file.displayName.replacingOccurrences(of: "\n", with: " ")) id=\(file.id)"]
+        lines.append(columns.joined(separator: ",") + ",angular_x_arcsec,angular_y_arcsec,saturated,photometry_valid,magnitude_error,snr_dB,photometry_error")
+        for star in sorted {
+            let extra: [Double] = [star.angularX, star.angularY, star.saturated ? 1.0 : 0.0,
+                star.photometryValid ? 1.0 : 0.0, star.magnitudeError, star.snr, Double(star.photometryError)]
+            let values: [Double] = star.fields + extra
+            let row = values.map { String(format: "%.12g", locale: Locale(identifier: "en_US_POSIX"), $0) }.joined(separator: ",")
+            lines.append(row)
+        }
+        return lines.joined(separator: "\n") + "\n"
     }
     @MainActor private func commit(_ value: StarEdit) {
         guard var h = history else { return }

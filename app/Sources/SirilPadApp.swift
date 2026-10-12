@@ -355,9 +355,15 @@ struct ContentView: View {
                 }
                 if let current = files.first(where: { $0.id == history.current }) { await loadPreview(current, navigation: false) }
                 if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1", let file = files.last {
-                    await loadPreview(file)
-                    imageSelection = ImageSelection(x: 24, y: 32, width: 80, height: 64)
                     analysisTab = Int(ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_TAB"] ?? "0") ?? 0
+                    if analysisTab == 3, let source = Bundle.main.url(forResource: "psf-gaussian", withExtension: "fits"),
+                       let starFile = try? await engine.importFile(source) {
+                        files.append(starFile); await loadPreview(starFile)
+                        imageSelection = ImageSelection(x: 6, y: 10, width: 71, height: 71)
+                    } else {
+                        await loadPreview(file)
+                        imageSelection = ImageSelection(x: 24, y: 32, width: 80, height: 64)
+                    }
                     showAnalysis = true
                 }
                 if ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_VIEW_CHECK"] == "1", let file = files.last {
