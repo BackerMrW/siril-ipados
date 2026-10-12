@@ -56,6 +56,7 @@ struct SequenceWorkspace: View {
     @State private var showStack = false
     @State private var showApply = false
     @State private var showBackground = false
+    @State private var showPhotometry = false
     @State private var backgroundRuns: [SequenceBackgroundRun] = []
     @State private var generated: SequenceLocation?
     @State private var flats: [FITSRecord] = []
@@ -88,6 +89,8 @@ struct SequenceWorkspace: View {
                 if let note = resultStatus?.note, !note.isEmpty { Text(note).font(.caption) }
             }.id("sequence-results")
             if let snapshot {
+                Section("PSF 与测光") { Button("选星、序列 PSF 与光变") { showPhotometry = true } }
+
                 Section("序列") {
                     Text(currentLocation.name).font(.headline)
                     LabeledContent("参与 / 总数", value: "\(snapshot.info.included) / \(snapshot.info.count)")
@@ -236,6 +239,9 @@ struct SequenceWorkspace: View {
                 } else if section == "outputs" {
                     showOutputs = true
                     return // The output manager checks live and recoverable files.
+                } else if section == "photometry" {
+                    showPhotometry = true
+                    return
                 } else if section == "background" {
                     backgroundSource = currentLocation; showBackground = true
                     return // The sheet writes readiness after its own real preview.
@@ -261,6 +267,7 @@ struct SequenceWorkspace: View {
             } }
             Button("取消", role: .cancel) { }
         } message: { Text("该任务中的所有序列和结果都将移入最近删除，可在存储管理中恢复。") }
+        .fullScreenCover(isPresented: $showPhotometry) { SequencePhotometryView(location: currentLocation, engine: engine) }
         .fullScreenCover(isPresented: $showBackground, onDismiss: { perform { let status = try await engine.sequenceResultStatus(location); await adopt(status) } }) {
             SequenceBackgroundView(location: backgroundSource ?? currentLocation, engine: engine) { output in
                 generated = output

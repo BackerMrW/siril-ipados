@@ -274,7 +274,8 @@ struct ContentView: View {
         }
         .fullScreenCover(isPresented: $showAnalysis) {
             if let file = activeFile {
-                ImageAnalysisView(file: file, selection: $imageSelection, initialTab: analysisTab)
+                if analysisTab == 3 { StarAnalysisView(file: file, selection: $imageSelection) }
+                else { ImageAnalysisView(file: file, selection: $imageSelection, initialTab: analysisTab) }
             }
         }
         .sheet(isPresented: $showTools, onDismiss: {
@@ -356,7 +357,7 @@ struct ContentView: View {
                 if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1", let file = files.last {
                     await loadPreview(file)
                     imageSelection = ImageSelection(x: 24, y: 32, width: 80, height: 64)
-                    analysisTab = 0
+                    analysisTab = Int(ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_TAB"] ?? "0") ?? 0
                     showAnalysis = true
                 }
                 if ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_VIEW_CHECK"] == "1", let file = files.last {
@@ -481,6 +482,7 @@ struct ContentView: View {
             try await engine.sequenceRegistrationSelfTest()
             try await engine.sequenceBackgroundSelfTest()
             try await engine.nativeToolSelfTest()
+            try await engine.starAnalysisSelfTest()
             guard processed.width == 2 && processed.height == 2 else { throw EngineError.failed("Batch output dimensions changed") }
             await loadPreview(processed)
             try await engine.saveLibrary([record, processed])

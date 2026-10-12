@@ -41,13 +41,13 @@
       "id": "win.psf",
       "title": "PSF",
       "group": "工作区与分析",
-      "status": "待移植或待逐项验证"
+      "status": "原版单星Gaussian/Moffat拟合与孔径测光已接入（其他交互/真机待验证）"
     },
     {
       "id": "win.seq-psf",
       "title": "PSF for the Sequence",
       "group": "工作区与分析",
-      "status": "待移植或待逐项验证"
+      "status": "原版序列PSF、选区跟踪、参与帧测光/报告与差分光变已接入（其他GUI细节待补）"
     },
     {
       "id": "win.pickstar",
@@ -323,7 +323,7 @@
       "id": "win.dyn-psf",
       "title": "Open Dynamic PSF dialog.",
       "group": "star",
-      "status": "待移植或待逐项验证"
+      "status": "原版星点检测、动态PSF表格/排序/多选/均值与导出、持久化删除撤销已接入（其他交互待补）"
     },
     {
       "id": "win.wavelets-processing",
@@ -575,7 +575,7 @@
       "id": "win.photometry",
       "title": "Switch to PSF/photometry mode. If a sequence is loaded, a right click on the displayed image applies the PSF/Photometry on the whole sequence.",
       "group": "工作区与分析",
-      "status": "待移植或待逐项验证"
+      "status": "单张孔径测光与序列原版PSF/差分光变已接入（标准星与其他分析交互待补）"
     },
     {
       "id": "win.cut",

@@ -81,7 +81,7 @@ extension SirilEngine {
         // Validate the complete batch before moving anything.
         let sources = try removed.flatMap { record -> [URL] in
             let source = try owned(record.url.lastPathComponent, under: documents.appendingPathComponent("FITS"))
-            let companions = try ["background.json", "tools.json", "mask.fits"].map { try owned(source.lastPathComponent + "." + $0, under: documents.appendingPathComponent("FITS")) }
+            let companions = try ["background.json", "tools.json", "stars.json", "mask.fits"].map { try owned(source.lastPathComponent + "." + $0, under: documents.appendingPathComponent("FITS")) }
             return [source] + companions.filter { FileManager.default.fileExists(atPath: $0.path) }
         }
         siril_release_workspace()
@@ -128,7 +128,7 @@ extension SirilEngine {
                 let destination = try owned(record.url.lastPathComponent, under: documents.appendingPathComponent("FITS"))
                 let source = try owned(record.url.lastPathComponent, under: payload)
                 if FileManager.default.fileExists(atPath: source.path) { try FileManager.default.moveItem(at: source, to: destination) }
-                for suffix in ["background.json", "tools.json", "mask.fits"] {
+                for suffix in ["background.json", "tools.json", "stars.json", "mask.fits"] {
                     let edits = try owned(source.lastPathComponent + "." + suffix, under: payload)
                     if FileManager.default.fileExists(atPath: edits.path) {
                         let target = try owned(edits.lastPathComponent, under: documents.appendingPathComponent("FITS"))
@@ -172,7 +172,7 @@ extension SirilEngine {
                 guard let original = try? owned(record.url.lastPathComponent, under: documents.appendingPathComponent("FITS")),
                       let payload, let trashed = try? owned(record.url.lastPathComponent, under: payload) else { pending.append(record); continue }
                 if FileManager.default.fileExists(atPath: original.path) {
-                    for suffix in ["background.json", "tools.json", "mask.fits"] {
+                    for suffix in ["background.json", "tools.json", "stars.json", "mask.fits"] {
                         let edits = try owned(original.lastPathComponent + "." + suffix, under: payload)
                         if FileManager.default.fileExists(atPath: edits.path) {
                             let target = try owned(edits.lastPathComponent, under: documents.appendingPathComponent("FITS"))

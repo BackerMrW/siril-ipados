@@ -37,6 +37,7 @@ struct ToolInventoryView: View {
                     Button("批处理与单张工具") { dismiss(); onProcessing() }
                     Button("统计 · Statistics") { dismiss(); onAnalysis(0) }
                     Button("直方图与像素读数") { dismiss(); onAnalysis(1) }
+                    Button("动态 PSF 与孔径测光") { dismiss(); onAnalysis(3) }.disabled(!canUseNativeTools)
                     Button("FITS 文件头 · FITS Header") { dismiss(); onAnalysis(2) }
                 }
                 ForEach(["拉伸", "颜色", "滤镜", "几何", "曲线与表达式", "频谱", "反卷积"], id: \.self) { group in
@@ -54,6 +55,8 @@ struct ToolInventoryView: View {
                         VStack(alignment: .leading, spacing: 5) {
                             if let tool = NativeTool.actions[entry.id] {
                                 Button(entry.title) { dismiss(); onNativeTool(tool) }.disabled(!canUseNativeTools)
+                            } else if ["win.psf", "win.dyn-psf", "win.photometry"].contains(entry.id) {
+                                Button(entry.title) { dismiss(); onAnalysis(3) }.disabled(!canUseNativeTools)
                             } else { Text(entry.title).font(.headline) }
                             Text(entry.status).font(.caption).foregroundStyle(.secondary)
                         }

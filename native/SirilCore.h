@@ -79,6 +79,45 @@ typedef struct {
     uint64_t total, good;
     double mean, median, sigma, average_deviation, mad, sqrt_bwmv, minimum, maximum, norm;
 } SirilChannelStatistics;
+/* Dynamic PSF / single-image aperture photometry. Coordinates are displayed
+ * pixel centres (index + .5), FWHM remains pixels, angular values are separate.
+ * profile: original Gaussian=0 / Moffat beta-free=1; beta-fixed is upstream TODO.
+ * finder bounds/defaults follow stars_list_window.ui and settings.c. */
+typedef struct {
+    int32_t channel, profile, convergence, radius, relax, maximum;
+    double sigma, minimum_roundness, maximum_roundness, minimum_beta;
+    double minimum_amplitude, maximum_amplitude, focal_length, pixel_size;
+} SirilStarFinder;
+typedef struct {
+    int32_t enabled, force_radius;
+    double gain, inner, outer, aperture, aperture_factor, minimum, maximum;
+} SirilPhotometry;
+typedef struct {
+    int32_t channel, profile, saturated, photometry_valid, photometry_error;
+    double x, y, background, amplitude, fwhm_x, fwhm_y, angular_x, angular_y;
+    double angle, beta, rmse, magnitude, magnitude_error, snr, ra, dec;
+} SirilStarMeasurement;
+const char *siril_psf_error_message(int code);
+int siril_image_fit_star(SirilImage *image, const SirilRegion *region,
+    const SirilStarFinder *finder, const SirilPhotometry *photometry,
+    SirilStarMeasurement *result, char *error, size_t capacity);
+/* Returns detected count (including legitimate empty result), or -1. Results
+ * are independently owned values. CFA detection uses original green interpolation. */
+int siril_image_find_stars(SirilImage *image, const SirilRegion *region,
+    const SirilStarFinder *finder, SirilStarMeasurement *results,
+    size_t capacity, char *error, size_t error_size);
+/* Original save_list / save_list_as_FITS_table, no overwrite. */
+int siril_image_save_stars(SirilImage *image, const char *path, int fits_table,
+    const SirilStarFinder *finder, const SirilStarMeasurement *results,
+    size_t count, char *error, size_t capacity);
+/* Original sequence PSF worker and original differential light-curve generator.
+ * Output is star-major, frame-minor; zero FWHM denotes no fit/excluded frame.
+ * framing = original 0 / follow-star 1 / registered 2. Up to 20 stars. The first
+ * is the variable, subsequent stars are references. curve_path may be NULL. */
+int siril_sequence_photometry(const char *directory, const char *name, int current,
+    int framing, const SirilRegion *regions, size_t stars, const SirilStarFinder *finder,
+    const SirilPhotometry *photometry, const char *curve_path,
+    SirilStarMeasurement *results, size_t count, char *error, size_t capacity);
 /* Original STATS_MAIN and CFA channel extraction, without changing image pixels.
  * Returns 1/3 channels, or zero on failure. CFA falls back to mono for <2px regions. */
 int siril_image_statistics(SirilImage *image, const SirilRegion *region, int per_cfa,

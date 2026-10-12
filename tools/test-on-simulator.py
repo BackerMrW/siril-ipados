@@ -120,7 +120,7 @@ subprocess.run(["xcrun", "simctl", "io", udid, "screenshot",
 # Open the shared analysis workspace on the persisted gradient, with a visible
 # selection. This launch checks its real SwiftUI/Canvas layout separately from
 # the numerical actor checks above, without re-running the processing pipeline.
-for tab, screenshot in ((0, "native-analysis-simulator.png"), (1, "native-histogram-simulator.png"), (2, "native-header-simulator.png")):
+for tab, screenshot in ((0, "native-analysis-simulator.png"), (1, "native-histogram-simulator.png"), (2, "native-header-simulator.png"), (3, "native-stars-simulator.png")):
     subprocess.run(["xcrun", "simctl", "terminate", udid, "com.backermrw.sirilpad"], check=True, timeout=30)
     ready = container / "Documents/simulator-analysis-ready.txt"
     ready.unlink(missing_ok=True)
@@ -153,7 +153,7 @@ for tab, screenshot in ((0, "native-analysis-simulator.png"), (1, "native-histog
                     str(root / "diagnostics" / screenshot)], check=True, timeout=30)
 
 # Load deletion/restore controls and the processing undo workspace in the real App.
-for feature in ("workspace", "storage", "batch", "batch-registration", "batch-stacking", "batch-drizzle", "sequence-frames", "sequence-quality", "sequence-registration", "sequence-apply", "sequence-background", "sequence-outputs", "sequence-results", "tools-ghs", "tools-masks", "tools-filters", "tools-geometry", "tools-curves", "tools-pixelmath", "tools-fft", "tools-fft-phase", "tools-fft-inverse", "tools-deconv", "tools-deconv-psf"):
+for feature in ("workspace", "storage", "batch", "batch-registration", "batch-stacking", "batch-drizzle", "sequence-frames", "sequence-quality", "sequence-registration", "sequence-apply", "sequence-background", "sequence-photometry", "sequence-outputs", "sequence-results", "tools-ghs", "tools-masks", "tools-filters", "tools-geometry", "tools-curves", "tools-pixelmath", "tools-fft", "tools-fft-phase", "tools-fft-inverse", "tools-deconv", "tools-deconv-psf"):
     subprocess.run(["xcrun", "simctl", "terminate", udid, "com.backermrw.sirilpad"], check=True, timeout=30)
     ready = container / f"Documents/simulator-{feature}-ready.txt"
     ready.unlink(missing_ok=True)

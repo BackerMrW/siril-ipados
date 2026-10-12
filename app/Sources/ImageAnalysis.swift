@@ -30,7 +30,7 @@ struct PixelReading: Sendable {
 // Own one full-resolution image for the entire workspace session. Repeated
 // pixel taps never reload FITS or read from the stretched/downsized preview.
 actor ImageAnalysisEngine {
-    private var image: OpaquePointer?
+    var image: OpaquePointer?
     deinit { if let image { siril_image_free(image) } }
 
     func open(_ url: URL) throws -> ImageDetails {

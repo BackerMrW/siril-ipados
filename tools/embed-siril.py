@@ -7,7 +7,7 @@ root = Path.cwd()
 source = root / "siril-src"
 destination = source / "src/ipados"
 destination.mkdir(exist_ok=True)
-for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "core-link-probe.c", "core-runtime-tests.c"):
+for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "core-link-probe.c", "core-runtime-tests.c"):
     shutil.copy2(root / "native" / name, destination / name)
 meson = source / "src/meson.build"
 text = meson.read_text()
