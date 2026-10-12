@@ -65,9 +65,29 @@ extension SirilEngine {
         try require(solveRejected, "missing target metadata must fail before downloading a catalog")
         try require(try Data(contentsOf: file.url) == sourceBytes, "failed plate solve changed input")
         checkpoint("PASS: plate solve degree coordinates, option encoding, persisted parameters, bundled TLS certificates and missing-metadata failure preserve original input")
+        var pcc = NativeToolRecipe(tool: .pcc, file: file)
+        pcc.values["catalog"] = 3
+        let pccCommands = try pcc.commands(file: file, topDown: true)
+        try require(pccCommands.contains("pcc -bgtol=2.8,2 -catalog=apass"), "PCC background tolerance or catalog encoding")
+        var spcc = NativeToolRecipe(tool: .spcc, file: file)
+        var spectral = SpectralSettings()
+        spectral.oscSensor = SpectralModels.names("OSC_SENSOR").first ?? ""
+        spcc.spectralSettings = spectral
+        let spccCommands = try spcc.commands(file: file, topDown: true)
+        try require(spccCommands.contains("\"-oscsensor=\(spectral.oscSensor)\"") && spccCommands.contains("\"-whiteref=Average Spiral Galaxy\""), "SPCC whole option quoting or white reference")
+        let savedSpectral = try JSONDecoder().decode(NativeToolRecipe.self, from: JSONEncoder().encode(spcc))
+        try require(savedSpectral == spcc, "SPCC spectral selection history")
+        spectral.oscSensor = "unknown camera"; spcc.spectralSettings = spectral
+        var spectralRejected = false
+        do { try spcc.validate(file: file) } catch { spectralRejected = true }
+        try require(spectralRejected, "unknown SPCC sensor accepted")
+        var pccRejected = false
+        do { try await session.compute(pcc, library: records) } catch { pccRejected = true }
+        try require(pccRejected, "PCC without WCS accepted")
+        checkpoint("PASS: PCC/SPCC settings, original spectral model list, whole-token quoting, persisted selections and missing-WCS rejection")
         // Every actual native tool must execute, return finite full-resolution
         // pixels and preserve the original. No fake success from command text.
-        for tool in NativeTool.allCases.filter({ $0 != .fftInverse && $0 != .plateSolve }) {
+        for tool in NativeTool.allCases.filter({ ![.fftInverse, .plateSolve, .pcc, .spcc].contains($0) }) {
             do {
                 checkpoint("START: native tool \(tool.rawValue)")
                 var recipe = NativeToolRecipe(tool: tool, file: file)

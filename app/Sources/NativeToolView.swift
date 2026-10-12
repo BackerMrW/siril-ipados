@@ -164,6 +164,13 @@ struct NativeToolView: View {
                     Text("已有 WCS 默认保留；打开重新解算可重新匹配。畸变模型随处理记录保存，原始 FITS 保留。")
                 }
             }
+            if recipe.tool == .spcc {
+                SpectralEditor(settings: Binding(get: { recipe.spectralSettings }, set: { recipe.spectralSettings = $0 }),
+                    mono: recipe.number("mono") == 1, dslr: true)
+            }
+            if [.pcc, .spcc].contains(recipe.tool) {
+                Section("测光颜色校准") { Text("需要具有 WCS 解算结果的 RGB 图像。原版引擎执行星表测光、颜色系数拟合与背景中和，处理日志保留结果。在线星表需要联网。") }
+            }
             if recipe.tool == .guided {
                 Section("引导图") {
                     Picker("引导来源", selection: $recipe.guideID) {
@@ -204,6 +211,14 @@ struct NativeToolView: View {
         }.disabled(busy || !loaded)
     }
     private var visibleToolFields: [ToolField] {
+        if [.pcc, .spcc].contains(recipe.tool) {
+            return recipe.tool.fields.filter {
+                if $0.id == "magnitude" { return recipe.number("magnitudeMode") != 0 }
+                if ["rwl", "gwl", "bwl", "rbw", "gbw", "bbw"].contains($0.id) { return recipe.number("narrowband") == 1 }
+                if ["height", "pressure"].contains($0.id) { return recipe.number("atmosphere") == 1 }
+                return true
+            }
+        }
         if recipe.tool == .plateSolve {
             return recipe.tool.fields.filter {
                 if ["ra", "dec"].contains($0.id) { return recipe.number("headerPosition") == 0 }

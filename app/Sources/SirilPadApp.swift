@@ -40,6 +40,17 @@ enum EngineError: LocalizedError {
 actor SirilEngine {
     var activeJobIDs: Set<String> = []
     init() {
+        let manager = FileManager.default
+        if let support = manager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            setenv("XDG_DATA_HOME", support.appendingPathComponent("Siril").path, 1)
+            setenv("XDG_CONFIG_HOME", support.appendingPathComponent("Siril/Config").path, 1)
+        }
+        if let caches = manager.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            setenv("XDG_CACHE_HOME", caches.appendingPathComponent("Siril").path, 1)
+        }
+        if let database = Bundle.main.url(forResource: "SPCC", withExtension: nil) {
+            setenv("SIRIL_SPCC_DIR", database.path, 1)
+        }
         if let certificates = Bundle.main.url(forResource: "cacert", withExtension: "pem") {
             setenv("CURL_CA_BUNDLE", certificates.path, 1)
         }

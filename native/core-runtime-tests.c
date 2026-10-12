@@ -12,6 +12,9 @@
 #include "algos/PSF.h"
 #include "algos/siril_wcs.h"
 #include "core/processing_thread.h"
+#include "core/siril_app_dirs.h"
+#include "algos/photometric_cc.h"
+#include "algos/spcc.h"
 #include <curl/curl.h>
 #include <sqlite3.h>
 #include <fitsio.h>
@@ -585,6 +588,17 @@ int main(int argc, char **argv) {
     SirilImage *image = siril_image_read(light, error, sizeof error);
     SirilImage *calibration = siril_image_read(dark, error, sizeof error);
     CHECK(image && calibration);
+    CHECK(siril_get_user_data_dir() && siril_get_spcc_repo_path());
+    CHECK(siril_run_commands(argv[1], "spcc_list monosensor\nspcc_list oscsensor\n", error, sizeof error));
+    CHECK(g_list_length(com.spcc_data.mono_sensors) == 15 && g_list_length(com.spcc_data.osc_sensors) == 51);
+    CHECK(g_list_length(com.spcc_data.wb_ref) == 147);
+    int sensor_index = get_favourite_spccobject(com.spcc_data.mono_sensors, "Generic mono sensor");
+    CHECK(sensor_index >= 0);
+    spcc_object *sensor = g_list_nth_data(com.spcc_data.mono_sensors, sensor_index);
+    CHECK(sensor && load_spcc_object_arrays(sensor));
+    CHECK(sensor->n > 2 && sensor->x && sensor->y);
+    spcc_object_free_arrays(sensor);
+    puts("PASS: sandbox data/cache paths and original SPCC metadata, camera lists, white references and spectral array loader");
     const char *tls_url = getenv("SIRIL_TLS_TEST_URL");
     CHECK(tls_url && getenv("SIRIL_TLS_WRONG_HOST") && getenv("SIRIL_TLS_UNTRUSTED_CA"));
     gsize response_length = 0; int network_error = 0;

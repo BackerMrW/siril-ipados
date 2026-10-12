@@ -5,6 +5,26 @@ import shutil
 
 root = Path.cwd()
 source = root / "siril-src"
+directories = source / "src/core/siril_app_dirs.c"
+text = directories.read_text()
+needle = 'static void search_for_spcc_repo_dir() {\n'
+assert text.count(needle) == 1
+text = text.replace(needle, needle + '''#ifdef OS_IOS
+    const gchar *bundled = g_getenv("SIRIL_SPCC_DIR");
+    if (bundled && g_file_test(bundled, G_FILE_TEST_IS_DIR)) {
+        siril_spcc_repo_dir = g_strdup(bundled);
+        return;
+    }
+#endif
+''')
+directories.write_text(text)
+commands = source / "src/core/command.c"
+text = commands.read_text()
+needle = 'if (oscsensor || mono_or_osc == 1) {'
+assert text.count(needle) == 1
+# Explicit sensor options must win over the desktop's saved camera mode.
+text = text.replace(needle, 'if (oscsensor || (!monosensor && mono_or_osc == 1)) {')
+commands.write_text(text)
 destination = source / "src/ipados"
 destination.mkdir(exist_ok=True)
 for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "core-link-probe.c", "core-runtime-tests.c"):

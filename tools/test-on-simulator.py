@@ -71,6 +71,10 @@ command = ["xcrun", "simctl", "spawn", udid, str(root / "siril-ios-build/src/sir
 try:
     result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=180,
         env=dict(os.environ, SIMCTL_CHILD_CURL_CA_BUNDLE=str(tls / "root.pem"),
+                 SIMCTL_CHILD_XDG_DATA_HOME=str(tls / "data"),
+                 SIMCTL_CHILD_XDG_CONFIG_HOME=str(tls / "config"),
+                 SIMCTL_CHILD_XDG_CACHE_HOME=str(tls / "cache"),
+                 SIMCTL_CHILD_SIRIL_SPCC_DIR=str(root / "app/Resources/SPCC"),
                  SIMCTL_CHILD_SIRIL_TLS_TEST_URL=f"https://localhost:{server.server_port}/catalog",
                  SIMCTL_CHILD_SIRIL_TLS_WRONG_HOST=f"https://127.0.0.1:{server.server_port}/catalog",
                  SIMCTL_CHILD_SIRIL_TLS_UNTRUSTED_CA=str(root / "app/Resources/cacert.pem")))

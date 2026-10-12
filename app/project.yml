@@ -10,6 +10,11 @@ targets:
       - path: Sources
       - path: TestAssets
       - path: Resources
+        excludes:
+          - SPCC
+      - path: Resources/SPCC
+        type: folder
+        buildPhase: resources
       - path: ../LICENSE.md
         buildPhase: resources
       - path: ../ThirdPartyLicenses

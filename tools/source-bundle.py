@@ -12,6 +12,7 @@ import urllib.request
 import zipfile
 
 GIT_SOURCES = [
+    ("Siril-SPCC-database", "https://gitlab.com/free-astro/siril-spcc-database.git", "87af70a92ec1d0ff780bd3ea833aaa7b3b169cc2", None),
     ("curl", "https://github.com/curl/curl.git", "01346829096c61b372692f6dc43ffa778c6caccd", None),
     ("MbedTLS", "https://github.com/Mbed-TLS/mbedtls.git", "068ff080b369adfac81509f9b57b2afabaf82dc5", None),
     ("MbedTLS-framework", "https://github.com/Mbed-TLS/mbedtls-framework.git", "dde0c4a0e448a0552f18817dcea633bb851fd288", None),

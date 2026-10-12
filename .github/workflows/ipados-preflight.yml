@@ -310,6 +310,7 @@ jobs:
       shell: bash
       run: |
         set -euo pipefail
+        python3 tools/prepare-spcc-resources.py
         brew install xcodegen
         xcodegen generate --spec app/project.yml
         destination='generic/platform=iOS'

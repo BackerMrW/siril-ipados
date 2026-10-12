@@ -7,10 +7,11 @@ enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
     case median, gaussian, unsharp, clahe, banding, bilateral, guided, denoise, wavelets
     case crop, rotate, rotate90, rotate270, rotate180, mirrorHorizontal, mirrorVertical, binning, resample
     case curves, pixelMath, fftDirect, fftInverse, deconvolution
-    case plateSolve
+    case plateSolve, pcc, spcc
     var id: String { rawValue }
     var title: String { switch self {
     case .plateSolve: return "天文解算 · Plate Solve"
+    case .pcc: return "测光颜色校准 · PCC"; case .spcc: return "分光测光颜色校准 · SPCC"
     case .deconvolution: return "反卷积与 PSF"
     case .fftDirect: return "傅里叶正变换 · FFT"; case .fftInverse: return "傅里叶逆变换 · FFT"
     case .curves: return "曲线变换 · VeraLux"; case .pixelMath: return "像素数学 · PixelMath"
@@ -26,7 +27,7 @@ enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
     case .mirrorHorizontal: return "水平镜像"; case .mirrorVertical: return "垂直镜像"; case .binning: return "合并像素 · Binning"; case .resample: return "重采样"
     } }
     var group: String { switch self {
-    case .plateSolve: return "天文分析"
+    case .plateSolve, .pcc, .spcc: return "天文分析"
     case .deconvolution: return "反卷积"
     case .fftDirect, .fftInverse: return "频谱"
     case .curves, .pixelMath: return "曲线与表达式"
@@ -35,9 +36,9 @@ enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
     case .median, .gaussian, .unsharp, .clahe, .banding, .bilateral, .guided, .denoise, .wavelets: return "滤镜"
     default: return "几何"
     } }
-    var rgbOnly: Bool { [.saturation, .greenNoise, .unpurple, .ccm].contains(self) }
-    var acceptsMask: Bool { ![.plateSolve, .fftDirect, .fftInverse, .curves, .pixelMath, .inverseMTF, .ccm, .banding, .wavelets].contains(self) && group != "几何" }
-    static let actions: [String: Self] = ["win.astrometry": .plateSolve, "win.histo-processing": .mtf, "win.asinh-processing": .asinh, "win.payne-processing": .ghs,
+    var rgbOnly: Bool { [.pcc, .spcc, .saturation, .greenNoise, .unpurple, .ccm].contains(self) }
+    var acceptsMask: Bool { ![.pcc, .spcc, .plateSolve, .fftDirect, .fftInverse, .curves, .pixelMath, .inverseMTF, .ccm, .banding, .wavelets].contains(self) && group != "几何" }
+    static let actions: [String: Self] = ["win.pcc-processing": .pcc, "win.spcc-processing": .spcc, "win.astrometry": .plateSolve, "win.histo-processing": .mtf, "win.asinh-processing": .asinh, "win.payne-processing": .ghs,
         "win.saturation-processing": .saturation, "win.remove-green-processing": .greenNoise, "win.negative-processing": .negative,
         "win.unpurple-processing": .unpurple, "win.ccm-processing": .ccm, "win.medianfilter-processing": .median,
         "win.clahe-processing": .clahe, "win.fix-banding-processing": .banding, "win.epf-processing": .bilateral,
@@ -69,12 +70,13 @@ extension NativeTool {
         let colour = c("colour", "颜色拉伸模型", ["独立通道", "人眼加权亮度", "等权亮度", "饱和度"], 0)
         let interp = c("interp", "插值", ["最近邻", "双线性", "双三次", "像素面积", "Lanczos4"], 4)
         switch self {
+        case .pcc, .spcc: return PhotometricFields.fields(for: self)
         case .plateSolve: return [b("headerPosition", "使用文件头目标坐标", true),
             n("ra", "赤经（度）", 0, 0, 359.999999, false), n("dec", "赤纬（度）", 0, -90, 90, false),
             b("headerOptics", "使用文件头焦距与像元", true), n("focal", "焦距 mm", 500, 0.001, 100000, false),
             n("pixel", "像元 µm", 3.76, 0.001, 100, false),
-            c("catalog", "星表", ["自动", "Tycho-2", "NOMAD", "Gaia DR3", "PPMXL", "明亮恒星 BSC", "APASS"]),
-            c("magnitudeMode", "极限星等", ["自动", "自动加偏移", "绝对星等"]),
+            c("catalog", "星表", ["自动", "Tycho-2", "NOMAD", "Gaia DR3", "PPMXL", "明亮恒星 BSC", "APASS"], 0),
+            c("magnitudeMode", "极限星等", ["自动", "自动加偏移", "绝对星等"], 0),
             n("magnitude", "星等 / 偏移", 0, -10, 30, false), n("order", "畸变阶数", 1, 1, 5, true),
             b("downscale", "降采样检测星点", false), b("autocrop", "大视场自动裁切", true),
             b("flip", "允许翻转镜像解算结果", true), b("force", "重新解算已有 WCS", false),
@@ -136,6 +138,7 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
     var psfID: UUID?
     var curves: CurveRecipe?
     var pixelMath: PixelMathRecipe?
+    var spectral: SpectralSettings?
     init(tool: NativeTool, file: FITSRecord) {
         self.tool = tool; values = Dictionary(uniqueKeysWithValues: tool.fields.map { ($0.id, $0.value) })
         if file.hasMask == true && ![.pixelMath, .fftDirect, .fftInverse].contains(tool) { mask.values["mode"] = 6 }
@@ -147,6 +150,8 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
     }
     func number(_ key: String) -> Double { values[key] ?? 0 }
     func validate(file: FITSRecord) throws {
+        if tool == .spcc { try spectralSettings.validate(mono: number("mono") == 1, dslr: true) }
+        if [.pcc, .spcc].contains(tool), number("magnitudeMode") == 2 && number("magnitude") < 0 { throw EngineError.failed("绝对极限星等必须非负。") }
         if tool == .plateSolve {
             if number("headerPosition") == 0 && number("ra") == 0 && number("dec") == 0 { throw EngineError.failed("原版解算器不接受赤经和赤纬同时为零的目标坐标。") }
             if number("magnitudeMode") == 2 && number("magnitude") < 0 { throw EngineError.failed("绝对极限星等必须非负；负值请使用自动加偏移模式。") }
@@ -190,6 +195,7 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
         let interp = ["nearest", "linear", "cubic", "area", "lanczos4"][Int(number("interp"))]
         var command: String
         switch tool {
+        case .pcc, .spcc: command = try photometricCommand()
         case .plateSolve:
             command = "platesolve"
             if !on("headerPosition") { command += " \(n("ra")),\(n("dec"))" }

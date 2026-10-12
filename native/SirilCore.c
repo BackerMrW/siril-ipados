@@ -22,6 +22,9 @@
 #include "core/icc_profile.h"
 #include "core/siril_log.h"
 #include "core/OS_utils.h"
+#include "core/siril_app_dirs.h"
+#include "algos/photometric_cc.h"
+#include "algos/spcc.h"
 #include "io/sequence.h"
 #include "io/single_image.h"
 #include "io/conversion.h"
@@ -69,7 +72,9 @@ static void initialize(void) {
         com.max_thread = 1;
         gsl_set_error_handler_off();
         siril_initialize_rng();
+        initialize_siril_directories();
         initialize_default_settings();
+        initialize_spcc_mirrors();
 #ifdef HAVE_LIBCURL
         curl_global_init(CURL_GLOBAL_ALL);
 #endif
@@ -966,7 +971,10 @@ static int run_commands_locked(const char *directory, const char *script, char *
             gchar *settings_path = g_shell_unquote(word[1], NULL);
             result = run_advanced_locked(settings_path, error, capacity) ? CMD_OK : CMD_GENERIC_ERROR;
             g_free(settings_path);
-        } else result = !valid_name ? CMD_NOT_FOUND : unsupported ? CMD_NOT_SCRIPTABLE : processcommand(line, TRUE);
+        } else {
+            if (valid_name && (!g_ascii_strcasecmp(word[0], "spcc") || !g_ascii_strcasecmp(word[0], "spcc_list"))) load_spcc_metadata_if_needed();
+            result = !valid_name ? CMD_NOT_FOUND : unsupported ? CMD_NOT_SCRIPTABLE : processcommand(line, TRUE);
+        }
         g_free(parsed);
         if (result || g_atomic_int_get(&cancel_requested)) {
             if (error && capacity) snprintf(error, capacity, "Line %zu: %s (%s)", i + 1,
