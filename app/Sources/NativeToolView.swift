@@ -34,7 +34,8 @@ struct NativeToolView: View {
     @State private var history: NativeToolHistory?
     @State private var library: [FITSRecord] = []
     @State private var sourceHeader = ""
-    @State private var kernelWidth = 1, kernelHeight = 1
+    @State private var kernelWidth = 1
+    @State private var kernelHeight = 1
     @State private var originalImage: UIImage?
     @State private var resultImage: UIImage?
     @State private var maskImage: UIImage?

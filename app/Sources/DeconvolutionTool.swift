@@ -6,9 +6,9 @@ import SwiftUI
 enum DeconvolutionFields {
     static var all: [ToolField] {
         let n = ToolField.number, c = ToolField.choice, b = ToolField.toggle
-        return [c("psfSource", "PSF 来源", ["盲估计", "图像星点", "手动模型", "图库 PSF"]),
+        return [c("psfSource", "PSF 来源", ["盲估计", "图像星点", "手动模型", "图库 PSF"], 0),
             b("estimateOnly", "仅生成 PSF", false), n("ks", "PSF 尺寸（奇数）", 15, 3, 9999, true),
-            c("profile", "手动模型", ["Gaussian", "Moffat", "Disc", "Airy"]),
+            c("profile", "手动模型", ["Gaussian", "Moffat", "Disc", "Airy"], 0),
             n("fwhm", "FWHM / Disc 直径（像素）", 3, 0.5, 10, false), n("ratio", "轴比", 1, 0.5, 2, false),
             n("angle", "PSF 角度（度）", 0, 0, 360, false), n("beta", "Moffat β", 4.5, 1.5, 10, false),
             n("diameter", "口径（mm）", 1, 1, 2000, false), n("focal", "焦距（mm）", 1, 1, 60000, false),
@@ -23,7 +23,7 @@ enum DeconvolutionFields {
             n("outer", "外层迭代", 3, 1, 10, true), n("inner", "内层迭代", 300, 1, 500, true),
             c("method", "反卷积方法", ["Split Bregman", "Richardson-Lucy", "Wiener"], 1), n("alpha", "反卷积正则化权重", 3000, 1, 50000, false),
             n("iterations", "反卷积迭代", 10, 1, 10000, true), c("rlMethod", "RL 算法", ["乘法", "梯度下降"], 1),
-            c("regularization", "RL 正则化", ["Total Variation", "Frobenius of Hessian", "无"]),
+            c("regularization", "RL 正则化", ["Total Variation", "Frobenius of Hessian", "无"], 0),
             b("stopping", "启用停止条件", false), n("stop", "停止距离", 0.002, 0.00001, 0.1, false), n("step", "梯度步长", 0.0003, 0.0001, 0.1, false)]
     }
     static func visible(_ values: [String: Double]) -> [ToolField] {
