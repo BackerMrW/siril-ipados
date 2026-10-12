@@ -264,3 +264,32 @@ static void ipad_jpeg_error_exit(j_common_ptr decoder) {
 }
 """
 formats.write_text(text[:start] + helper + reader + text[end:])
+
+# Keep the original FFTW kernels. Zero-amplitude spectra have zero modulus
+# and a neutral phase; avoid 0/0 while retaining the actual DFTNORM=0.
+fft = source / "src/filters/fft.c"
+text = fft.read_text()
+assert text.count("(modul[i] / maxi)") == 1
+text = text.replace("(modul[i] / maxi)", "(maxi > 0.f ? modul[i] / maxi : 0.f)")
+assert text.count("(modul[i] * USHRT_MAX_SINGLE / maxi)") == 1
+text = text.replace("(modul[i] * USHRT_MAX_SINGLE / maxi)", "(maxi > 0.f ? modul[i] * USHRT_MAX_SINGLE / maxi : 0.f)")
+# CP_COPYA copies pixels, not DFT keywords. The desktop helper accidentally
+# overwrites ord twice and writes global gfit even when given an owned image.
+start = text.index("static void save_dft_information_in_gfit(")
+end = text.index("static void FFTD_ushort", start)
+text = text[:start] + '''static void save_dft_information(fits *source, fits *target) {
+    strcpy(target->keywords.dft.type, source->keywords.dft.type);
+    strcpy(target->keywords.dft.ord, source->keywords.dft.ord);
+    for (int i = 0; i < source->naxes[2]; i++)
+        target->keywords.dft.norm[i] = source->keywords.dft.norm[i];
+}
+
+''' + text[end:]
+assert text.count("save_dft_information_in_gfit(tmp1);") == 1
+text = text.replace("save_dft_information_in_gfit(tmp1);", "save_dft_information(tmp1, fit);")
+# Inverse output is spatial, not a spectrum. Original CP_FORMAT doesn't clear
+# inherited DFT metadata from the opened magnitude image.
+needle = "\t\t/* Copy inverse transform result into fit for display */"
+assert text.count(needle) == 1
+text = text.replace(needle, "\t\tmemset(&fit->keywords.dft, 0, sizeof(fit->keywords.dft));\n" + needle)
+fft.write_text(text)

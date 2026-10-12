@@ -389,6 +389,11 @@ struct ContentView: View {
             busy = true
             defer { busy = false }
             do {
+                let phase = result.deletingLastPathComponent().appendingPathComponent("fft-phase.fits")
+                if result.lastPathComponent == "result.fits", FileManager.default.fileExists(atPath: phase.path) {
+                    let phaseRecord = try await engine.importFile(phase, role: .results)
+                    files.append(phaseRecord)
+                }
                 var record = try await engine.importFile(result, role: .results)
                 record.parentID = parent
                 files.append(record)

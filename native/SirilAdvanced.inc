@@ -210,6 +210,58 @@ done:
     free_pm_var(pm_get_max_images()); close_single_image();
     return 0;
 }
+#include "filters/fft.h"
+static int advanced_apply_fft(SirilImage *image, yyjson_val *root) {
+    gboolean inverse = yyjson_get_bool(yyjson_obj_get(root, "inverse"));
+    const char *modulus = yyjson_get_str(yyjson_obj_get(root, "modulus"));
+    const char *phase = yyjson_get_str(yyjson_obj_get(root, "phase"));
+    double order;
+    if (!modulus || !*modulus || !phase || !*phase || !strcmp(modulus, phase) ||
+            !advanced_number(root, "order", 0, 1, &order) || order != floor(order)) return 0;
+    /* The original worker holds spatial/frequency planes and both spectra.
+     * Account for them before allocating, including already-owned previews. */
+    double required = (double)image->fit.rx * image->fit.ry *
+        (image->fit.naxes[2] * 4 * sizeof(float) + 2 * sizeof(fftwf_complex) + 2 * sizeof(float));
+    if (required > (double)get_available_memory() * 0.8) {
+        capture_log("Not enough remaining iPad memory for FFT spectra/work buffers.\n", NULL); return 0;
+    }
+    fits a = {0}, p = {0};
+    int valid = 1;
+    if (inverse) {
+        valid = !readfits(modulus, &a, NULL, FALSE) && !readfits(phase, &p, NULL, FALSE);
+        if (valid) valid = a.rx == p.rx && a.ry == p.ry && a.naxes[2] == p.naxes[2] &&
+            a.rx == image->fit.rx && a.ry == image->fit.ry && a.naxes[2] == image->fit.naxes[2] &&
+            a.bitpix == p.bitpix && a.type == DATA_FLOAT && p.type == DATA_FLOAT &&
+            !strcmp(a.keywords.dft.type, "SPECTRUM") && !strcmp(p.keywords.dft.type, "PHASE") &&
+            (!strcmp(a.keywords.dft.ord, "CENTERED") || !strcmp(a.keywords.dft.ord, "REGULAR")) &&
+            !strcmp(a.keywords.dft.ord, p.keywords.dft.ord);
+        if (valid) for (int c = 0; c < a.naxes[2]; c++)
+            if (!isfinite(a.keywords.dft.norm[c]) || a.keywords.dft.norm[c] < 0) valid = 0;
+        if (valid) {
+            size_t n = (size_t)a.rx * a.ry * a.naxes[2];
+            for (size_t i = 0; i < n; i++) if (!isfinite(a.fdata[i]) || !isfinite(p.fdata[i])) { valid = 0; break; }
+        }
+        clearfits(&a); clearfits(&p);
+        if (!valid) {
+            capture_log("FFT needs matching SPECTRUM/PHASE dimensions, channels, depth, order and finite normalization.\n", NULL);
+            return 0;
+        }
+    }
+    if (g_atomic_int_get(&cancel_requested)) return 0;
+    struct fft_data args = { .fit = &image->fit, .type = inverse ? "ffti" : "fftd",
+        .modulus = (gchar *)modulus, .phase = (gchar *)phase, .type_order = (int)order };
+    struct generic_img_args worker = { .user = &args };
+    int ok = fft_image_hook(&worker, &image->fit, 1) == 0;
+    if (!inverse && ok) {
+        valid = !readfits(modulus, &a, NULL, FALSE) && !readfits(phase, &p, NULL, FALSE);
+        if (valid) {
+            size_t n = (size_t)a.rx * a.ry * a.naxes[2];
+            for (size_t i = 0; i < n; i++) if (!isfinite(a.fdata[i]) || !isfinite(p.fdata[i])) { valid = 0; break; }
+        }
+        clearfits(&a); clearfits(&p); ok = valid;
+    }
+    return ok && !g_atomic_int_get(&cancel_requested);
+}
 int siril_image_advanced(SirilImage *image, const char *json, int preview,
         int64_t *clipped, char *error, size_t capacity) {
     if (error && capacity) error[0] = 0;
@@ -222,6 +274,7 @@ int siril_image_advanced(SirilImage *image, const char *json, int preview,
     g_mutex_lock(&engine_mutex);
     initialize();
     int ok = kind && (!strcmp(kind, "curves") ? advanced_apply_curves(image, root, preview, clipped) :
+        !strcmp(kind, "fft") && !preview ? advanced_apply_fft(image, root) :
         !strcmp(kind, "pixelMath") && !preview ? advanced_apply_pm(image, root) : 0);
     if (ok) {
         size_t count = (size_t)image->fit.rx * image->fit.ry * image->fit.naxes[2];
@@ -256,6 +309,7 @@ static int run_advanced_locked(const char *path, char *error, size_t capacity) {
     const char *kind = yyjson_get_str(yyjson_obj_get(root, "kind"));
     int64_t clip[2] = {0};
     ok = kind && (!strcmp(kind, "curves") ? advanced_apply_curves(&image, root, 0, clip) :
+        !strcmp(kind, "fft") ? advanced_apply_fft(&image, root) :
         !strcmp(kind, "pixelMath") ? advanced_apply_pm(&image, root) : 0);
     if (ok) {
         size_t n = (size_t)image.fit.rx * image.fit.ry * image.fit.naxes[2];

@@ -100,9 +100,9 @@ struct NativeToolView: View {
     private var canvas: some View {
         VStack(spacing: 8) {
             Picker("预览", selection: $view) {
-                Text("原图").tag(0); Text("处理结果").tag(1); Text("蒙版").tag(2)
+                Text("原图").tag(0); Text("处理结果").tag(1); Text("蒙版").tag(2); if recipe.tool == .fftDirect { Text("相位谱").tag(3) }
             }.pickerStyle(.segmented).padding(.horizontal)
-            let image = view == 0 ? originalImage : view == 2 ? maskImage : resultImage
+            let image = view == 0 ? originalImage : (view == 2 || view == 3) ? maskImage : resultImage
             if let image {
                 ZoomableImageCanvas(image: image, samples: [], imageWidth: Double(view == 0 ? file.width : resultWidth), imageHeight: Double(view == 0 ? file.height : resultHeight), region: view == 0 ? region : nil, selecting: selecting && view == 0,
                     onSelection: { selection in
@@ -140,6 +140,18 @@ struct NativeToolView: View {
                 PixelMathEditor(settings: Binding(get: { recipe.mathSettings }, set: { recipe.mathSettings = $0 }), library: library, file: file)
             } else {
                 Section("参数") { ToolFieldControls(fields: visibleToolFields, values: $recipe.values) }
+            }
+            if recipe.tool == .fftInverse {
+                Section("配对频谱") {
+                    Text("当前图像作为幅度谱；选择相同尺寸、通道、位深和频谱顺序的相位谱。由原版 FITS 头中的 DFT 归一化系数恢复幅度。")
+                    Picker("相位谱", selection: $recipe.phaseID) {
+                        Text("请选择").tag(UUID?.none)
+                        ForEach(library.filter { $0.width == file.width && $0.height == file.height && $0.channels == file.channels }) { item in Text(item.displayName).tag(Optional(item.id)) }
+                    }
+                }
+            }
+            if recipe.tool == .fftDirect {
+                Section { Text("应用会分别保存幅度谱和相位谱并加入图库。幅度谱作为处理结果，原图保留；逆变换时打开幅度谱并选择配对相位谱。") }
             }
             if recipe.tool == .guided {
                 Section("引导图") {
@@ -219,7 +231,7 @@ struct NativeToolView: View {
             if recipe.tool == .curves { originalCurveHistograms = try await session.curveHistograms(view: 0) }
             if ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_VIEW_CHECK"] == "1" {
                 let section = ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_SECTION"] ?? "ghs"
-                recipe = NativeToolRecipe(tool: section == "curves" ? .curves : section == "pixelmath" ? .pixelMath : section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)
+                recipe = NativeToolRecipe(tool: section == "fft" ? .fftDirect : section == "curves" ? .curves : section == "pixelmath" ? .pixelMath : section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)
                 if section == "ghs" { recipe.values["D"] = 1.2; recipe.values["SP"] = 0.1 }
                 if section == "masks" { recipe.mask.values["mode"] = 1; recipe.mask.values["invert"] = 1 }
                 if section == "geometry" { recipe.values["x"] = 16; recipe.values["y"] = 24; recipe.values["width"] = 96; recipe.values["height"] = 80 }

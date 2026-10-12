@@ -34,5 +34,5 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Siril iPad
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        MARKETING_VERSION: "0.16.0"
-        CURRENT_PROJECT_VERSION: "17"
+        MARKETING_VERSION: "0.17.0"
+        CURRENT_PROJECT_VERSION: "18"

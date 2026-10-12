@@ -51,7 +51,7 @@ extension SirilEngine {
                 if !inputs.contains(where: { $0.id == id }) { inputs.append(input) }
             }
         }
-        for id in [recipe.guideID, recipe.mask.number("mode") == 3 ? recipe.mask.sourceID : nil].compactMap({ $0 }) where !inputs.contains(where: { $0.id == id }) {
+        for id in [recipe.phaseID, recipe.guideID, recipe.mask.number("mode") == 3 ? recipe.mask.sourceID : nil].compactMap({ $0 }) where !inputs.contains(where: { $0.id == id }) {
             guard let record = library.first(where: { $0.id == id }) else { throw EngineError.failed("蒙版或引导图已删除，请先恢复。") }; inputs.append(record)
         }
         let image = try read(file.url); defer { siril_image_free(image) }
@@ -67,7 +67,7 @@ extension SirilEngine {
         let job = try prepareJob(files: inputs, script: script + "save process/result.fits\nclose\n")
         let paths = try Dictionary(uniqueKeysWithValues: inputs.map { ($0.id, try copied($0.id)) })
         if let json = try recipe.advancedSettings(paths: paths) {
-            try json.write(to: job.folder.appendingPathComponent("advanced-tool.json"), atomically: true, encoding: .utf8)
+            try json.replacingOccurrences(of: "input.fits", with: try copied(file.id)).write(to: job.folder.appendingPathComponent("advanced-tool.json"), atomically: true, encoding: .utf8)
         }
         if recipe.mask.number("mode") == 6 {
             let saved = try owned(file.url.lastPathComponent + ".mask.fits", under: documents.appendingPathComponent("FITS"))
@@ -83,16 +83,17 @@ extension SirilEngine {
 actor NativeToolSession {
     private var folder: URL?
     private var source: FITSRecord?
-    private var original: OpaquePointer?, result: OpaquePointer?, maskImage: OpaquePointer?, rangeImage: OpaquePointer?
+    private var original: OpaquePointer?, result: OpaquePointer?, maskImage: OpaquePointer?, rangeImage: OpaquePointer?, phaseImage: OpaquePointer?
     private var computed: NativeToolRecipe?
     deinit {
-        for pointer in [original, result, maskImage, rangeImage].compactMap({ $0 }) { siril_image_free(pointer) }
+        for pointer in [original, result, maskImage, rangeImage, phaseImage].compactMap({ $0 }) { siril_image_free(pointer) }
         if let folder { try? FileManager.default.removeItem(at: folder) }
     }
     func open(_ file: FITSRecord) throws {
         close()
         let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("NativeTools").appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: cache.appendingPathComponent("process"), withIntermediateDirectories: true)
         folder = cache; source = file
         try FileManager.default.copyItem(at: file.url, to: cache.appendingPathComponent("input.fits"))
         var error = [CChar](repeating: 0, count: 512); let size = error.count
@@ -100,8 +101,8 @@ actor NativeToolSession {
         guard original != nil else { close(); throw EngineError.failed(String(cString: error)) }
     }
     func close() {
-        for pointer in [original, result, maskImage, rangeImage].compactMap({ $0 }) { siril_image_free(pointer) }
-        original = nil; result = nil; maskImage = nil; rangeImage = nil; computed = nil; source = nil
+        for pointer in [original, result, maskImage, rangeImage, phaseImage].compactMap({ $0 }) { siril_image_free(pointer) }
+        original = nil; result = nil; maskImage = nil; rangeImage = nil; phaseImage = nil; computed = nil; source = nil
         if let folder { try? FileManager.default.removeItem(at: folder) }; folder = nil
     }
     func compute(_ recipe: NativeToolRecipe, library: [FITSRecord]) throws {
@@ -136,10 +137,18 @@ actor NativeToolSession {
                 }
             }
         }
+        if recipe.tool == .fftInverse, let id = recipe.phaseID {
+            try copyReference(id, name: "fft-input-phase.fits", mask: false); paths[id] = "fft-input-phase.fits"
+        }
         let advanced = try recipe.advancedSettings(paths: paths)
         if let advanced { try advanced.write(to: folder.appendingPathComponent("advanced-tool.json"), atomically: true, encoding: .utf8) }
         var error = [CChar](repeating: 0, count: 4096); let size = error.count
         guard let output = folder.path.withCString({ directory in script.withCString { siril_tool_compute(directory, $0, &error, size) } }) else { throw EngineError.failed(String(cString: error)) }
+        var phase: OpaquePointer?
+        if recipe.tool == .fftDirect {
+            phase = folder.appendingPathComponent("process/fft-phase.fits").path.withCString { siril_image_read($0, &error, size) }
+            guard phase != nil else { siril_image_free(output); throw EngineError.failed("原版 FFT 相位谱读取失败。") }
+        }
         var range: OpaquePointer?
         if recipe.tool == .curves, recipe.curveSettings.current.channels[recipe.curveSettings.selectedChannel].rangeEnabled, let advanced {
             let base = "set32bits\nload input.fits\n"
@@ -151,11 +160,12 @@ actor NativeToolSession {
             }
         }
         if let result { siril_image_free(result) }; if let maskImage { siril_image_free(maskImage) }; if let rangeImage { siril_image_free(rangeImage) }
+        if let phaseImage { siril_image_free(phaseImage) }; phaseImage = phase
         rangeImage = range
         result = output; maskImage = siril_image_mask_copy(output); computed = recipe
     }
     func preview(view: Int, channel: Int, automatic: Bool) throws -> PreviewBytes {
-        let pointer = view == 0 ? original : view == 2 ? (rangeImage ?? maskImage) : result
+        let pointer = view == 0 ? original : view == 3 ? phaseImage : view == 2 ? (rangeImage ?? maskImage) : result
         guard let pointer else { throw EngineError.failed(view == 2 ? "当前没有蒙版。" : "请先计算预览。") }
         var info = SirilImageInfo(); _ = siril_image_info(pointer, &info)
         var p = SirilPreview()
@@ -164,7 +174,7 @@ actor NativeToolSession {
         return PreviewBytes(data: Data(bytes: rgba, count: Int(p.width) * Int(p.height) * 4), width: Int(p.width), height: Int(p.height))
     }
     func info(view: Int) throws -> SirilImageInfo {
-        let pointer = view == 0 ? original : view == 2 ? (rangeImage ?? maskImage) : result
+        let pointer = view == 0 ? original : view == 3 ? phaseImage : view == 2 ? (rangeImage ?? maskImage) : result
         guard let pointer else { throw EngineError.failed("没有可读图像。") }
         var info = SirilImageInfo(); guard siril_image_info(pointer, &info) != 0 else { throw EngineError.failed("图像信息读取失败。") }; return info
     }
@@ -203,7 +213,7 @@ actor NativeToolSession {
         return Double(siril_curve_tone(Int32(recipe.selectedChannel), r, g, b))
     }
     func pixel(view: Int, x: Int, y: Int) throws -> [Float] {
-        let pointer = view == 0 ? original : view == 2 ? (rangeImage ?? maskImage) : result
+        let pointer = view == 0 ? original : view == 3 ? phaseImage : view == 2 ? (rangeImage ?? maskImage) : result
         guard let pointer else { throw EngineError.failed("没有可读图像。") }
         var values = [Float](repeating: 0, count: 3)
         let count = siril_image_pixel(pointer, Int32(x), Int32(y), &values)
@@ -213,6 +223,9 @@ actor NativeToolSession {
         guard let result, computed == recipe else { throw EngineError.failed("参数已改变或计算失败，请重新计算预览再应用。") }
         let output = job.folder.appendingPathComponent("process/result.fits")
         guard output.path.withCString({ siril_image_write(result, $0) }) != 0 else { throw EngineError.failed("原版 FITS 导出失败。") }
+        if recipe.tool == .fftDirect {
+            guard let phaseImage, job.folder.appendingPathComponent("process/fft-phase.fits").path.withCString({ siril_image_write(phaseImage, $0) }) != 0 else { throw EngineError.failed("相位谱另存失败，FFT 输出尚未完成。") }
+        }
         if let maskImage {
             let mask = output.appendingPathExtension("mask.fits")
             guard mask.path.withCString({ siril_image_write(maskImage, $0) }) != 0 else { throw EngineError.failed("蒙版保存失败；图像已保存，请查看处理记录。") }

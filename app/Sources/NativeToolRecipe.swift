@@ -6,9 +6,10 @@ enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
     case saturation, greenNoise, negative, unpurple, ccm
     case median, gaussian, unsharp, clahe, banding, bilateral, guided, denoise, wavelets
     case crop, rotate, rotate90, rotate270, rotate180, mirrorHorizontal, mirrorVertical, binning, resample
-    case curves, pixelMath
+    case curves, pixelMath, fftDirect, fftInverse
     var id: String { rawValue }
     var title: String { switch self {
+    case .fftDirect: return "傅里叶正变换 · FFT"; case .fftInverse: return "傅里叶逆变换 · FFT"
     case .curves: return "曲线变换 · VeraLux"; case .pixelMath: return "像素数学 · PixelMath"
     case .mtf: return "直方图变换 · MTF"; case .inverseMTF: return "反向 MTF"
     case .asinh: return "Asinh 拉伸"; case .ghs: return "广义双曲拉伸 · GHS"; case .inverseGHS: return "反向 GHS"
@@ -22,6 +23,7 @@ enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
     case .mirrorHorizontal: return "水平镜像"; case .mirrorVertical: return "垂直镜像"; case .binning: return "合并像素 · Binning"; case .resample: return "重采样"
     } }
     var group: String { switch self {
+    case .fftDirect, .fftInverse: return "频谱"
     case .curves, .pixelMath: return "曲线与表达式"
     case .mtf, .inverseMTF, .asinh, .ghs, .inverseGHS, .modifiedAsinh, .inverseModifiedAsinh, .linearStretch, .automatic, .automaticGHS: return "拉伸"
     case .saturation, .greenNoise, .negative, .unpurple, .ccm: return "颜色"
@@ -29,7 +31,7 @@ enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
     default: return "几何"
     } }
     var rgbOnly: Bool { [.saturation, .greenNoise, .unpurple, .ccm].contains(self) }
-    var acceptsMask: Bool { ![.curves, .pixelMath, .inverseMTF, .ccm, .banding, .wavelets].contains(self) && group != "几何" }
+    var acceptsMask: Bool { ![.fftDirect, .fftInverse, .curves, .pixelMath, .inverseMTF, .ccm, .banding, .wavelets].contains(self) && group != "几何" }
     static let actions: [String: Self] = ["win.histo-processing": .mtf, "win.asinh-processing": .asinh, "win.payne-processing": .ghs,
         "win.saturation-processing": .saturation, "win.remove-green-processing": .greenNoise, "win.negative-processing": .negative,
         "win.unpurple-processing": .unpurple, "win.ccm-processing": .ccm, "win.medianfilter-processing": .median,
@@ -37,7 +39,7 @@ enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
         "win.denoise-processing": .denoise, "win.wavelets-processing": .wavelets, "win.crop": .crop,
         "win.rotation-processing": .rotate, "win.rotation90-processing": .rotate90, "win.rotation270-processing": .rotate270,
         "win.mirrorx-processing": .mirrorHorizontal, "win.mirrory-processing": .mirrorVertical, "win.binning-processing": .binning, "win.resample-processing": .resample,
-        "win.curves-processing": .curves, "win.pixel-math": .pixelMath]
+        "win.fft-processing": .fftDirect, "win.curves-processing": .curves, "win.pixel-math": .pixelMath]
 }
 
 struct ToolField: Identifiable, Sendable {
@@ -62,6 +64,8 @@ extension NativeTool {
         let colour = c("colour", "颜色拉伸模型", ["独立通道", "人眼加权亮度", "等权亮度", "饱和度"], 0)
         let interp = c("interp", "插值", ["最近邻", "双线性", "双三次", "像素面积", "Lanczos4"], 4)
         switch self {
+        case .fftDirect: return [c("order", "频谱顺序", ["中心化", "常规"], 0)]
+        case .fftInverse: return []
         case .mtf, .inverseMTF: return [n("low", "黑点", 0, 0, 1, false), n("mid", "中间调", 0.5, 0.000001, 0.999999, false), n("high", "白点", 1, 0, 1, false), channels]
         case .asinh: return [n("stretch", "拉伸系数", 1, 1, 1000, false), n("offset", "黑点偏移", 0, 0, 0.2, false), b("human", "人眼加权亮度", true), clipping]
         case .ghs, .inverseGHS, .modifiedAsinh, .inverseModifiedAsinh:
@@ -112,11 +116,12 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
     var values: [String: Double]
     var mask = ToolMask()
     var guideID: UUID?
+    var phaseID: UUID?
     var curves: CurveRecipe?
     var pixelMath: PixelMathRecipe?
     init(tool: NativeTool, file: FITSRecord) {
         self.tool = tool; values = Dictionary(uniqueKeysWithValues: tool.fields.map { ($0.id, $0.value) })
-        if file.hasMask == true && tool != .pixelMath { mask.values["mode"] = 6 }
+        if file.hasMask == true && ![.pixelMath, .fftDirect, .fftInverse].contains(tool) { mask.values["mode"] = 6 }
         if tool == .curves { curves = CurveRecipe() }
         if tool == .pixelMath { pixelMath = PixelMathRecipe() }
         if tool == .crop { values["width"] = Double(file.width); values["height"] = Double(file.height) }
@@ -125,6 +130,7 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
     }
     func number(_ key: String) -> Double { values[key] ?? 0 }
     func validate(file: FITSRecord) throws {
+        if tool == .fftInverse && phaseID == nil { throw EngineError.failed("请选择与当前幅度谱配对的相位谱。") }
         if tool == .curves { try curveSettings.validate() }
         if tool == .pixelMath { try mathSettings.validate() }
         guard !tool.rgbOnly || file.channels == 3 else { throw EngineError.failed("此工具需要 RGB 三通道图像。") }
@@ -154,7 +160,7 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
         let interp = ["nearest", "linear", "cubic", "area", "lanczos4"][Int(number("interp"))]
         var command: String
         switch tool {
-        case .curves, .pixelMath: command = "native_advanced advanced-tool.json"
+        case .fftDirect, .fftInverse, .curves, .pixelMath: command = "native_advanced advanced-tool.json"
         case .mtf, .inverseMTF: command = "\(tool == .mtf ? "mtf" : "invmtf") \(n("low")) \(n("mid")) \(n("high")) \(channel)"
         case .asinh: command = "asinh \(on("human") ? "-human " : "")\(n("stretch")) \(n("offset")) -clipmode=\(clip)"
         case .ghs, .inverseGHS, .modifiedAsinh, .inverseModifiedAsinh:

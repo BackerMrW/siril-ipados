@@ -365,7 +365,7 @@
       "id": "win.fft-processing",
       "title": "Fourier Transform...",
       "group": "filters",
-      "status": "待移植或待逐项验证"
+      "status": "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     },
     {
       "id": "win.medianfilter-processing",

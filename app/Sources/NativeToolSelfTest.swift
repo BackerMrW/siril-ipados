@@ -46,7 +46,7 @@ extension SirilEngine {
         }
         // Every actual native tool must execute, return finite full-resolution
         // pixels and preserve the original. No fake success from command text.
-        for tool in NativeTool.allCases {
+        for tool in NativeTool.allCases.filter({ $0 != .fftInverse }) {
             do {
                 checkpoint("START: native tool \(tool.rawValue)")
                 var recipe = NativeToolRecipe(tool: tool, file: file)
@@ -130,6 +130,9 @@ extension SirilEngine {
         var tooLargeRejected = false
         do { try await session.compute(oversized, library: records) } catch { tooLargeRejected = true }
         try require(tooLargeRejected, "oversized resampling attempted an unsafe allocation")
+        checkpoint("START: original FFT with independent direct DFT")
+        jobs += try await fftToolSelfTest()
+        checkpoint("PASS: native tool fftInverse; original FFT mono/RGB centered/regular odd rectangular and black images, independent DFT modulus/phase, full inverse round-trip, saved pair/script replay, stale/malformed pair rejection, persisted pair undo/redo and task delete/restore")
         checkpoint("START: original advanced curves and PixelMath")
         jobs += try await advancedToolsSelfTest(file: file, values: values, width: width, height: height, x: x, y: y)
         checkpoint("PASS: original curves/interpolators/L-C-S channels/stages/range masks and PixelMath RGB/statistics/variables/parameters/three-expression composition/constant rescaling/failure guards; saved script replay and restored advanced history")

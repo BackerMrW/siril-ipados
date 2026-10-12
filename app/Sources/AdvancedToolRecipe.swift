@@ -136,6 +136,16 @@ extension NativeToolRecipe {
     var curveSettings: CurveRecipe { get { curves ?? CurveRecipe() } set { curves = newValue } }
     var mathSettings: PixelMathRecipe { get { pixelMath ?? PixelMathRecipe() } set { pixelMath = newValue } }
     func advancedSettings(paths: [UUID: String] = [:]) throws -> String? {
+        if tool == .fftDirect || tool == .fftInverse {
+            let inverse = tool == .fftInverse
+            let phase: String
+            if inverse {
+                guard let id = phaseID, let path = paths[id] else { throw EngineError.failed("相位谱已删除或未选择，请先恢复或重新选择。") }; phase = path
+            } else { phase = "process/fft-phase.fits" }
+            let json: [String: Any] = ["kind": "fft", "inverse": inverse, "order": number("order"),
+                "modulus": inverse ? "input.fits" : "process/fft-modulus.fits", "phase": phase]
+            return String(data: try JSONSerialization.data(withJSONObject: json, options: .sortedKeys), encoding: .utf8)
+        }
         if tool == .curves {
             try curveSettings.validate()
             return String(data: try JSONEncoder().encode(curveSettings), encoding: .utf8)
