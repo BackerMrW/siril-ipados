@@ -7,6 +7,7 @@
 #include "core/masks.h"
 #include "io/image_format_fits.h"
 #include "filters/mtf.h"
+#include "filters/deconvolution/deconvolution.h"
 #include "algos/siril_random.h"
 #include "algos/background_extraction.h"
 #include "algos/demosaicing.h"
@@ -904,6 +905,7 @@ void siril_release_workspace(void) {
     if (initialized) {
         close_sequence(FALSE);
         close_single_image();
+        reset_conv_kernel();
     }
     g_mutex_unlock(&engine_mutex);
 }

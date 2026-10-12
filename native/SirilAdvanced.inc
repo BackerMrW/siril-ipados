@@ -44,6 +44,7 @@ static gboolean advanced_number(yyjson_val *object, const char *name,
     *value = yyjson_get_num(v);
     return isfinite(*value) && *value >= low && *value <= high;
 }
+#include "SirilDeconvolution.inc"
 static struct curve_params *advanced_curve(yyjson_val *stage) {
     double algorithm;
     yyjson_val *channels = yyjson_obj_get(stage, "channels");
@@ -284,6 +285,7 @@ int siril_image_advanced(SirilImage *image, const char *json, int preview,
     g_mutex_lock(&engine_mutex);
     initialize();
     int ok = kind && (!strcmp(kind, "curves") ? advanced_apply_curves(image, root, preview, clipped) :
+        !strcmp(kind, "deconvolution") && !preview ? advanced_apply_deconv(image, root) :
         !strcmp(kind, "fft") && !preview ? advanced_apply_fft(image, root) :
         !strcmp(kind, "pixelMath") && !preview ? advanced_apply_pm(image, root) : 0);
     if (ok) {
@@ -323,6 +325,7 @@ static int run_advanced_locked(const char *path, char *error, size_t capacity) {
     const char *kind = yyjson_get_str(yyjson_obj_get(root, "kind"));
     int64_t clip[2] = {0};
     ok = kind && (!strcmp(kind, "curves") ? advanced_apply_curves(&image, root, 0, clip) :
+        !strcmp(kind, "deconvolution") ? advanced_apply_deconv(&image, root) :
         !strcmp(kind, "fft") ? advanced_apply_fft(&image, root) :
         !strcmp(kind, "pixelMath") ? advanced_apply_pm(&image, root) : 0);
     if (ok) {

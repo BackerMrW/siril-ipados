@@ -33,6 +33,8 @@ struct NativeToolView: View {
     @State private var recipe: NativeToolRecipe
     @State private var history: NativeToolHistory?
     @State private var library: [FITSRecord] = []
+    @State private var sourceHeader = ""
+    @State private var kernelWidth = 1, kernelHeight = 1
     @State private var originalImage: UIImage?
     @State private var resultImage: UIImage?
     @State private var maskImage: UIImage?
@@ -100,11 +102,11 @@ struct NativeToolView: View {
     private var canvas: some View {
         VStack(spacing: 8) {
             Picker("预览", selection: $view) {
-                Text("原图").tag(0); Text("处理结果").tag(1); Text("蒙版").tag(2); if recipe.tool == .fftDirect { Text("相位谱").tag(3) }
+                Text("原图").tag(0); Text("处理结果").tag(1); Text("蒙版").tag(2); if recipe.tool == .fftDirect { Text("相位谱").tag(3) }; if recipe.tool == .deconvolution { Text("PSF").tag(4) }
             }.pickerStyle(.segmented).padding(.horizontal)
-            let image = view == 0 ? originalImage : (view == 2 || view == 3) ? maskImage : resultImage
+            let image = view == 0 ? originalImage : (view == 2 || view == 3 || view == 4) ? maskImage : resultImage
             if let image {
-                ZoomableImageCanvas(image: image, samples: [], imageWidth: Double(view == 0 ? file.width : resultWidth), imageHeight: Double(view == 0 ? file.height : resultHeight), region: view == 0 ? region : nil, selecting: selecting && view == 0,
+                ZoomableImageCanvas(image: image, samples: [], imageWidth: Double(view == 0 ? file.width : view == 4 ? kernelWidth : resultWidth), imageHeight: Double(view == 0 ? file.height : view == 4 ? kernelHeight : resultHeight), region: view == 0 ? region : nil, selecting: selecting && view == 0,
                     onSelection: { selection in
                         region = selection
                         if recipe.tool == .crop {
@@ -131,14 +133,16 @@ struct NativeToolView: View {
                 Text("每次预览从未修改的输入计算。改参数会清除旧预览；应用保存当前计算结果和蒙版，原图保留。")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            if recipe.tool == .curves {
+            if recipe.tool == .deconvolution {
+                DeconvolutionEditor(recipe: $recipe, library: library, header: sourceHeader)
+            } else if recipe.tool == .curves {
                 CurveEditor(settings: Binding(get: { recipe.curveSettings }, set: { recipe.curveSettings = $0 }),
                             pipetteEnabled: $curvePipette, pipetteValue: curveTone,
                             histograms: validPreview && view != 0 ? resultCurveHistograms : originalCurveHistograms,
                             isRGB: file.channels == 3)
             } else if recipe.tool == .pixelMath {
                 PixelMathEditor(settings: Binding(get: { recipe.mathSettings }, set: { recipe.mathSettings = $0 }), library: library, file: file)
-            } else {
+            } else if !recipe.tool.fields.isEmpty {
                 Section("参数") { ToolFieldControls(fields: visibleToolFields, values: $recipe.values) }
             }
             if recipe.tool == .fftInverse {
@@ -225,13 +229,24 @@ struct NativeToolView: View {
             library = await engine.loadLibrary()
             history = try await engine.nativeToolHistory(file, tool: initialTool)
             recipe = history!.current
+            if recipe.tool == .fftInverse, recipe.phaseID == nil, let pair = file.spectrumPairID {
+                recipe.phaseID = library.first(where: { $0.spectrumPairID == pair && $0.url.lastPathComponent.hasSuffix("fft-phase.fits") })?.id
+                history?.record(recipe)
+            }
             try await session.open(file)
+            sourceHeader = try await session.header(view: 0)
             let bytes = try await session.preview(view: 0, channel: channel, automatic: automatic)
             originalImage = bytes.uiImage; loaded = true
             if recipe.tool == .curves { originalCurveHistograms = try await session.curveHistograms(view: 0) }
             if ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_VIEW_CHECK"] == "1" {
                 let section = ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_SECTION"] ?? "ghs"
-                recipe = NativeToolRecipe(tool: section == "fft-inverse" ? .fftInverse : section.hasPrefix("fft") ? .fftDirect : section == "curves" ? .curves : section == "pixelmath" ? .pixelMath : section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)
+                recipe = NativeToolRecipe(tool: section.hasPrefix("deconv") ? .deconvolution : section == "fft-inverse" ? .fftInverse : section.hasPrefix("fft") ? .fftDirect : section == "curves" ? .curves : section == "pixelmath" ? .pixelMath : section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)
+                if section.hasPrefix("deconv") {
+                    recipe.values["psfSource"] = 2; recipe.values["ks"] = 9
+                    recipe.values["profile"] = section == "deconv-psf" ? 1 : 0
+                    recipe.values["estimateOnly"] = section == "deconv-psf" ? 1 : 0
+                    recipe.values["method"] = 1; recipe.values["iterations"] = 2
+                }
                 if section == "fft-inverse" { recipe.phaseID = library.last(where: { $0.url.lastPathComponent.hasSuffix("fft-phase.fits") })?.id }
                 if section == "ghs" { recipe.values["D"] = 1.2; recipe.values["SP"] = 0.1 }
                 if section == "masks" { recipe.mask.values["mode"] = 1; recipe.mask.values["invert"] = 1 }
@@ -251,11 +266,15 @@ struct NativeToolView: View {
                 if recipe.tool == .curves { resultCurveHistograms = try await session.curveHistograms(view: 1) }
                 resultImage = try await session.preview(view: 1, channel: -1, automatic: false).uiImage
                 if recipe.mask.number("mode") != 0 || section == "curves" { maskImage = try await session.preview(view: 2, channel: -1, automatic: false).uiImage }
-                view = section == "fft-phase" ? 3 : section == "masks" ? 2 : section == "geometry" ? 0 : 1; validPreview = true
+                if recipe.tool == .deconvolution {
+                    let kernel = try await session.info(view: 4); kernelWidth = Int(kernel.width); kernelHeight = Int(kernel.height)
+                    maskImage = try await session.preview(view: 4, channel: -1, automatic: false).uiImage
+                }
+                view = section == "deconv-psf" ? 4 : section == "fft-phase" ? 3 : section == "masks" ? 2 : section == "geometry" ? 0 : 1; validPreview = true
                 if section == "geometry" { region = ImageSelection(x: 16, y: 24, width: 96, height: 80); selecting = true }
                 guard originalImage != nil, resultImage != nil, section != "masks" || maskImage != nil else { throw EngineError.failed("Native tool preview image missing") }
                 try? await Task.sleep(for: .milliseconds(500))
-                guard validPreview, resultImage != nil, section != "fft-phase" || maskImage != nil else { throw EngineError.failed("Native tool controls invalidated the computed preview") }
+                guard validPreview, resultImage != nil, !["fft-phase", "deconv-psf"].contains(section) || maskImage != nil else { throw EngineError.failed("Native tool controls invalidated the computed preview") }
                 let marker = await engine.documents.appendingPathComponent("simulator-tools-\(section)-ready.txt")
                 try "PASS: native tools \(section) loaded original parameters, computed pixels and preview/apply controls.\n".write(to: marker, atomically: true, encoding: .utf8)
             }
@@ -318,7 +337,11 @@ struct NativeToolView: View {
                 if current.mask.number("mode") != 0 || (current.tool == .curves && current.curveSettings.current.channels[current.curveSettings.selectedChannel].rangeEnabled) {
                     maskImage = try await session.preview(view: 2, channel: -1, automatic: false).uiImage
                 } else { maskImage = nil }
-                validPreview = recipe == current; view = 1
+                if current.tool == .deconvolution {
+                    let kernel = try await session.info(view: 4); kernelWidth = Int(kernel.width); kernelHeight = Int(kernel.height)
+                    maskImage = try await session.preview(view: 4, channel: -1, automatic: false).uiImage
+                }
+                validPreview = recipe == current; view = current.tool == .deconvolution && current.number("estimateOnly") == 1 ? 4 : 1
             } catch { message = error.localizedDescription; resultImage = nil; maskImage = nil; view = 0 }
         }
     }

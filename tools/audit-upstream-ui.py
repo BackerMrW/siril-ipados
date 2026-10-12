@@ -55,7 +55,7 @@ for obj in main.iter("object"):
         "win.image-information": "只读元数据已接入（原版编辑仍待接入）",
         "win.histo_display": "直方图分析窗口已接入（工作区叠加仍待接入）",
     }
-    native_tools = {"histo-processing", "asinh-processing", "payne-processing", "saturation-processing", "remove-green-processing", "negative-processing", "unpurple-processing", "ccm-processing", "medianfilter-processing", "clahe-processing", "fix-banding-processing", "epf-processing", "denoise-processing", "wavelets-processing", "crop", "rotation-processing", "rotation90-processing", "rotation270-processing", "mirrorx-processing", "mirrory-processing", "binning-processing", "resample-processing", "curves-processing", "pixel-math", "fft-processing"}
+    native_tools = {"histo-processing", "asinh-processing", "payne-processing", "saturation-processing", "remove-green-processing", "negative-processing", "unpurple-processing", "ccm-processing", "medianfilter-processing", "clahe-processing", "fix-banding-processing", "epf-processing", "denoise-processing", "wavelets-processing", "crop", "rotation-processing", "rotation90-processing", "rotation270-processing", "mirrorx-processing", "mirrory-processing", "binning-processing", "resample-processing", "curves-processing", "pixel-math", "fft-processing", "deconvolution-processing"}
     if action.removeprefix("win.") in native_tools:
         connected[action] = "原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证）"
     state = connected.get(action, "简化参数界面，未达到原版完整功能" if action.removeprefix("win.") in partial else "待移植或待逐项验证")
@@ -85,7 +85,7 @@ lines += ["", "## 完成标准", "", "每项需有原版入口对应、参数与
           "序列工作区已接入原版逐帧读取、缩放/通道显示、单帧/范围参与切换、参考帧、12种质量/统计轴、原版两遍配准测量、序列统计和CSV；选择/参考帧支持跨重启撤销重做及中断恢复；重新叠加保留旧结果并复用输入。可直接按参与帧与质量筛选应用已有配准，设置输出范围/倍率/插值/钳位或 Drizzle 核/像素比例/主平场/权重位深，打开独立输出序列继续叠加；任务整体删除恢复包含全部序列和权重。单份配准/Drizzle/背景输出可独立删除、撤销、恢复与永久清理，使用原版文件名并包含权重和编辑历史，保护源/其他输出/叠加结果和后续依赖；中断删除回滚，中断恢复继续。配准/Drizzle/背景处理结果支持30步跨关闭撤销/重做，按来源记录恢复原图/输出链，真实切换整组像素、尺寸与通道，保留权重；新处理清除重做分支；删除当前输出回退到可用前序，恢复后可重做。叠加结果切换与蒙版撤销仍待接入。", "",
           "批处理仍缺：其他原版序列交互/测光、PSF/DFT/KOMBAT 配准、畸变/外部参考、合成偏置和 BPM 文件入口、偏移合成/重叠归一化/羽化/叠加时放大，以及全部 GUI 默认值对应。真实相机数据上的坏点修正、X-Trans 和 CFA 均衡仍需专项验证；不能把命令参数接出视为全功能完成。", "",
           "共享分析工作区已接入矩形选区、完整分辨率像素读数、原版 STATS_MAIN 八项统计及归一化/CFA 开关、原版整图/选区直方图和完整文件头查看/搜索/复制。选区目前用于分析；处理 ROI、蒙版、多边形选择、关键字编辑、文件信息编辑和直方图变换仍待移植。", "",
-          "原生工具工作区接入37个原版工具：MTF/反向MTF、Asinh、GHS/反向GHS、修正Asinh及反向、线性/自动MTF/自动GHS、饱和度/SCNR/负片/去紫/CCM、中值/高斯/反锐化/CLAHE/条纹/双边/引导/NL-Bayes/小波、裁剪/任意角旋转/直角旋转/镜像/合并像素/重采样、曲线/像素数学、FFT正向/逆向。具备未改动输入快照、完整分辨率原版计算、原图/结果/蒙版比较、另存、30步跨关闭参数历史及共享图像结果撤销。原版亮度/通道/颜色/星点/外部图像蒙版与阈值/模糊/羽化/反转/乘法已接入；保存的蒙版随图像、几何变换和删除恢复保留。处理ROI、多边形、所有原版GUI细节和序列应用仍未完成。", "",
+          "原生工具工作区接入38个原版工具：MTF/反向MTF、Asinh、GHS/反向GHS、修正Asinh及反向、线性/自动MTF/自动GHS、饱和度/SCNR/负片/去紫/CCM、中值/高斯/反锐化/CLAHE/条纹/双边/引导/NL-Bayes/小波、裁剪/任意角旋转/直角旋转/镜像/合并像素/重采样、曲线/像素数学、FFT正向/逆向、反卷积/PSF。具备未改动输入快照、完整分辨率原版计算、原图/结果/蒙版比较、另存、30步跨关闭参数历史及共享图像结果撤销。原版亮度/通道/颜色/星点/外部图像蒙版与阈值/模糊/羽化/反转/乘法已接入；保存的蒙版随图像、几何变换和删除恢复保留。处理ROI、多边形、所有原版GUI细节和序列应用仍未完成。", "",
           "背景提取已接入原版采样和图像 hook：增删/选择采样、自动/随机采样、RBF/1–4 阶多项式、减法/除法、抖动、自动渐变完整参数、原图/模型/结果预览与另存。校正结果支持共享 FITS 撤销/重做；采样点可拖动并重读原图中值，采样/参数修改支持30步跨重启撤销/重做、分支清除与滑块/拖动合并。编辑记录随图库文件删除/恢复/永久清理。序列应用接入原版 GUI worker：每帧重新采样、Bayer 四子通道处理、完整采样/自动模型参数、减法/除法与抖动；预览调用相同序列 hook，新输出独立命名并检查全部参与帧，部分失败保留日志与输出但不报全部完成。序列参数30步撤销/重做跨关闭保存，随任务删除恢复；单份输出独立删除/撤销/恢复已接入存储管理；关闭校正页切换到完成输出，整组结果支持30步跨关闭撤销/重做，重复从同一来源应用不会混成串行链；删除当前结果回退，恢复后可重做。", ""]
 (root / "docs/FUNCTIONAL-PARITY.md").write_text("\n".join(lines))
 print(f"Inventoried {len(entries)} actions and {len(panels)} UI files")

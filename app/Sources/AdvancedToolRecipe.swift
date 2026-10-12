@@ -136,6 +136,13 @@ extension NativeToolRecipe {
     var curveSettings: CurveRecipe { get { curves ?? CurveRecipe() } set { curves = newValue } }
     var mathSettings: PixelMathRecipe { get { pixelMath ?? PixelMathRecipe() } set { pixelMath = newValue } }
     func advancedSettings(paths: [UUID: String] = [:]) throws -> String? {
+        if tool == .deconvolution {
+            var json: [String: Any] = ["kind": "deconvolution", "values": values, "maskAware": mask.number("mode") != 0]
+            if number("psfSource") == 3 {
+                guard let id = psfID, let path = paths[id] else { throw EngineError.failed("PSF 图像已删除或未选择。") }; json["psfPath"] = path
+            }
+            return String(data: try JSONSerialization.data(withJSONObject: json, options: .sortedKeys), encoding: .utf8)
+        }
         if tool == .fftDirect || tool == .fftInverse {
             let inverse = tool == .fftInverse
             let phase: String

@@ -22,12 +22,17 @@ extension SirilEngine {
     func importNativeResult(_ result: URL, parent: UUID?) throws -> [FITSRecord] {
         var records: [FITSRecord] = []
         do {
-            let phase = result.deletingLastPathComponent().appendingPathComponent("fft-phase.fits")
-            if result.lastPathComponent == "result.fits", FileManager.default.fileExists(atPath: phase.path) {
-                records.append(try importFile(phase, role: .results))
+            if result.lastPathComponent == "result.fits" {
+                for name in ["fft-phase.fits", "native-psf.fits"] {
+                    let auxiliary = result.deletingLastPathComponent().appendingPathComponent(name)
+                    if FileManager.default.fileExists(atPath: auxiliary.path) { records.append(try importFile(auxiliary, role: .results)) }
+                }
+                if records.first?.url.lastPathComponent.hasSuffix("fft-phase.fits") == true {
+                    let pairID = UUID(); records[0].spectrumPairID = pairID
+                }
             }
             var record = try importFile(result, role: .results)
-            record.parentID = parent; records.append(record)
+            record.parentID = parent; record.spectrumPairID = records.first?.spectrumPairID; records.append(record)
             return records
         } catch {
             for record in records {
@@ -72,7 +77,7 @@ extension SirilEngine {
                 if !inputs.contains(where: { $0.id == id }) { inputs.append(input) }
             }
         }
-        for id in [recipe.phaseID, recipe.guideID, recipe.mask.number("mode") == 3 ? recipe.mask.sourceID : nil].compactMap({ $0 }) where !inputs.contains(where: { $0.id == id }) {
+        for id in [recipe.tool == .deconvolution && recipe.number("psfSource") == 3 ? recipe.psfID : nil, recipe.phaseID, recipe.guideID, recipe.mask.number("mode") == 3 ? recipe.mask.sourceID : nil].compactMap({ $0 }) where !inputs.contains(where: { $0.id == id }) {
             guard let record = library.first(where: { $0.id == id }) else { throw EngineError.failed("蒙版或引导图已删除，请先恢复。") }; inputs.append(record)
         }
         let image = try read(file.url); defer { siril_image_free(image) }
@@ -104,10 +109,10 @@ extension SirilEngine {
 actor NativeToolSession {
     private var folder: URL?
     private var source: FITSRecord?
-    private var original: OpaquePointer?, result: OpaquePointer?, maskImage: OpaquePointer?, rangeImage: OpaquePointer?, phaseImage: OpaquePointer?
+    private var original: OpaquePointer?, result: OpaquePointer?, maskImage: OpaquePointer?, rangeImage: OpaquePointer?, phaseImage: OpaquePointer?, kernelImage: OpaquePointer?
     private var computed: NativeToolRecipe?
     deinit {
-        for pointer in [original, result, maskImage, rangeImage, phaseImage].compactMap({ $0 }) { siril_image_free(pointer) }
+        for pointer in [original, result, maskImage, rangeImage, phaseImage, kernelImage].compactMap({ $0 }) { siril_image_free(pointer) }
         if let folder { try? FileManager.default.removeItem(at: folder) }
     }
     func open(_ file: FITSRecord) throws {
@@ -122,8 +127,8 @@ actor NativeToolSession {
         guard original != nil else { close(); throw EngineError.failed(String(cString: error)) }
     }
     func close() {
-        for pointer in [original, result, maskImage, rangeImage, phaseImage].compactMap({ $0 }) { siril_image_free(pointer) }
-        original = nil; result = nil; maskImage = nil; rangeImage = nil; phaseImage = nil; computed = nil; source = nil
+        for pointer in [original, result, maskImage, rangeImage, phaseImage, kernelImage].compactMap({ $0 }) { siril_image_free(pointer) }
+        original = nil; result = nil; maskImage = nil; rangeImage = nil; phaseImage = nil; kernelImage = nil; computed = nil; source = nil
         if let folder { try? FileManager.default.removeItem(at: folder) }; folder = nil
     }
     func compute(_ recipe: NativeToolRecipe, library: [FITSRecord]) throws {
@@ -161,6 +166,12 @@ actor NativeToolSession {
         if recipe.tool == .fftInverse, let id = recipe.phaseID {
             try copyReference(id, name: "fft-input-phase.fits", mask: false); paths[id] = "fft-input-phase.fits"
         }
+        if recipe.tool == .deconvolution, recipe.number("psfSource") == 3, let id = recipe.psfID {
+            guard let psf = library.first(where: { $0.id == id }), psf.width == psf.height else { throw EngineError.failed("PSF 已删除或不是正方形，请恢复或重新选择。") }
+            let target = folder.appendingPathComponent("deconvolution-input-psf.fits")
+            if FileManager.default.fileExists(atPath: target.path) { try FileManager.default.removeItem(at: target) }
+            try FileManager.default.copyItem(at: psf.url, to: target); paths[id] = target.lastPathComponent
+        }
         let advanced = try recipe.advancedSettings(paths: paths)
         if let advanced { try advanced.write(to: folder.appendingPathComponent("advanced-tool.json"), atomically: true, encoding: .utf8) }
         var error = [CChar](repeating: 0, count: 4096); let size = error.count
@@ -169,6 +180,11 @@ actor NativeToolSession {
         if recipe.tool == .fftDirect {
             phase = folder.appendingPathComponent("process/fft-phase.fits").path.withCString { siril_image_read($0, &error, size) }
             guard phase != nil else { siril_image_free(output); throw EngineError.failed("原版 FFT 相位谱读取失败。") }
+        }
+        var kernel: OpaquePointer?
+        if recipe.tool == .deconvolution {
+            kernel = folder.appendingPathComponent("process/native-psf.fits").path.withCString { siril_image_read($0, &error, size) }
+            guard kernel != nil else { siril_image_free(output); throw EngineError.failed("原版 PSF 读取失败。") }
         }
         var range: OpaquePointer?
         if recipe.tool == .curves, recipe.curveSettings.current.channels[recipe.curveSettings.selectedChannel].rangeEnabled, let advanced {
@@ -182,11 +198,12 @@ actor NativeToolSession {
         }
         if let result { siril_image_free(result) }; if let maskImage { siril_image_free(maskImage) }; if let rangeImage { siril_image_free(rangeImage) }
         if let phaseImage { siril_image_free(phaseImage) }; phaseImage = phase
+        if let kernelImage { siril_image_free(kernelImage) }; kernelImage = kernel
         rangeImage = range
         result = output; maskImage = siril_image_mask_copy(output); computed = recipe
     }
     func preview(view: Int, channel: Int, automatic: Bool) throws -> PreviewBytes {
-        let pointer = view == 0 ? original : view == 3 ? phaseImage : view == 2 ? (rangeImage ?? maskImage) : result
+        let pointer = view == 0 ? original : view == 4 ? kernelImage : view == 3 ? phaseImage : view == 2 ? (rangeImage ?? maskImage) : result
         guard let pointer else { throw EngineError.failed(view == 2 ? "当前没有蒙版。" : "请先计算预览。") }
         var info = SirilImageInfo(); _ = siril_image_info(pointer, &info)
         var p = SirilPreview()
@@ -195,7 +212,7 @@ actor NativeToolSession {
         return PreviewBytes(data: Data(bytes: rgba, count: Int(p.width) * Int(p.height) * 4), width: Int(p.width), height: Int(p.height))
     }
     func info(view: Int) throws -> SirilImageInfo {
-        let pointer = view == 0 ? original : view == 3 ? phaseImage : view == 2 ? (rangeImage ?? maskImage) : result
+        let pointer = view == 0 ? original : view == 4 ? kernelImage : view == 3 ? phaseImage : view == 2 ? (rangeImage ?? maskImage) : result
         guard let pointer else { throw EngineError.failed("没有可读图像。") }
         var info = SirilImageInfo(); guard siril_image_info(pointer, &info) != 0 else { throw EngineError.failed("图像信息读取失败。") }; return info
     }
@@ -234,7 +251,7 @@ actor NativeToolSession {
         return Double(siril_curve_tone(Int32(recipe.selectedChannel), r, g, b))
     }
     func pixel(view: Int, x: Int, y: Int) throws -> [Float] {
-        let pointer = view == 0 ? original : view == 3 ? phaseImage : view == 2 ? (rangeImage ?? maskImage) : result
+        let pointer = view == 0 ? original : view == 4 ? kernelImage : view == 3 ? phaseImage : view == 2 ? (rangeImage ?? maskImage) : result
         guard let pointer else { throw EngineError.failed("没有可读图像。") }
         var values = [Float](repeating: 0, count: 3)
         let count = siril_image_pixel(pointer, Int32(x), Int32(y), &values)
@@ -242,6 +259,11 @@ actor NativeToolSession {
     }
     func export(_ recipe: NativeToolRecipe, to job: ProcessingJob) throws -> URL {
         guard let result, computed == recipe else { throw EngineError.failed("参数已改变或计算失败，请重新计算预览再应用。") }
+        if recipe.tool == .deconvolution {
+            let psf = job.folder.appendingPathComponent("process/native-psf.fits")
+            guard let kernelImage, psf.path.withCString({ siril_image_write(kernelImage, $0) }) != 0 else { throw EngineError.failed("PSF 另存失败，输出尚未完成。") }
+            if recipe.number("estimateOnly") == 1 { return psf }
+        }
         let output = job.folder.appendingPathComponent("process/result.fits")
         guard output.path.withCString({ siril_image_write(result, $0) }) != 0 else { throw EngineError.failed("原版 FITS 导出失败。") }
         if recipe.tool == .fftDirect {

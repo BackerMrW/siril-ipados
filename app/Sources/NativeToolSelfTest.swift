@@ -50,6 +50,7 @@ extension SirilEngine {
             do {
                 checkpoint("START: native tool \(tool.rawValue)")
                 var recipe = NativeToolRecipe(tool: tool, file: file)
+                if tool == .deconvolution { recipe.values["psfSource"] = 2; recipe.values["ks"] = 9; recipe.values["iterations"] = 2 }
                 if tool == .crop { recipe.values["x"] = 16; recipe.values["y"] = 13; recipe.values["width"] = 64; recipe.values["height"] = 48 }
                 if [.ghs, .inverseGHS, .modifiedAsinh, .inverseModifiedAsinh].contains(tool) { recipe.values["D"] = 0.8; recipe.values["SP"] = 0.1 }
                 if tool == .linearStretch { recipe.values["BP"] = 0.05 }
@@ -130,6 +131,9 @@ extension SirilEngine {
         var tooLargeRejected = false
         do { try await session.compute(oversized, library: records) } catch { tooLargeRejected = true }
         try require(tooLargeRejected, "oversized resampling attempted an unsafe allocation")
+        checkpoint("START: original deconvolution and PSF")
+        jobs += try await deconvolutionSelfTest(file: file, expected: expected, x: x, y: y)
+        checkpoint("PASS: original deconvolution SB/RL/Wiener with independent unit-PSF pixels, all RL regularizers/methods/stopping, real masks, independent Gaussian/Moffat and Disc/Airy/star/blind/multiscale PSFs, mono/RGB kernel save/load, script replay, failure/stale-result guards, persistent PSF history and gallery restore/cleanup")
         checkpoint("START: original FFT with independent direct DFT")
         jobs += try await fftToolSelfTest()
         checkpoint("PASS: native tool fftInverse; original FFT mono/RGB centered/regular odd rectangular and black images, independent DFT modulus/phase, full inverse round-trip, saved pair/script replay, stale/malformed pair rejection, persisted pair undo/redo and task delete/restore")

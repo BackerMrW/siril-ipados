@@ -7,7 +7,7 @@ root = Path.cwd()
 source = root / "siril-src"
 destination = source / "src/ipados"
 destination.mkdir(exist_ok=True)
-for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "core-link-probe.c", "core-runtime-tests.c"):
+for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "core-link-probe.c", "core-runtime-tests.c"):
     shutil.copy2(root / "native" / name, destination / name)
 meson = source / "src/meson.build"
 text = meson.read_text()
@@ -293,3 +293,28 @@ needle = "\t\t/* Copy inverse transform result into fit for display */"
 assert text.count(needle) == 1
 text = text.replace(needle, "\t\tmemset(&fit->keywords.dft, 0, sizeof(fit->keywords.dft));\n" + needle)
 fft.write_text(text)
+
+# RGB PSF data already includes kernelchannels in ndata. The desktop helper
+# multiplies it again, reading outside the original kernel when saving RGB.
+deconv = source / "src/filters/deconvolution.c"
+text = deconv.read_text()
+assert text.count("ndata * com.kernelchannels * sizeof(float)") == 2
+text = text.replace("ndata * com.kernelchannels * sizeof(float)", "ndata * sizeof(float)")
+# Propagate original algorithm failures rather than reporting unchanged pixels
+# as a successful operation (e.g. RL on an empty/black channel).
+for name in ("split_bregman", "naive_richardson_lucy", "fft_richardson_lucy", "wienerdec"):
+    needle = name + "(args->fdata,"
+    assert text.count(needle) == 1
+    text = text.replace(needle, "retval = " + needle)
+needle = "\t\tgettimeofday(&t_end, NULL);\n\t\tif (sequence_is_running == 0)"
+assert text.count(needle) == 1
+text = text.replace(needle, "\t\tif (retval) goto ENDDECONV;\n" + needle)
+# PSF estimation must also propagate get_kernel/save_kernel failures.
+start = text.index("gpointer estimate_only(gpointer p)")
+end = text.index("gpointer deconvolve(gpointer p)", start)
+body = text[start:end]
+assert body.count("\tget_kernel(args);") == 1
+body = body.replace("\tget_kernel(args);", "\tretval = get_kernel(args);\n\tif (retval) goto ENDEST;")
+body = body.replace("\t\tsave_kernel(args->savepsf_filename, args);", "\t\tretval = save_kernel(args->savepsf_filename, args);")
+text = text[:start] + body + text[end:]
+deconv.write_text(text)
