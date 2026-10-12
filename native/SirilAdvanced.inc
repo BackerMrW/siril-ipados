@@ -231,16 +231,25 @@ static int advanced_apply_fft(SirilImage *image, yyjson_val *root) {
         valid = !readfits(modulus, &a, NULL, FALSE) && !readfits(phase, &p, NULL, FALSE);
         if (valid) valid = a.rx == p.rx && a.ry == p.ry && a.naxes[2] == p.naxes[2] &&
             a.rx == image->fit.rx && a.ry == image->fit.ry && a.naxes[2] == image->fit.naxes[2] &&
-            a.bitpix == p.bitpix && a.type == DATA_FLOAT && p.type == DATA_FLOAT &&
+            a.bitpix == p.bitpix && a.type == p.type &&
+            (a.type == DATA_FLOAT || a.type == DATA_USHORT) &&
             !strcmp(a.keywords.dft.type, "SPECTRUM") && !strcmp(p.keywords.dft.type, "PHASE") &&
             (!strcmp(a.keywords.dft.ord, "CENTERED") || !strcmp(a.keywords.dft.ord, "REGULAR")) &&
             !strcmp(a.keywords.dft.ord, p.keywords.dft.ord);
         if (valid) for (int c = 0; c < a.naxes[2]; c++)
-            if (!isfinite(a.keywords.dft.norm[c]) || a.keywords.dft.norm[c] < 0) valid = 0;
-        if (valid) {
+            {
+                gchar *key = g_strdup_printf("DFTNORM%d", c + 1);
+                if (!a.header || !strstr(a.header, key) || !isfinite(a.keywords.dft.norm[c]) || a.keywords.dft.norm[c] < 0) valid = 0;
+                g_free(key);
+            }
+        if (valid && a.type == DATA_FLOAT) {
             size_t n = (size_t)a.rx * a.ry * a.naxes[2];
             for (size_t i = 0; i < n; i++) if (!isfinite(a.fdata[i]) || !isfinite(p.fdata[i])) { valid = 0; break; }
         }
+        // Retain the original integer inverse algorithm/rounding for desktop
+        // spectra. Convert only its spatial result to the shared float ABI.
+        if (valid && a.type == DATA_USHORT)
+            valid = copyfits(&a, &image->fit, CP_ALLOC | CP_DEEPCOPY, 0) == 0;
         clearfits(&a); clearfits(&p);
         if (!valid) {
             capture_log("FFT needs matching SPECTRUM/PHASE dimensions, channels, depth, order and finite normalization.\n", NULL);
@@ -252,6 +261,7 @@ static int advanced_apply_fft(SirilImage *image, yyjson_val *root) {
         .modulus = (gchar *)modulus, .phase = (gchar *)phase, .type_order = (int)order };
     struct generic_img_args worker = { .user = &args };
     int ok = fft_image_hook(&worker, &image->fit, 1) == 0;
+    if (ok && image->fit.type == DATA_USHORT) ok = soper(&image->fit, 1.f, OPER_MUL, TRUE) == 0;
     if (!inverse && ok) {
         valid = !readfits(modulus, &a, NULL, FALSE) && !readfits(phase, &p, NULL, FALSE);
         if (valid) {

@@ -14,8 +14,13 @@ extension SirilEngine {
         // Direct DFT is deliberately independent of Siril/FFTW, in FITS row order.
         let w = 7, h = 5, n = w * h
         for channels in [1, 3] { for blank in [false, true] {
-            let values: [Float] = (0..<(channels * n)).map { i in
-                blank ? 0 : Float(0.1 + Double(i / n) * 0.12 + Double(i % w) * 0.021 + Double((i % n) / w) * 0.013 + (i % n == 9 ? 0.3 : 0))
+            var values = [Float]()
+            for i in 0..<(channels * n) {
+                let base = 0.1 + Double(i / n) * 0.12
+                let column = Double(i % w) * 0.021
+                let row = Double((i % n) / w) * 0.013
+                let impulse = i % n == 9 ? 0.3 : 0.0
+                values.append(blank ? 0 : Float(base + column + row + impulse))
             }
             let cards = ["SIMPLE  =                    T", "BITPIX  =                  -32", "NAXIS   =                    \(channels == 1 ? 2 : 3)", "NAXIS1  =                    \(w)", "NAXIS2  =                    \(h)"] + (channels == 3 ? ["NAXIS3  =                    3"] : []) + ["END"]
             var data = Data(cards.map { $0.padding(toLength: 80, withPad: " ", startingAt: 0) }.joined().padding(toLength: 2880, withPad: " ", startingAt: 0).utf8)
@@ -113,6 +118,37 @@ extension SirilEngine {
             await session.close()
             try require(try Data(contentsOf: file.url) == inputBytes, "FFT changed original")
         } }
+        // Desktop integer spectra are inverted using Siril's own ushort kernel,
+        // including its rounding, then normalized through the original converter.
+        let intCards = ["SIMPLE  =                    T", "BITPIX  =                   16", "NAXIS   =                    3", "NAXIS1  =                    7", "NAXIS2  =                    5", "NAXIS3  =                    3", "BZERO   =                32768", "BSCALE  =                    1", "END"]
+        var intBytes = Data(intCards.map { $0.padding(toLength: 80, withPad: " ", startingAt: 0) }.joined().padding(toLength: 2880, withPad: " ", startingAt: 0).utf8)
+        var intValues = [UInt16]()
+        for i in 0..<(3 * n) {
+            let value = UInt16(12000 + (i / n) * 7000 + (i % n) * 170)
+            intValues.append(value)
+            var encoded = (value ^ 0x8000).bigEndian
+            withUnsafeBytes(of: &encoded) { intBytes.append(contentsOf: $0) }
+        }
+        intBytes.append(Data(repeating: 0, count: (2880 - intBytes.count % 2880) % 2880))
+        let intURL = folder.appendingPathComponent("desktop-integer.fits"); try intBytes.write(to: intURL)
+        let integer = try importFile(intURL); records.append(integer)
+        let intScript = "set16bits\nload lights/frame_00001.fits\nfftd process/fft-modulus.fits process/fft-phase.fits\nclose\nset32bits\n"
+        let integerJob = try prepareJob(files: [integer], script: intScript); jobs.append(integerJob)
+        _ = try run(integerJob)
+        let integerModulus = try importFile(integerJob.folder.appendingPathComponent("process/fft-modulus.fits"), role: .results)
+        let integerPhase = try importFile(integerJob.folder.appendingPathComponent("process/fft-phase.fits"), role: .results)
+        records += [integerModulus, integerPhase]
+        let integerSession = NativeToolSession(); try await integerSession.open(integerModulus)
+        var inverse = NativeToolRecipe(tool: .fftInverse, file: integerModulus); inverse.phaseID = integerPhase.id
+        try await integerSession.compute(inverse, library: records)
+        for y in 0..<h { for x in 0..<w {
+            let restored = try await integerSession.pixel(view: 1, x: x, y: y)
+            for c in 0..<3 {
+                let expected = Float(intValues[c * n + (h - 1 - y) * w + x]) / 65535
+                try require(abs(restored[c] - expected) < 0.0003, "original integer FFT pair inverse precision")
+            }
+        } }
+        await integerSession.close()
         return jobs
     }
 }
