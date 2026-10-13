@@ -113,7 +113,7 @@ struct ImageAnalysisView: View {
     @State private var normalized = false // Original StatWindow defaults.
     @State private var perCFA = true
     @State private var channel = -1
-    @State private var automatic = true
+    @State private var displaySettings = NativeDisplaySettings.load()
     @State private var logarithmic = false
     @State private var histogramChannel = -1
     @State private var headerQuery = ""
@@ -144,7 +144,7 @@ struct ImageAnalysisView: View {
             }
             .onChange(of: perCFA) { _, _ in Task { await analyze() } }
             .onChange(of: channel) { _, _ in Task { await refreshPreview() } }
-            .onChange(of: automatic) { _, _ in Task { await refreshPreview() } }
+            .onChange(of: displaySettings) { _, _ in displaySettings.save(); Task { await refreshPreview() } }
             .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
             .sheet(isPresented: $editingHeader) {
                 FITSKeywordEditorView(files: [file], engine: processingEngine, onOutput: onHeaderOutput)
@@ -158,8 +158,8 @@ struct ImageAnalysisView: View {
                     Text("RGB / 灰度").tag(-1)
                     if file.channels == 3 { Text("R").tag(0); Text("G").tag(1); Text("B").tag(2) }
                 }.pickerStyle(.segmented)
-                Toggle("自动拉伸", isOn: $automatic)
             }.disabled(busy).padding(.horizontal)
+            NativeDisplayControls(settings: $displaySettings).disabled(busy).padding(.horizontal)
             if let image {
                 ZoomableImageCanvas(image: image, samples: [], imageWidth: Double(file.width), imageHeight: Double(file.height),
                     region: selection, selecting: selecting && !busy,
@@ -310,7 +310,7 @@ struct ImageAnalysisView: View {
         defer { busy = false; UIApplication.shared.isIdleTimerDisabled = false }
         do {
             details = try await engine.open(file.url)
-            image = try await engine.preview(channel: channel, automatic: automatic).uiImage
+            image = try await engine.preview(channel: channel, settings: displaySettings).uiImage
             snapshot = try await engine.analyze(region: selection, perCFA: perCFA)
             if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1" {
                 selecting = true
@@ -333,7 +333,7 @@ struct ImageAnalysisView: View {
         guard !busy, details != nil else { return }
         busy = true
         defer { busy = false }
-        do { image = try await engine.preview(channel: channel, automatic: automatic).uiImage }
+        do { image = try await engine.preview(channel: channel, settings: displaySettings).uiImage }
         catch { message = error.localizedDescription }
     }
 }

@@ -170,8 +170,30 @@ body = body.replace(needle, '\t\tx1 = fit->rx;\n\t\ty1 = fit->ry;', 1)
 path.write_text(text[:start] + body)
 destination = source / "src/ipados"
 destination.mkdir(exist_ok=True)
-for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc", "heif-runtime-tests.inc", "keyword-runtime-tests.inc"):
+for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "SirilDisplay.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc", "heif-runtime-tests.inc", "keyword-runtime-tests.inc", "display-runtime-tests.inc"):
     shutil.copy2(root / "native" / name, destination / name)
+# Reuse the pinned desktop LUT arithmetic without GTK state or its UI cache.
+# The iPad bridge owns the image, level bounds, destination and STF parameters.
+text = (source / "src/gui-gtk4/image_display.c").read_text()
+a = text.index('static int make_index_for_current_display(int vport, float *fidx) {')
+b = text.index('static int make_index_for_rainbow(', a)
+lut = text[a:b]
+a = lut.index('\tfloat slope, delta')
+lut = 'static int embedded_original_display_lut(int mode, WORD lo, WORD hi, BYTE *index, struct mtf_params params, float *fidx) {\n' + lut[a:]
+lut = lut.replace('\tBYTE *index;\n', '')
+a = lut.index('\tif(!(slope == last_pente')
+b = lut.index('\t/************* Building the remap_index', a)
+lut = lut[:a] + lut[b:]
+a = lut.index('\tint target_index = ')
+b = lut.index('\n\tfor (i = 0;', a)
+lut = lut[:a] + lut[b:]
+lut = lut.replace('gui.rendering_mode', 'mode').replace('gfit->orig_bitpix', 'FLOAT_IMG').replace('stf[target_index]', 'params')
+lut = lut.replace('gui.remap_index', 'display index') # comments and debug text
+lut = lut.replace(', vport);', ', 0);')
+lut = lut.replace('\tlast_pente = slope;\n\tlast_mode = mode;\n', '')
+lut = lut.replace('INDEX_UNSUPPORTED', '1').replace('INDEX_BUILT', '0')
+assert 'gui.' not in lut and 'gfit' not in lut and 'last_' not in lut
+(destination / "SirilDisplayLUT.inc").write_text('// SPDX-License-Identifier: GPL-3.0-or-later\n// Extracted from the pinned original GTK display LUT; no pixel mutation.\n' + lut)
 meson = source / "src/meson.build"
 text = meson.read_text()
 needle = "siril_lib = static_library('siril',"

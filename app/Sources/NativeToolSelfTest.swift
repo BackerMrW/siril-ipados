@@ -37,6 +37,25 @@ extension SirilEngine {
         let expected = (0..<3).map { values[$0 * width * height + y * width + x] }
         let original = try await session.pixel(view: 0, x: x, y: y)
         try require(original == expected, "independent FITS fixture did not read exact displayed planes: \(original) != \(expected)")
+        for mode in NativeDisplayMode.allCases {
+            var display = NativeDisplaySettings(); display.mode = mode
+            let rendered = try self.preview(file.url, channel: -1, settings: display)
+            try require(rendered.width == width && rendered.height == height && rendered.data.count == width * height * 4, "Display mode did not produce the full RGB preview")
+            display.inverted = true
+            let inverted = try self.preview(file.url, channel: -1, settings: display)
+            for index in stride(from: 0, to: rendered.data.count, by: 4) {
+                for c in 0..<3 { try require(Int(rendered.data[index + c]) + Int(inverted.data[index + c]) == 255, "Display inversion changed alpha or channel mapping") }
+            }
+        }
+        var unlinked = NativeDisplaySettings(); unlinked.unlinked = true
+        let unlinkedPreview = try preview(file.url, channel: -1, settings: unlinked)
+        let linkedPreview = try preview(file.url, channel: -1, settings: NativeDisplaySettings())
+        try require(unlinkedPreview.data != linkedPreview.data, "Independent RGB STF did not separate different channel backgrounds")
+        let oldDisplayPreference = UserDefaults.standard.data(forKey: "native-display-settings")
+        unlinked.inverted = true; unlinked.save()
+        try require(NativeDisplaySettings.load() == unlinked, "Display settings did not persist")
+        if let oldDisplayPreference { UserDefaults.standard.set(oldDisplayPreference, forKey: "native-display-settings") } else { UserDefaults.standard.removeObject(forKey: "native-display-settings") }
+        try require(try Data(contentsOf: file.url) == sourceBytes, "Display modes changed source FITS pixels")
         var records = [file]
         var jobs: [ProcessingJob] = []
         var checks: [String] = [], failures: [String] = []

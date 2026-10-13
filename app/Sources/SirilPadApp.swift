@@ -163,7 +163,7 @@ struct ContentView: View {
     @State private var selected: Set<UUID> = []
     @State private var activeFile: FITSRecord?
     @State private var displayChannel = -1
-    @State private var autoDisplay = true
+    @State private var displaySettings = NativeDisplaySettings.load()
     @State private var showBackground = false
     @State private var showTools = false
     @State private var showImageExport = false
@@ -261,8 +261,8 @@ struct ContentView: View {
                                 Text("红 R").tag(0); Text("绿 G").tag(1); Text("蓝 B").tag(2)
                             }
                         }.pickerStyle(.segmented)
-                        Toggle("自动拉伸显示", isOn: $autoDisplay)
                     }.padding(.horizontal)
+                    NativeDisplayControls(settings: $displaySettings).padding(.horizontal)
                     ZoomableImageCanvas(image: image, samples: [], imageWidth: Double(activeFile?.width ?? 1),
                         imageHeight: Double(activeFile?.height ?? 1), region: imageSelection, onTap: nil)
                         .background(.black)
@@ -322,7 +322,7 @@ struct ContentView: View {
             if let file = activeFile { NativeToolView(file: file, tool: tool, engine: engine) { result in importResult(result, parent: file.id) } }
         }
         .onChange(of: displayChannel) { _, _ in refreshDisplay() }
-        .onChange(of: autoDisplay) { _, _ in refreshDisplay() }
+        .onChange(of: displaySettings) { _, _ in displaySettings.save(); refreshDisplay() }
         .sheet(isPresented: $showImageExport) { if let file = activeFile { NativeImageExportView(file: file, engine: engine) } }
         .sheet(isPresented: $showHistory) {
             JobHistoryView(engine: engine) { result in importResult(result, parent: nil) }
@@ -619,13 +619,13 @@ struct ContentView: View {
 
     @MainActor private func loadPreview(_ record: FITSRecord, navigation: Bool = true) async {
         busy = true
-        progress = "Siril 正在自动拉伸"
+        progress = "Siril 正在生成显示"
         defer { busy = false; progress = "" }
         do {
             if activeFile?.id != record.id { displayChannel = -1; imageSelection = nil }
             activeFile = record
             if navigation { history.open(record.id); try await engine.saveWorkspace(history) }
-            let p = try await engine.preview(record.url, channel: displayChannel, automatic: autoDisplay)
+            let p = try await engine.preview(record.url, channel: displayChannel, settings: displaySettings)
             guard !Task.isCancelled, let provider = CGDataProvider(data: p.data as CFData),
                   let cg = CGImage(width: p.width, height: p.height, bitsPerComponent: 8, bitsPerPixel: 32,
                                    bytesPerRow: p.width * 4, space: CGColorSpaceCreateDeviceRGB(),

@@ -1117,5 +1117,6 @@ SirilImage *siril_image_mask_copy(SirilImage *image) {
     g_mutex_unlock(&engine_mutex);
     return result;
 }
+#include "SirilDisplay.inc"
 #include "SirilAdvanced.inc"
 #include "SirilSER.inc"

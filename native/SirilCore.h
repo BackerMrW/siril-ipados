@@ -80,6 +80,11 @@ typedef struct {
     uint8_t *rgba;
 } SirilPreview;
 typedef struct {
+    int mode; /* Original order: linear, log, sqrt, squared, asinh, STF, histogram equalization. */
+    double low, high; /* Normalized display bounds, used by modes 0..4. */
+    int unlinked, inverted;
+} SirilDisplayOptions;
+typedef struct {
     int32_t x, y, width, height; /* displayed top-left coordinates; NULL = full image */
 } SirilRegion;
 typedef struct {
@@ -151,6 +156,7 @@ int siril_image_info(const SirilImage *image, SirilImageInfo *info);
 /* Display-only RGBA using upstream Siril's linked automatic MTF stretch. */
 int siril_image_preview(SirilImage *image, uint32_t max_dimension, SirilPreview *preview);
 int siril_image_preview_display(SirilImage *image, uint32_t max_dimension, int channel, int automatic, SirilPreview *preview);
+int siril_image_preview_mode(SirilImage *image, uint32_t max_dimension, int channel, const SirilDisplayOptions *options, SirilPreview *preview);
 void siril_preview_free(SirilPreview *preview);
 /* These call upstream Siril imoper/soper, not replacement arithmetic. */
 int siril_image_add(SirilImage *destination, const SirilImage *source);
