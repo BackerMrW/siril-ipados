@@ -82,7 +82,7 @@ typedef struct {
 typedef struct {
     int mode; /* Original order: linear, log, sqrt, squared, asinh, STF, histogram equalization. */
     double low, high; /* Normalized display bounds, used by modes 0..4. */
-    int unlinked, inverted, icc;
+    int unlinked, inverted, icc, rainbow, mask_overlay;
 } SirilDisplayOptions;
 typedef struct {
     int32_t x, y, width, height; /* displayed top-left coordinates; NULL = full image */
@@ -153,6 +153,8 @@ SirilImage *siril_image_read(const char *path, char *error, size_t error_size);
 SirilImage *siril_image_read_any(const char *path, char *error, size_t error_size);
 void siril_image_free(SirilImage *image);
 int siril_image_info(const SirilImage *image, SirilImageInfo *info);
+/* Attach an independent saved single-channel FITS mask for display. */
+int siril_image_load_mask(SirilImage *image, const char *path);
 /* Display-only RGBA using upstream Siril's linked automatic MTF stretch. */
 int siril_image_preview(SirilImage *image, uint32_t max_dimension, SirilPreview *preview);
 int siril_image_preview_display(SirilImage *image, uint32_t max_dimension, int channel, int automatic, SirilPreview *preview);

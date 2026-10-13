@@ -18,7 +18,7 @@ static int display_icc_reference(const char *directory) {
             CHECK(siril_image_preview_mode(image, 8, -1, &settings, &managed));
             settings.icc = 0; CHECK(siril_image_preview_mode(image, 8, -1, &settings, &raw)); settings.icc = 1;
             CHECK(managed.width == 8 && managed.height == 6);
-            if (mode == 6) CHECK(!memcmp(managed.rgba, raw.rgba, 8 * 6 * 4));
+            if (mode == 6 || (mode == 5 && channels == 1)) CHECK(!memcmp(managed.rgba, raw.rgba, 8 * 6 * 4));
             else {
                 int floating = mode < 5 && variant == 1;
                 cmsHPROFILE synthetic = NULL, source_profile = reference.icc_profile;
@@ -65,7 +65,13 @@ static int display_icc_reference(const char *directory) {
             }
             if (mode == 5 && channels == 3) {
                 siril_preview_free(&managed); siril_preview_free(&raw);
+                settings.icc = 1;
+                CHECK(siril_image_preview_mode(image, 8, 1, &settings, &managed));
+                settings.icc = 0; CHECK(siril_image_preview_mode(image, 8, 1, &settings, &raw));
+                CHECK(!memcmp(managed.rgba, raw.rgba, 8 * 6 * 4));
+                siril_preview_free(&managed); siril_preview_free(&raw);
                 settings.unlinked = 1;
+                settings.icc = 1;
                 CHECK(siril_image_preview_mode(image, 8, -1, &settings, &managed));
                 settings.icc = 0; CHECK(siril_image_preview_mode(image, 8, -1, &settings, &raw));
                 CHECK(!memcmp(managed.rgba, raw.rgba, 8 * 6 * 4));

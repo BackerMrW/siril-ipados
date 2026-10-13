@@ -407,6 +407,15 @@ extension SirilEngine {
         var saved = try importFile(output, role: .results); saved.parentID = file.id; records.append(saved)
         try require(saved.hasMask == true, "export/import lost the original mask")
         let savedSession = NativeToolSession(); try await savedSession.open(saved)
+        var overlaySettings = NativeDisplaySettings(mode: .linear); overlaySettings.useICC = false
+        let savedPlain = try preview(saved.url, channel: 1, settings: overlaySettings)
+        overlaySettings.showMask = true; overlaySettings.useRainbow = true
+        let savedOverlay = try preview(saved.url, channel: 1, settings: overlaySettings)
+        let sessionOverlay = try await savedSession.preview(view: 0, channel: 1, settings: overlaySettings)
+        try require(savedOverlay.data != savedPlain.data && savedOverlay.data == sessionOverlay.data, "Saved mask overlay or single-channel rainbow did not reopen consistently in main/tool display")
+        let analysisMask = ImageAnalysisEngine(); _ = try await analysisMask.open(saved.url)
+        let analysisOverlay = try await analysisMask.preview(channel: 1, settings: overlaySettings)
+        try require(analysisOverlay.data == savedOverlay.data, "Analysis view lost the saved display mask")
         var inherited = NativeToolRecipe(tool: .resample, file: saved)
         try await savedSession.compute(inherited, library: records)
         let restoredMask = try await savedSession.pixel(view: 2, x: x, y: y)[0]

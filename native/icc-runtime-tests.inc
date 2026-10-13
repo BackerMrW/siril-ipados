@@ -15,6 +15,10 @@ static int icc_reference_checks(const char *directory) {
     cmsFreeToneCurve(gamma);
     snprintf(custom, sizeof custom, "%s/independent-d50.icc", directory);
     CHECK(cmsSaveProfileToFile(destination, custom));
+    // ICC serializes colorant/white tags as fixed point. Compare against the
+    // same independently re-opened bytes that the original command consumes.
+    cmsCloseProfile(destination);
+    destination = cmsOpenProfileFromFile(custom, "r"); CHECK(destination);
     for (int channels = 1; channels <= 3; channels += 2) {
         snprintf(source, sizeof source, "%s/icc-source-%d.fits", directory, channels);
         snprintf(assigned, sizeof assigned, "%s/icc-assigned-%d.fits", directory, channels);

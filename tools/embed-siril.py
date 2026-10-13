@@ -42,6 +42,17 @@ body = body.replace(needle, '\tGSList *previous_tail = g_slist_last(fit->history
 # establish success; every completed original transform appends FITS history.
 body = body.replace('if (!fit->icc_profile) {', 'if (!fit->icc_profile || g_slist_last(fit->history) == previous_tail) {')
 icc.write_text(text[:start] + body + text[end:])
+masks = source / "src/core/masks.c"
+text = masks.read_text()
+# These original allocators used the bit count as a byte count (8x excess).
+# Saved display masks use the same original allocator as processing masks.
+needle = 'malloc(fit->rx * fit->ry * bitpix)'
+assert text.count(needle) == 3
+text = text.replace(needle, 'malloc((size_t)fit->rx * fit->ry * (bitpix / 8))')
+assert text.count('calloc(fit->rx * fit->ry, bitpix)') == 1
+text = text.replace('calloc(fit->rx * fit->ry, bitpix)', 'calloc((size_t)fit->rx * fit->ry, bitpix / 8)')
+assert text.count('calloc(npixels, bitpix)') == 1
+masks.write_text(text.replace('calloc(npixels, bitpix)', 'calloc(npixels, bitpix / 8)'))
 formats = source / "src/io/image_formats_libraries.c"
 text = formats.read_text()
 start = text.index('static int readraw_in_cfa(')
@@ -187,7 +198,7 @@ body = body.replace(needle, '\t\tx1 = fit->rx;\n\t\ty1 = fit->ry;', 1)
 path.write_text(text[:start] + body)
 destination = source / "src/ipados"
 destination.mkdir(exist_ok=True)
-for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "SirilDisplay.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc", "heif-runtime-tests.inc", "keyword-runtime-tests.inc", "display-runtime-tests.inc", "icc-runtime-tests.inc", "display-icc-tests.inc"):
+for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "SirilDisplay.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc", "heif-runtime-tests.inc", "keyword-runtime-tests.inc", "display-runtime-tests.inc", "icc-runtime-tests.inc", "display-icc-tests.inc", "display-overlay-tests.inc"):
     shutil.copy2(root / "native" / name, destination / name)
 # Reuse the pinned desktop LUT arithmetic without GTK state or its UI cache.
 # The iPad bridge owns the image, level bounds, destination and STF parameters.
@@ -211,6 +222,9 @@ lut = lut.replace('\tlast_pente = slope;\n\tlast_mode = mode;\n', '')
 lut = lut.replace('INDEX_UNSUPPORTED', '1').replace('INDEX_BUILT', '0')
 assert 'gui.' not in lut and 'gfit' not in lut and 'last_' not in lut
 (destination / "SirilDisplayLUT.inc").write_text('// SPDX-License-Identifier: GPL-3.0-or-later\n// Extracted from the pinned original GTK display LUT; no pixel mutation.\n' + lut)
+rainbow_start = text.index('static int make_index_for_rainbow(BYTE index[][3]) {')
+rainbow_end = text.index('\n/*****************************************************************************', rainbow_start)
+(destination / "SirilDisplayRainbow.inc").write_text('// SPDX-License-Identifier: GPL-3.0-or-later\n// Original Siril single-channel rainbow palette.\n' + text[rainbow_start:rainbow_end])
 icc_text = (source / "src/core/icc_profile.c").read_text()
 start = icc_text.index('static gboolean siril_color_profile_get_rgb_matrix_colorants_d50 (')
 end = icc_text.index('static void siril_color_profile_set_tag (', start)

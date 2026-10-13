@@ -1158,6 +1158,19 @@ SirilImage *siril_tool_compute(const char *directory, const char *script, char *
     g_mutex_unlock(&engine_mutex);
     return result;
 }
+int siril_image_load_mask(SirilImage *image, const char *path) {
+    if (!image || !path) return 0;
+    g_mutex_lock(&engine_mutex);
+    fits mask = {0};
+    int ok = !readfits(path, &mask, NULL, TRUE) && mask.rx == image->fit.rx && mask.ry == image->fit.ry && mask.naxes[2] == 1;
+    if (ok) {
+        int depth = mask.orig_bitpix == BYTE_IMG ? 8 : mask.type == DATA_USHORT ? 16 : 32;
+        ok = !mask_create_from_channel(&image->fit, &mask, 0, depth);
+    }
+    clearfits(&mask);
+    g_mutex_unlock(&engine_mutex);
+    return ok;
+}
 SirilImage *siril_image_mask_copy(SirilImage *image) {
     if (!image) return NULL;
     g_mutex_lock(&engine_mutex);

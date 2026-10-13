@@ -1,14 +1,34 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "SirilDisplayLUT.inc"
 #include "SirilDisplayICC.inc"
+#include "SirilDisplayRainbow.inc"
+static BYTE display_mask_byte(fits *fit, size_t pixel) {
+    if (fit->mask->bitpix == 8) return ((uint8_t *)fit->mask->data)[pixel];
+    if (fit->mask->bitpix == 16) return ((uint16_t *)fit->mask->data)[pixel] >> 8;
+    float value = ((float *)fit->mask->data)[pixel];
+    return isfinite(value) ? (BYTE)(fminf(1, fmaxf(0, value)) * 255) : 0;
+}
+static void display_tint_pixel(BYTE rgb[3], BYTE mask) {
+    unsigned red = 255 - mask + rgb[0];
+    rgb[0] = red > 255 ? 255 : red;
+    rgb[1] = (rgb[1] * mask) >> 8;
+    rgb[2] = (rgb[2] * mask) >> 8;
+}
 static int preview_mode_locked(fits *fit, uint32_t maximum, int selected, const SirilDisplayOptions *options, SirilPreview *preview) {
     if (!fit || !preview || !options || !maximum || maximum > 2048 || selected < -1 || selected >= fit->naxes[2] ||
         options->mode < 0 || options->mode > 6 || !isfinite(options->low) || !isfinite(options->high) ||
         options->low < 0 || options->high > 1 || options->high <= options->low ||
         (options->unlinked != 0 && options->unlinked != 1) || (options->inverted != 0 && options->inverted != 1) ||
         (options->icc != 0 && options->icc != 1) ||
+        (options->rainbow != 0 && options->rainbow != 1) || (options->mask_overlay != 0 && options->mask_overlay != 1) ||
         fit->type != DATA_FLOAT || fit->rx <= 0 || fit->ry <= 0 || (fit->naxes[2] != 1 && fit->naxes[2] != 3)) return 0;
     memset(preview, 0, sizeof *preview);
+    BYTE palette[256][3];
+    int rainbow = options->rainbow && (selected >= 0 || fit->naxes[2] == 1);
+    if (rainbow) make_index_for_rainbow(palette);
+    int overlay = options->mask_overlay && fit->mask && fit->mask->data && fit->mask_active &&
+        (fit->mask->bitpix == 8 || fit->mask->bitpix == 16 || fit->mask->bitpix == 32);
+    int tint_before = overlay && options->mode == STF_DISPLAY && selected < 0 && fit->naxes[2] == 3;
     WORD low = roundf_to_WORD(options->low * 65535), high = roundf_to_WORD(options->high * 65535);
     if (high <= low) return 0;
     struct mtf_params stf[3] = {0};
@@ -25,7 +45,7 @@ static int preview_mode_locked(fits *fit, uint32_t maximum, int selected, const 
     cmsHPROFILE monitor = NULL; cmsHTRANSFORM transform = NULL;
     float *float_lut = NULL; BYTE *row = NULL, *converted_row = NULL;
     int manage = options->icc && fit->icc_profile && fit->color_managed && options->mode != HISTEQ_DISPLAY &&
-        !(options->mode == STF_DISPLAY && options->unlinked);
+        !(options->mode == STF_DISPLAY && (options->unlinked || selected >= 0 || fit->naxes[2] == 1));
     if (manage) {
         monitor = srgb_trc(); if (!monitor) goto done;
         compose = options->mode < STF_DISPLAY && fit->naxes[2] == 3 && same_primaries(fit->icc_profile, monitor, NULL);
@@ -85,6 +105,11 @@ static int preview_mode_locked(fits *fit, uint32_t maximum, int selected, const 
             }
             row[(size_t)c * width + x] = options->inverted ? 255 - display : display;
         }
+        if (tint_before) {
+            BYTE rgb[3] = {row[x], row[width + x], row[2 * width + x]};
+            display_tint_pixel(rgb, display_mask_byte(fit, source));
+            for (int c = 0; c < 3; c++) row[(size_t)c * width + x] = rgb[c];
+        }
       }
       if (transform && !compose) cmsDoTransformLineStride(transform, row, converted_row, width, 1, width * 3, width * 3, width, width);
       else memcpy(converted_row, row, width * 3);
@@ -92,7 +117,14 @@ static int preview_mode_locked(fits *fit, uint32_t maximum, int selected, const 
         size_t target = ((size_t)y * width + x) * 4;
         for (int c = 0; c < 3; c++) {
             int channel = selected >= 0 ? selected : fit->naxes[2] == 1 ? 0 : c;
-            pixels[target + c] = converted_row[(size_t)channel * width + x];
+            BYTE value = converted_row[(size_t)channel * width + x];
+            pixels[target + c] = rainbow ? palette[value][c] : value;
+        }
+        if (overlay && !tint_before) {
+            uint32_t source_y = (uint64_t)y * fit->ry / height;
+            if (!fit->top_down) source_y = fit->ry - 1 - source_y;
+            size_t source = (size_t)source_y * fit->rx + (uint64_t)x * fit->rx / width;
+            display_tint_pixel(pixels + target, display_mask_byte(fit, source));
         }
         pixels[target + 3] = 255;
       }

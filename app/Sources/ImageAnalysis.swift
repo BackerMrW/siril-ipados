@@ -40,6 +40,8 @@ actor ImageAnalysisEngine {
         guard let image = url.path.withCString({ siril_image_read($0, &error, capacity) }) else {
             throw EngineError.failed(String(cString: error))
         }
+        do { try attachSavedDisplayMask(image, url: url) }
+        catch { siril_image_free(image); throw error }
         self.image = image
         var info = SirilImageInfo()
         guard siril_image_info(image, &info) != 0 else { throw EngineError.failed("无法读取图像信息") }

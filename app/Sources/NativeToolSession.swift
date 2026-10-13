@@ -129,6 +129,8 @@ actor NativeToolSession {
         var error = [CChar](repeating: 0, count: 512); let size = error.count
         original = cache.appendingPathComponent("input.fits").path.withCString { siril_image_read($0, &error, size) }
         guard original != nil else { close(); throw EngineError.failed(String(cString: error)) }
+        do { try attachSavedDisplayMask(original!, url: file.url) }
+        catch { close(); throw error }
     }
     func close() {
         for pointer in [original, result, maskImage, rangeImage, phaseImage, kernelImage].compactMap({ $0 }) { siril_image_free(pointer) }
