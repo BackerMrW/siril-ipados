@@ -304,6 +304,7 @@ struct ProcessingView: View {
     @State private var tools = ImageToolOptions()
     @State private var showBackground = false
     @State private var showSequences = false
+    @State private var showKeywordEditor = false
 
     var body: some View {
         NavigationStack {
@@ -315,6 +316,7 @@ struct ProcessingView: View {
                     }
                     Text("暗场与亮场需匹配曝光、温度、增益和偏置；尺寸与拍摄模式也需一致。")
                         .font(.caption).foregroundStyle(.secondary)
+                    Button("批量编辑 FITS 关键字") { showKeywordEditor = true }.disabled(busy || files.isEmpty)
                 }
                 Group { BatchControls(options: $options, lights: files.filter { $0.role == .lights }) }.disabled(busy)
                 Section("批处理流程") {
@@ -426,6 +428,11 @@ struct ProcessingView: View {
             .sheet(isPresented: $showSequences) {
                 SequenceBrowserView(engine: engine, job: folder?.lastPathComponent) { result in
                     dismiss(); onPreview(result, nil)
+                }
+            }
+            .sheet(isPresented: $showKeywordEditor) {
+                FITSKeywordEditorView(files: files, engine: engine) { result in
+                    dismiss(); onPreview(result, files.count == 1 ? files.first?.id : nil)
                 }
             }
             .fullScreenCover(isPresented: $showBackground) {

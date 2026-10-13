@@ -11,11 +11,14 @@
 
 - [d84cda0 的回归](https://github.com/BackerMrW/siril-ipados/actions/runs/38355186742)中真机目标构建成功，模拟器 C 层 XISF、SER、三种 CFA 格式的实际去马赛克颜色均通过；整体仍因 JPEG XL 导出预期未考虑原版默认颜色空间转换失败，后续 Swift 检查未执行。
 
+- `bb7d00dfcb8b354be6cd21306ede4dd627fde5c2` 的[整轮回归](https://github.com/BackerMrW/siril-ipados/actions/runs/38356956324)两个 SDK 均成功：XISF/SER/CFA 与单色/RGB JPEG XL 独立导入、默认工作颜色空间转换及保留 ICC 无损导出均通过；完整 Swift、原有工具与原生页面检查通过。
+
 ## 当前实现与待验证
 
 - XISF：固定 libXISF `de757840b3973237172b932b14efd011cfc1151d` 和 zstd 1.5.7；原版读取器、UInt16 CFA 和 Float32 平面 RGB 像素、曝光与 FITS 往返已在模拟器执行通过。在 d84cda0 的模拟器任务中，交错存储/字节洗牌 zlib、压缩损坏/截断/非法几何拒绝以及原版去马赛克后的真实 RGB 已通过；完整 Swift 导入仍待整轮执行。原版 XISF 保持只读，工作输出用 FITS。
 - SER：调用原版逐帧解码，保留原始副本，输出独立工作 FITS；支持原生取消与失败回滚。独立测试包含三帧 mono/CFA/RGB/BGR、8/16-bit、两个字节序、逐帧时间与曝光、截断序列和源文件保留；CFA 转换还检查去马赛克后的真实 RGB。d84cda0 的模拟器已通过上述 C 层像素/元数据与去马赛克颜色检查；Swift 取消/回滚等待整轮继续执行。
-- JPEG XL：固定 0.12.0 `a7a9c787341cf703dede03c2009fa460cae5e5df`，Brotli/Highway 使用该提交固定子模块，LCMS 使用已有目标库；两个 Apple 目标已编译通过。已接入原版读写与质量/无损/计算量参数、32-bit float/8-bit 导出、设置记录；修复原版质量变量遮蔽、压缩输入泄漏和写出失败未传播。d84cda0 中独立公开 libjxl 编码器核对原版 RGB 导入通过；导出对比发现原版默认转换到工作颜色空间，原始像素不能直接作为转换后预期。已接入 sRGB/工作空间/保留图像 ICC 选项和持久化；分别用独立 LCMS 转换和原始像素检查默认导出与保留 ICC 导出，并扩展单色检查。最新结果仍待验收。
+- JPEG XL：固定 0.12.0 `a7a9c787341cf703dede03c2009fa460cae5e5df`，Brotli/Highway 使用该提交固定子模块，LCMS 使用已有目标库；两个 Apple 目标已编译通过。已接入原版读写与质量/无损/计算量参数、32-bit float/8-bit 导出、设置记录；修复原版质量变量遮蔽、压缩输入泄漏和写出失败未传播。d84cda0 中独立公开 libjxl 编码器核对原版 RGB 导入通过；导出对比发现原版默认转换到工作颜色空间，原始像素不能直接作为转换后预期。已接入 sRGB/工作空间/保留图像 ICC 选项和持久化；分别用独立 LCMS 转换和原始像素检查默认导出与保留 ICC 导出，并扩展单色检查。上述 JPEG XL 检查已随 bb7d00d 整轮通过。
+- HEIF/HEIC/AVIF：libheif 1.23.6、libde265 1.1.3、dav1d 1.5.4 静态构建已在两个 SDK 通过，原版导入与行步长/16-bit 修复已接入；首次内核编译发现内存预算 helper 缺少声明，已补头文件重新构建，像素/Swift 检查尚待执行。
 - 新增依赖的固定源码与许可证进入现有源码打包和 App 通知目录；Mozilla CA PEM 来源、日期、SHA-256 与 MPL-2.0 许可已记录。
 
 ## 继续执行的缺口

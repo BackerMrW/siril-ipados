@@ -28,6 +28,7 @@
 #include "io/sequence.h"
 #include "io/single_image.h"
 #include "io/conversion.h"
+#include "io/fits_keywords.h"
 #include <gsl/gsl_errno.h>
 #include <fftw3.h>
 #ifdef HAVE_LIBCURL
@@ -769,6 +770,54 @@ size_t siril_image_copy_header(SirilImage *image, char *buffer, size_t capacity)
     if (buffer && capacity >= required) memcpy(buffer, header, required);
     g_mutex_unlock(&engine_mutex);
     return required;
+}
+static int embedded_keyword_valid(const char *key, fits *fit) {
+    if (!key || !*key || strlen(key) > 8) return 0;
+    for (const char *p = key; *p; p++)
+        if (!g_ascii_isupper(*p) && !g_ascii_isdigit(*p) && *p != '-' && *p != '_') return 0;
+    char card[FLEN_CARD]; snprintf(card, sizeof card, "%-8s= 0", key);
+    return !keyword_is_protected(card, fit);
+}
+static int embedded_fits_text_valid(const char *value) {
+    if (!value) return 1;
+    for (const unsigned char *p = (const unsigned char *)value; *p; p++) if (*p < 32 || *p > 126) return 0;
+    return 1;
+}
+SirilImage *siril_image_edit_keyword(SirilImage *image, int action, const char *key,
+    const char *value, const char *comment, int string_value, char *error, size_t error_size) {
+    if (error && error_size) *error = 0;
+    if (!image || action < 0 || action > 3) return NULL;
+    g_mutex_lock(&engine_mutex);
+    SirilImage *result = NULL;
+    if ((action != 3 && !embedded_keyword_valid(key, &image->fit)) ||
+        (action == 2 && !embedded_keyword_valid(value, &image->fit))) goto done;
+    if (!embedded_fits_text_valid(value) || !embedded_fits_text_valid(comment) ||
+        (value && strlen(value) > 68) || (comment && strlen(comment) > 70) ||
+        (action == 0 && !value) || (action == 3 && (!comment || !*comment))) goto done;
+    char formatted[FLEN_VALUE] = {0};
+    if (action == 0) {
+        if (string_value) {
+            size_t escaped = strlen(value);
+            for (const char *p = value; *p; p++) if (*p == '\'') escaped++;
+            if (escaped > 68) goto done;
+        }
+        process_keyword_string_value(value, formatted, string_value != 0);
+        if (strlen(formatted) + (comment ? strlen(comment) + 3 : 0) + 11 > 80) goto done;
+        char template[FLEN_CARD], card[FLEN_CARD]; int kind = 0, status = 0;
+        snprintf(template, sizeof template, "%s = %s%s%s", key, formatted, comment ? " / " : "", comment ? comment : "");
+        fits_parse_template(template, card, &kind, &status);
+        if (status || kind != 0) goto done;
+    }
+    result = g_try_new0(SirilImage, 1);
+    if (!result) goto done;
+    if (copyfits(&image->fit, &result->fit, CP_ALLOC | CP_DEEPCOPY, 0) ||
+        updateFITSKeyword(&result->fit, action == 3 ? NULL : key, action == 2 ? value : NULL,
+            action == 0 ? formatted : NULL, action == 0 || action == 3 ? comment : NULL, TRUE, FALSE)) {
+        clearfits(&result->fit); g_free(result); result = NULL;
+    }
+done:
+    if (!result && error && error_size) snprintf(error, error_size, "Keyword edit failed: invalid/protected key, invalid value or original FITS error");
+    g_mutex_unlock(&engine_mutex); return result;
 }
 static int preview_locked(fits *fit, uint32_t max_dimension, int selected_channel, int automatic, SirilPreview *preview) {
     if (!fit || !preview || !max_dimension || max_dimension > 2048 || selected_channel < -1 || selected_channel >= fit->naxes[2]) return 0;

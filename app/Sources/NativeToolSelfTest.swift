@@ -126,8 +126,8 @@ extension SirilEngine {
             var originalInfo = SirilImageInfo(); _ = siril_image_info(original, &originalInfo)
             try require(imported.width == Int(originalInfo.width) && imported.height == Int(originalInfo.height), "HEIF dimensions lost")
             var a = [Float](repeating: 0, count: 3), b = a
-            let originalChannels = siril_image_pixel(original, originalInfo.width / 2, originalInfo.height / 2, &a)
-            let savedChannels = siril_image_pixel(restored, originalInfo.width / 2, originalInfo.height / 2, &b)
+            let originalChannels = siril_image_pixel(original, Int32(originalInfo.width / 2), Int32(originalInfo.height / 2), &a)
+            let savedChannels = siril_image_pixel(restored, Int32(originalInfo.width / 2), Int32(originalInfo.height / 2), &b)
             siril_image_free(original); siril_image_free(restored)
             try require(originalChannels == savedChannels && zip(a, b).allSatisfy { abs($0.0 - $0.1) < 1e-7 }, "HEIF working FITS changed pixels")
             try require(try Data(contentsOf: fixture) == source, "HEIF import changed source")
@@ -407,6 +407,25 @@ extension SirilEngine {
             try fm.removeItem(at: imported.url)
         }
         checkpoint("PASS: native JPEG XL export persisted all three original ICC choices, lossless quality and effort; all outputs imported")
+        var keywordEdit = FITSKeywordEdit(); keywordEdit.key = "TESTID"; keywordEdit.value = "123"; keywordEdit.stringValue = false
+        let keywordOutputs = try editFITSKeywords([file, file], edit: keywordEdit)
+        try require(keywordOutputs.count == 2, "Batch keyword editor did not return every output")
+        let editedRecord = try importFile(keywordOutputs[0])
+        let headerReader = ImageAnalysisEngine(); let editedDetails = try await headerReader.open(editedRecord.url)
+        try require(editedDetails.header.contains("TESTID") && editedDetails.header.contains("123"), "Native keyword result or working FITS lost edited header")
+        let keywordPixel = try await headerReader.pixel(x: x, y: y).values
+        try require(keywordPixel == expected, "Header editing changed image pixels")
+        let keywordSettings = try JSONDecoder().decode(FITSKeywordEdit.self, from: Data(contentsOf: keywordOutputs[0].deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("keywords.json")))
+        try require(keywordSettings == keywordEdit, "Keyword recipe was not persisted")
+        keywordEdit.action = .delete
+        let priorTasks = Set(jobHistory().map(\.id))
+        rejected = false
+        do { _ = try editFITSKeywords([editedRecord, file], edit: keywordEdit) } catch { rejected = true }
+        let failedTasks = jobHistory().filter { !priorTasks.contains($0.id) }
+        try require(rejected && failedTasks.count == 1 && (try resultFiles(in: failedTasks[0].folder)).isEmpty, "Partial batch keyword failure left successful outputs or reported success")
+        try fm.removeItem(at: editedRecord.url)
+        try require(try Data(contentsOf: file.url) == sourceBytes, "Keyword edits changed original source")
+        checkpoint("PASS: native batch FITS keyword editing preserved exact pixels/source, persisted its recipe and rolled back every output on a partial failure")
         for job in jobs {
             guard let task = jobHistory().first(where: { $0.id == job.folder.lastPathComponent }) else { throw EngineError.failed("Tool task missing") }
             try trashJob(task)

@@ -99,6 +99,8 @@ actor ImageAnalysisEngine {
 
 struct ImageAnalysisView: View {
     let file: FITSRecord
+    let processingEngine: SirilEngine
+    let onHeaderOutput: (URL) -> Void
     @Binding var selection: ImageSelection?
     var initialTab = 0
     @Environment(\.dismiss) private var dismiss
@@ -115,6 +117,7 @@ struct ImageAnalysisView: View {
     @State private var logarithmic = false
     @State private var histogramChannel = -1
     @State private var headerQuery = ""
+    @State private var editingHeader = false
     @State private var tab = 0
     @State private var busy = false
     @State private var message = ""
@@ -142,6 +145,9 @@ struct ImageAnalysisView: View {
             .onChange(of: channel) { _, _ in Task { await refreshPreview() } }
             .onChange(of: automatic) { _, _ in Task { await refreshPreview() } }
             .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+            .sheet(isPresented: $editingHeader) {
+                FITSKeywordEditorView(files: [file], engine: processingEngine, onOutput: onHeaderOutput)
+            }
         }
     }
     private var imagePanel: some View {
@@ -280,7 +286,8 @@ struct ImageAnalysisView: View {
                     .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Text("当前可查看完整原始文件头；原版关键字新增、修改、删除和序列编辑尚待移植。")
+            Button("编辑关键字") { editingHeader = true }.disabled(busy || details == nil)
+            Text("新增、修改、重命名、删除和添加注释使用原版逻辑，结果另存为 FITS。")
                 .font(.caption2).foregroundStyle(.secondary)
         }
     }

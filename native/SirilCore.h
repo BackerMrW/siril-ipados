@@ -136,6 +136,10 @@ int siril_image_histogram(SirilImage *image, const SirilRegion *region, int chan
 int siril_image_pixel(SirilImage *image, int32_t x, int32_t y, float values[3]);
 /* Required UTF-8 buffer size including NUL; a short buffer is never partially filled. */
 size_t siril_image_copy_header(SirilImage *image, char *buffer, size_t capacity);
+/* Returns an independent edited image. action: 0 set, 1 delete, 2 rename,
+ * 3 add comment; string_value quotes/escapes a FITS string for action 0. */
+SirilImage *siril_image_edit_keyword(SirilImage *image, int action, const char *key,
+    const char *value, const char *comment, int string_value, char *error, size_t error_size);
 const char *siril_core_version(void);
 /* All operations are serialized because upstream Siril uses global state. */
 SirilImage *siril_image_read(const char *path, char *error, size_t error_size);
