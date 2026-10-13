@@ -2,6 +2,7 @@
 """Attach our C ABI to a previously patched, pinned upstream Siril checkout."""
 from pathlib import Path
 import shutil
+import re
 
 root = Path.cwd()
 source = root / "siril-src"
@@ -186,7 +187,7 @@ body = body.replace(needle, '\t\tx1 = fit->rx;\n\t\ty1 = fit->ry;', 1)
 path.write_text(text[:start] + body)
 destination = source / "src/ipados"
 destination.mkdir(exist_ok=True)
-for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "SirilDisplay.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc", "heif-runtime-tests.inc", "keyword-runtime-tests.inc", "display-runtime-tests.inc", "icc-runtime-tests.inc"):
+for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "SirilDisplay.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc", "heif-runtime-tests.inc", "keyword-runtime-tests.inc", "display-runtime-tests.inc", "icc-runtime-tests.inc", "display-icc-tests.inc"):
     shutil.copy2(root / "native" / name, destination / name)
 # Reuse the pinned desktop LUT arithmetic without GTK state or its UI cache.
 # The iPad bridge owns the image, level bounds, destination and STF parameters.
@@ -214,6 +215,23 @@ icc_text = (source / "src/core/icc_profile.c").read_text()
 start = icc_text.index('static gboolean siril_color_profile_get_rgb_matrix_colorants_d50 (')
 end = icc_text.index('static void siril_color_profile_set_tag (', start)
 (destination / "SirilICCPrimaries.inc").write_text('// SPDX-License-Identifier: GPL-3.0-or-later\n// Original D50 profile colorant extraction used by the Siril chromaticity plot.\n' + icc_text[start:end])
+proof_start = icc_text.index('static cmsHTRANSFORM build_proofing_transform(gboolean float_input) {')
+proof_end = icc_text.index('cmsHTRANSFORM initialize_proofing_transform()', proof_start)
+gamut_start = icc_text.index('static cmsHTRANSFORM build_gamut_transform()')
+gamut_end = icc_text.index('/* Cached accessor for the above.', gamut_start)
+display_icc = icc_text[proof_start:proof_end] + icc_text[gamut_start:gamut_end]
+display_icc = display_icc.replace('build_proofing_transform(gboolean float_input)', 'embedded_original_proofing_transform(fits *fit, cmsHPROFILE monitor, gboolean float_input)')
+display_icc = display_icc.replace('build_gamut_transform()', 'embedded_original_gamut_transform(fits *fit, cmsHPROFILE monitor)')
+display_icc = re.sub(r'\(com\.gui_icc\.soft_proof && com\.pref\.icc\.soft_proofing_profile_active\)\s*\?\s*com\.gui_icc\.soft_proof\s*:\s*com\.gui_icc\.monitor', 'monitor', display_icc)
+display_icc = display_icc.replace('com.gui_icc.monitor', 'monitor').replace('gfit', 'fit')
+display_icc = display_icc.replace('com.gui_icc.proofing_flags', '(com.icc.rendering_flags | cmsFLAGS_SOFTPROOFING)')
+display_icc = display_icc.replace('\tif (com.gui_icc.gamut_check) {\n\t\tflags |= cmsFLAGS_GAMUTCHECK;\n\t}\n', '')
+display_icc = display_icc.replace('\tif (com.gui_icc.gamut_check)\n\t\tflags |= cmsFLAGS_GAMUTCHECK;\n', '')
+for mutex in ('soft_proof_profile_mutex', 'monitor_profile_mutex'):
+    for action in ('lock', 'unlock'):
+        display_icc = display_icc.replace(f'\tg_mutex_{action}(&{mutex});\n', '')
+assert 'com.gui_icc' not in display_icc and 'gfit' not in display_icc
+(destination / "SirilDisplayICC.inc").write_text('// SPDX-License-Identifier: GPL-3.0-or-later\n// Original display transforms adapted to an owned image and explicit sRGB target.\n// Called under the bridge engine mutex; soft-proof/gamut-warning UI is separate.\n' + display_icc)
 meson = source / "src/meson.build"
 text = meson.read_text()
 needle = "siril_lib = static_library('siril',"

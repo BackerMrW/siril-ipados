@@ -185,7 +185,7 @@ extension PreviewBytes {
     var uiImage: UIImage? {
         guard let provider = CGDataProvider(data: data as CFData),
               let cg = CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
-                bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                 bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
                 provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) else { return nil }
         return UIImage(cgImage: cg)

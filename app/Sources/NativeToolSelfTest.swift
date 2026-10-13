@@ -261,6 +261,13 @@ extension SirilEngine {
         let assignedICC = try await session.export(icc, to: iccJob)
         let iccRecord = try importFile(assignedICC); records.append(iccRecord)
         let iccSession = NativeToolSession(); try await iccSession.open(iccRecord)
+        var iccDisplay = NativeDisplaySettings(mode: .linear)
+        let managedDisplay = try preview(iccRecord.url, channel: -1, settings: iccDisplay)
+        iccDisplay.useICC = false
+        let rawDisplay = try preview(iccRecord.url, channel: -1, settings: iccDisplay)
+        try require(managedDisplay.data != rawDisplay.data, "Linear ICC display did not encode sRGB screen values")
+        let oldDisplay = try JSONDecoder().decode(NativeDisplaySettings.self, from: Data("{\"mode\":0,\"low\":0,\"high\":1,\"unlinked\":false,\"inverted\":false}".utf8))
+        try require(oldDisplay.useICC, "Old display preferences lost default ICC management")
         let assignedProfile = try await iccSession.iccProfile(view: 0)
         let chromaticity = try ICCChromaticity(data: assignedProfile)
         try require(chromaticity.channels == 3 && !chromaticity.name.isEmpty && abs(chromaticity.coordinates[6] - 0.3457) < 0.0001 && abs(chromaticity.coordinates[7] - 0.3585) < 0.0001, "ICC chromaticity lost D50 whitepoint or profile description")

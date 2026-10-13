@@ -82,7 +82,7 @@ typedef struct {
 typedef struct {
     int mode; /* Original order: linear, log, sqrt, squared, asinh, STF, histogram equalization. */
     double low, high; /* Normalized display bounds, used by modes 0..4. */
-    int unlinked, inverted;
+    int unlinked, inverted, icc;
 } SirilDisplayOptions;
 typedef struct {
     int32_t x, y, width, height; /* displayed top-left coordinates; NULL = full image */

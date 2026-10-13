@@ -34,6 +34,7 @@
 #include "keyword-runtime-tests.inc"
 #include "display-runtime-tests.inc"
 #include "icc-runtime-tests.inc"
+#include "display-icc-tests.inc"
 static int float_order(const void *a, const void *b) {
     float x = *(const float *)a, y = *(const float *)b;
     return (x > y) - (x < y);
@@ -648,6 +649,7 @@ int main(int argc, char **argv) {
     CHECK(display_reference_checks(image) == 0);
     CHECK(display_rgb_reference(argv[1]) == 0);
     CHECK(icc_reference_checks(argv[1]) == 0);
+    CHECK(display_icc_reference(argv[1]) == 0);
     SirilImageInfo info;
     CHECK(siril_image_info(image, &info));
     CHECK(info.width == 2 && info.height == 2 && info.channels == 1);

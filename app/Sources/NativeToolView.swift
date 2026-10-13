@@ -341,7 +341,7 @@ struct NativeToolView: View {
                 try await session.compute(recipe, library: library)
                 let info = try await session.info(view: 1); resultWidth = Int(info.width); resultHeight = Int(info.height)
                 if recipe.tool == .curves { resultCurveHistograms = try await session.curveHistograms(view: 1) }
-                resultImage = try await session.preview(view: 1, channel: -1, automatic: false).uiImage
+                resultImage = try await session.preview(view: 1, channel: -1, settings: displaySettings).uiImage
                 if recipe.mask.number("mode") != 0 || section == "curves" { maskImage = try await session.preview(view: 2, channel: -1, automatic: false).uiImage }
                 if recipe.tool == .deconvolution {
                     let kernel = try await session.info(view: 4); kernelWidth = Int(kernel.width); kernelHeight = Int(kernel.height)

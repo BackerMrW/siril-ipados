@@ -3,13 +3,15 @@
 #include "algos/colors.h"
 static int icc_reference_checks(const char *directory) {
     char source[4096], assigned[4096], converted[4096], removed[4096], custom[4096], script[18000], error[1024];
-    // A independently authored D50 RGB destination distinguishes absolute from
-    // relative colorimetry. It does not reuse Siril's profile construction.
+    // An independently authored RGB destination with an explicit different
+    // media white distinguishes absolute from relative colorimetry.
     cmsCIExyY white = {.3457, .3585, 1.0};
     cmsCIExyYTRIPLE primaries = {{.64, .33, 1}, {.30, .60, 1}, {.15, .06, 1}};
     cmsToneCurve *gamma = cmsBuildGamma(NULL, 2.2); CHECK(gamma);
     cmsToneCurve *curves[3] = {gamma, gamma, gamma};
     cmsHPROFILE destination = cmsCreateRGBProfile(&white, &primaries, curves); CHECK(destination);
+    cmsCIEXYZ media_white = {.95047, 1.0, 1.08883};
+    CHECK(cmsWriteTag(destination, cmsSigMediaWhitePointTag, &media_white));
     cmsFreeToneCurve(gamma);
     snprintf(custom, sizeof custom, "%s/independent-d50.icc", directory);
     CHECK(cmsSaveProfileToFile(destination, custom));
