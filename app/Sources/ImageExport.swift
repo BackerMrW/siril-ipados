@@ -17,6 +17,17 @@ enum NativeImageFormat: String, CaseIterable, Codable, Identifiable, Sendable {
     var ext: String { isJXL ? "jxl" : native == 1 ? "png" : native == 2 ? "jpg" : "tif" }
 }
 extension SirilEngine {
+    func exportICCProfile(_ file: FITSRecord, data: Data, result: Bool) throws -> URL {
+        try ICCProfileResource(name: "image.icc", data: data).validate(channels: file.channels)
+        let job = try prepareJob(files: [file], script: "# ICC 配置文件导出；来源与配置文件见 icc-export.json。\n")
+        let output = job.folder.appendingPathComponent("process/image.icc")
+        do {
+            try data.write(to: output, options: .withoutOverwriting)
+            try JSONEncoder().encode(["source": file.id.uuidString, "image": result ? "preview-result" : "original"]).write(to: job.folder.appendingPathComponent("icc-export.json"), options: .atomic)
+            try writeJobState(job.folder, state: "已完成", message: "ICC 配置文件导出")
+            return output
+        } catch { try? writeJobState(job.folder, state: "导出失败", message: error.localizedDescription); throw error }
+    }
     func exportImage(_ file: FITSRecord, format: NativeImageFormat, quality: Int, jxlQuality: Double = 94, jxlEffort: Int = 7, profile: NativeExportProfile? = nil) throws -> URL {
         guard (1...100).contains(quality) else { throw EngineError.failed("JPEG 质量必须在1–100之间。") }
         guard jxlQuality.isFinite && (0...100).contains(jxlQuality) && (1...9).contains(jxlEffort) else { throw EngineError.failed("JPEG XL 质量范围为0–100，压缩计算量范围为1–9。") }

@@ -928,6 +928,30 @@ int siril_image_divide_scalar(SirilImage *image, float divisor) {
     g_mutex_unlock(&engine_mutex);
     return ok;
 }
+size_t siril_image_copy_icc(const SirilImage *image, void *buffer, size_t capacity) {
+    if (!image) return 0;
+    g_mutex_lock(&engine_mutex);
+    cmsUInt32Number size = 0;
+    int ok = image->fit.icc_profile && cmsSaveProfileToMem(image->fit.icc_profile, NULL, &size);
+    if (ok && buffer && capacity >= size) ok = cmsSaveProfileToMem(image->fit.icc_profile, buffer, &size);
+    g_mutex_unlock(&engine_mutex);
+    return ok ? size : 0;
+}
+int siril_icc_validate(const void *buffer, size_t size, int channels) {
+    if (!buffer || size < 128 || size > 16 * 1024 * 1024 || (channels != 1 && channels != 3)) return 0;
+    g_mutex_lock(&engine_mutex);
+    cmsHPROFILE profile = cmsOpenProfileFromMem(buffer, (cmsUInt32Number)size);
+    int ok = profile && cmsGetColorSpace(profile) == (channels == 1 ? cmsSigGrayData : cmsSigRgbData);
+    if (ok) {
+        cmsUInt32Number kind = channels == 1 ? TYPE_GRAY_FLT : TYPE_RGB_FLT;
+        cmsHTRANSFORM transform = cmsCreateTransform(profile, kind, profile, kind, INTENT_RELATIVE_COLORIMETRIC, 0);
+        ok = transform != NULL;
+        if (transform) cmsDeleteTransform(transform);
+    }
+    if (profile) cmsCloseProfile(profile);
+    g_mutex_unlock(&engine_mutex);
+    return ok;
+}
 int siril_image_write(const SirilImage *image, const char *path) {
     if (!image || !path) return 0;
     /* Upstream savefits adds/rewrites suffixes. Require an exact output path

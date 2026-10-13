@@ -1,5 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import SirilCore
+
+struct ICCProfileResource: Codable, Equatable, Sendable {
+    var name: String
+    var data: Data
+    func validate(channels: Int) throws {
+        guard data.withUnsafeBytes({ siril_icc_validate($0.baseAddress, $0.count, Int32(channels)) }) != 0 else { throw EngineError.failed("ICC 文件无效、超过16 MiB或与图像通道不匹配。请选择 RGB / 灰度配置文件。") }
+    }
+    static func copy(from image: OpaquePointer) throws -> Data {
+        let count = Int(siril_image_copy_icc(image, nil, 0))
+        guard count >= 128 && count <= 16 * 1024 * 1024 else { throw EngineError.failed("当前图像没有可导出的 ICC 配置文件。") }
+        var data = Data(count: count)
+        let written = data.withUnsafeMutableBytes { siril_image_copy_icc(image, $0.baseAddress, $0.count) }
+        guard written == count else { throw EngineError.failed("ICC 配置文件读取失败。") }
+        return data
+    }
+}
 
 enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
     case mtf, inverseMTF, asinh, ghs, inverseGHS, modifiedAsinh, inverseModifiedAsinh, linearStretch, automatic, automaticGHS
@@ -72,7 +89,7 @@ extension NativeTool {
         let interp = c("interp", "插值", ["最近邻", "双线性", "双三次", "像素面积", "Lanczos4"], 4)
         switch self {
         case .colorManagement: return [c("action", "操作", ["分配配置文件（保留像素）", "转换颜色空间", "移除配置文件"]),
-            c("profile", "目标配置文件", ["线性 sRGB", "sRGB", "线性 Rec.2020", "Rec.2020", "工作空间"]),
+            c("profile", "目标配置文件", ["线性 sRGB", "sRGB", "线性 Rec.2020", "Rec.2020", "工作空间", "自定义 ICC 文件"]),
             c("intent", "转换意图", ["感知", "相对色度", "饱和度", "绝对色度"], 1)]
         case .pcc, .spcc: return PhotometricFields.fields(for: self)
         case .plateSolve: return [b("headerPosition", "使用文件头目标坐标", true),
@@ -143,6 +160,7 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
     var curves: CurveRecipe?
     var pixelMath: PixelMathRecipe?
     var spectral: SpectralSettings?
+    var iccProfile: ICCProfileResource?
     init(tool: NativeTool, file: FITSRecord) {
         self.tool = tool; values = Dictionary(uniqueKeysWithValues: tool.fields.map { ($0.id, $0.value) })
         if file.hasMask == true && ![.colorManagement, .pixelMath, .fftDirect, .fftInverse].contains(tool) { mask.values["mode"] = 6 }
@@ -154,6 +172,10 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
     }
     func number(_ key: String) -> Double { values[key] ?? 0 }
     func validate(file: FITSRecord) throws {
+        if tool == .colorManagement && number("action") != 2 && number("profile") == 5 {
+            guard let iccProfile else { throw EngineError.failed("请选择自定义 ICC 文件。") }
+            try iccProfile.validate(channels: file.channels)
+        }
         if tool == .colorManagement && mask.number("mode") != 0 { throw EngineError.failed("ICC 操作作用于整张图像，请关闭处理蒙版。") }
         if tool == .spcc { try spectralSettings.validate(mono: number("mono") == 1, dslr: true) }
         if [.pcc, .spcc].contains(tool), number("magnitudeMode") == 2 && number("magnitude") < 0 { throw EngineError.failed("绝对极限星等必须非负。") }
@@ -201,9 +223,9 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
         var command: String
         switch tool {
         case .colorManagement:
-            var target = ["srgblinear", "srgb", "rec2020linear", "rec2020", "working"][Int(number("profile"))]
+            var target = ["srgblinear", "srgb", "rec2020linear", "rec2020", "working", "target-profile.icc"][Int(number("profile"))]
             if number("action") == 1 && file.channels == 1 {
-                target = ["graylinear", "graysrgb", "graylinear", "grayrec2020", "working"][Int(number("profile"))]
+                target = ["graylinear", "graysrgb", "graylinear", "grayrec2020", "working", "target-profile.icc"][Int(number("profile"))]
             }
             command = number("action") == 2 ? "icc_remove" : number("action") == 0 ? "icc_assign \(target)" : "icc_convert_to \(target) \(["perceptual", "relative", "saturation", "absolute"][Int(number("intent"))])"
         case .pcc, .spcc: command = try photometricCommand()

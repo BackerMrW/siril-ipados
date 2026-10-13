@@ -55,6 +55,8 @@ struct NativeToolView: View {
     @State private var validPreview = false
     @State private var message = ""
     @State private var log = ""
+    @State private var importingICC = false
+    @State private var exportedICC: URL?
     @State private var persistTask: Task<Void, Never>?
     @State private var previewTask: Task<Void, Never>?
     @State private var logTask: Task<Void, Never>?
@@ -80,6 +82,17 @@ struct NativeToolView: View {
             }
             .interactiveDismissDisabled(busy)
             .task { await open() }
+            .fileImporter(isPresented: $importingICC, allowedContentTypes: [.item]) { result in
+                do {
+                    let url = try result.get()
+                    let accessed = url.startAccessingSecurityScopedResource()
+                    defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                    guard ((try url.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? Int.max) <= 16 * 1024 * 1024 else { throw EngineError.failed("ICC 文件最大为16 MiB。") }
+                    let resource = ICCProfileResource(name: url.lastPathComponent, data: try Data(contentsOf: url))
+                    try resource.validate(channels: file.channels)
+                    recipe.iccProfile = resource; recipe.values["profile"] = 5
+                } catch { message = error.localizedDescription }
+            }
             .onChange(of: recipe) { _, value in edited(value) }
             .onChange(of: recipe.tool) { _, tool in
                 if tool == .curves && originalCurveHistograms.isEmpty {
@@ -167,6 +180,14 @@ struct NativeToolView: View {
             if recipe.tool == .colorManagement {
                 Section("颜色管理") {
                     Text("分配与移除配置文件保留像素值。转换使用原版 LittleCMS 引擎，需先有源 ICC 配置文件；灰度图保持单通道。应用保存独立 FITS 和操作记录。")
+                    if recipe.number("profile") == 5 && recipe.number("action") != 2 {
+                        Button("选择 ICC 文件") { importingICC = true }
+                        if let profile = recipe.iccProfile { Text(profile.name).font(.caption) }
+                        Text("配置文件随参数和处理记录保存，重新打开或重放不需要再次选择原文件。支持与图像匹配的 RGB / 灰度配置文件，最大16 MiB。").font(.caption)
+                    }
+                    Button("导出原图 ICC") { exportICC(result: false) }
+                    if validPreview { Button("导出结果 ICC") { exportICC(result: true) } }
+                    if let exportedICC { ShareLink("保存 / 分享 ICC", item: exportedICC) }
                 }
             }
             if recipe.tool == .spcc {
@@ -279,7 +300,7 @@ struct NativeToolView: View {
             if recipe.tool == .curves { originalCurveHistograms = try await session.curveHistograms(view: 0) }
             if ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_VIEW_CHECK"] == "1" {
                 let section = ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_SECTION"] ?? "ghs"
-                recipe = NativeToolRecipe(tool: section == "platesolve" ? .plateSolve : section == "pcc" ? .pcc : section == "spcc" ? .spcc : section.hasPrefix("deconv") ? .deconvolution : section == "fft-inverse" ? .fftInverse : section.hasPrefix("fft") ? .fftDirect : section == "curves" ? .curves : section == "pixelmath" ? .pixelMath : section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)
+                recipe = NativeToolRecipe(tool: section == "icc" ? .colorManagement : section == "platesolve" ? .plateSolve : section == "pcc" ? .pcc : section == "spcc" ? .spcc : section.hasPrefix("deconv") ? .deconvolution : section == "fft-inverse" ? .fftInverse : section.hasPrefix("fft") ? .fftDirect : section == "curves" ? .curves : section == "pixelmath" ? .pixelMath : section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)
                 if ["platesolve", "pcc", "spcc"].contains(section) {
                     if section == "spcc" {
                         var selected = recipe.spectralSettings
@@ -337,9 +358,20 @@ struct NativeToolView: View {
         history?.record(value); invalidate(); saveHistory()
     }
     @MainActor private func invalidate() {
+        exportedICC = nil
         validPreview = false; resultImage = nil; maskImage = nil; view = 0; message = ""
         curveTone = nil; resultCurveHistograms = []
         previewTask?.cancel()
+    }
+    @MainActor private func exportICC(result: Bool) {
+        busy = true; exportedICC = nil
+        Task {
+            do {
+                let data = try await session.iccProfile(view: result ? 1 : 0)
+                exportedICC = try await engine.exportICCProfile(file, data: data, result: result)
+            } catch { message = error.localizedDescription }
+            busy = false
+        }
     }
     @MainActor private func pickCurveTone(x: Double, y: Double) {
         let current = recipe.curveSettings

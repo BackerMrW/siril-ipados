@@ -28,6 +28,17 @@ static int icc_reference_checks(const char *directory) {
         CHECK(siril_run_commands(directory, script, error, sizeof error));
         fits reference = {0}; CHECK(!readfits(assigned, &reference, NULL, TRUE));
         CHECK(reference.icc_profile && reference.color_managed && reference.naxes[2] == channels);
+        SirilImage *native = siril_image_read(assigned, error, sizeof error); CHECK(native);
+        size_t profile_size = siril_image_copy_icc(native, NULL, 0); CHECK(profile_size >= 128);
+        unsigned char *profile_bytes = malloc(profile_size); CHECK(profile_bytes);
+        CHECK(siril_image_copy_icc(native, profile_bytes, profile_size) == profile_size);
+        CHECK(siril_icc_validate(profile_bytes, profile_size, channels));
+        CHECK(!siril_icc_validate(profile_bytes, profile_size, channels == 3 ? 1 : 3));
+        CHECK(!siril_icc_validate("not an ICC", 10, channels));
+        CHECK(!siril_icc_validate(profile_bytes, 16 * 1024 * 1024 + 1, channels));
+        cmsHPROFILE copied = cmsOpenProfileFromMem(profile_bytes, (cmsUInt32Number)profile_size); CHECK(copied);
+        CHECK(cmsGetColorSpace(copied) == cmsGetColorSpace(reference.icc_profile));
+        cmsCloseProfile(copied); free(profile_bytes); siril_image_free(native);
         for (int i = 0; i < channels * 48; i++) CHECK(reference.fdata[i] == input[i]);
         cmsHPROFILE builtin = channels == 1 ? gray_srgbtrc() : srgb_trc(); CHECK(builtin);
         float intent_pixels[2][3] = {{0}};

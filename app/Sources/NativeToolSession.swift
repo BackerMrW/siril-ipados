@@ -61,6 +61,7 @@ extension SirilEngine {
         for recipe in history.past + [history.current] + history.future {
             guard Set(recipe.values.keys) == Set(recipe.tool.fields.map(\.id)), recipe.values.values.allSatisfy(\.isFinite), Set(recipe.mask.values.keys) == Set(ToolMask.fields.map(\.id)), recipe.mask.values.values.allSatisfy(\.isFinite) else { throw EngineError.failed("工具历史中的参数无效。") }
             try recipe.validateAdvancedStorage()
+            if let profile = recipe.iccProfile { try profile.validate(channels: file.channels) }
         }
         if history.current.tool != tool { history.record(NativeToolRecipe(tool: tool, file: file)) }
         return history
@@ -91,6 +92,9 @@ extension SirilEngine {
         if let id = recipe.guideID { script = script.replacingOccurrences(of: "guide.fits", with: try copied(id)) }
         if recipe.mask.number("mode") == 3, let id = recipe.mask.sourceID { script = script.replacingOccurrences(of: "mask-source.fits", with: try copied(id)) }
         let job = try prepareJob(files: inputs, script: script + "save process/result.fits\nclose\n")
+        if recipe.tool == .colorManagement, recipe.number("action") != 2, recipe.number("profile") == 5, let profile = recipe.iccProfile {
+            try profile.data.write(to: job.folder.appendingPathComponent("target-profile.icc"), options: .atomic)
+        }
         let paths = try Dictionary(uniqueKeysWithValues: inputs.map { ($0.id, try copied($0.id)) })
         if let json = try recipe.advancedSettings(paths: paths) {
             try json.replacingOccurrences(of: "input.fits", with: try copied(file.id)).write(to: job.folder.appendingPathComponent("advanced-tool.json"), atomically: true, encoding: .utf8)
@@ -137,6 +141,9 @@ actor NativeToolSession {
         guard let original else { throw EngineError.failed("原图已关闭。") }
         var sourceInfo = SirilImageInfo(); _ = siril_image_info(original, &sourceInfo)
         let script = try recipe.commands(file: source, topDown: sourceInfo.top_down != 0)
+        if recipe.tool == .colorManagement, recipe.number("action") != 2, recipe.number("profile") == 5, let profile = recipe.iccProfile {
+            try profile.data.write(to: folder.appendingPathComponent("target-profile.icc"), options: .atomic)
+        }
         func copyReference(_ id: UUID, name: String, mask: Bool) throws {
             guard let file = library.first(where: { $0.id == id }), file.width == source.width, file.height == source.height, [1, 3].contains(file.channels) else { throw EngineError.failed(mask ? "蒙版图必须与原图同尺寸。" : "引导图必须与原图同尺寸。") }
             let target = folder.appendingPathComponent(name)
@@ -237,6 +244,10 @@ actor NativeToolSession {
         var bytes = [CChar](repeating: 0, count: max(1, count))
         guard siril_image_copy_header(pointer, &bytes, bytes.count) == count else { throw EngineError.failed("文件头读取失败。") }
         return String(cString: bytes)
+    }
+    func iccProfile(view: Int) throws -> Data {
+        guard let pointer = view == 0 ? original : result else { throw EngineError.failed("请先计算图像结果。") }
+        return try ICCProfileResource.copy(from: pointer)
     }
     func curvePipette(_ recipe: CurveRecipe, x: Int, y: Int) throws -> Double {
         let pixel: [Float]

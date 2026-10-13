@@ -164,6 +164,10 @@ int siril_image_subtract(SirilImage *destination, const SirilImage *source);
 int siril_image_divide_scalar(SirilImage *image, float divisor);
 /* Export a new floating-point FITS; refuses to overwrite an existing path. */
 int siril_image_write(const SirilImage *image, const char *path);
+/* Serialized original ICC profile; returns required size, 0 if absent/failure. */
+size_t siril_image_copy_icc(const SirilImage *image, void *buffer, size_t capacity);
+/* Validates a user profile against the image's one/three channels. */
+int siril_icc_validate(const void *buffer, size_t size, int channels);
 /* Original writers: 1 PNG, 2 JPEG, 3 TIFF, 4 JPEG XL. Exact suffix and no overwrite;
  * PNG accepts 8/16-bit, TIFF 8/16/32-bit; JPEG quality is 1..100. */
 int siril_image_export(SirilImage *image, const char *path, int format, int depth, int quality);

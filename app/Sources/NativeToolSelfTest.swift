@@ -261,6 +261,27 @@ extension SirilEngine {
         let assignedICC = try await session.export(icc, to: iccJob)
         let iccRecord = try importFile(assignedICC); records.append(iccRecord)
         let iccSession = NativeToolSession(); try await iccSession.open(iccRecord)
+        let assignedProfile = try await iccSession.iccProfile(view: 0)
+        var customICC = NativeToolRecipe(tool: .colorManagement, file: file)
+        customICC.values["profile"] = 5
+        customICC.iccProfile = ICCProfileResource(name: "custom-linear-srgb.icc", data: assignedProfile)
+        try await session.compute(customICC, library: records)
+        let customPixel = try await session.pixel(view: 1, x: x, y: y)
+        try require(customPixel == expected, "Custom ICC assignment changed source pixels")
+        let customJob = try prepareNativeToolJob(file: file, recipe: customICC, library: records); jobs.append(customJob)
+        try require(try Data(contentsOf: customJob.folder.appendingPathComponent("target-profile.icc")) == assignedProfile, "Custom ICC bytes missing from replay job")
+        let restoredICC = try JSONDecoder().decode(NativeToolRecipe.self, from: Data(contentsOf: customJob.folder.appendingPathComponent("native-tool.json")))
+        try require(restoredICC == customICC, "Custom ICC resource did not persist with recipe")
+        let replayedICC = try run(customJob)
+        try require(replayedICC.count == 1, "Custom ICC job did not replay from saved input/profile")
+        let replayReader = ImageAnalysisEngine(); _ = try await replayReader.open(replayedICC[0])
+        let replayPixel = try await replayReader.pixel(x: x, y: y).values
+        try require(replayPixel == expected, "Replayed custom ICC assignment changed pixels")
+        let exportedProfile = try exportICCProfile(iccRecord, data: assignedProfile, result: false)
+        try require(try Data(contentsOf: exportedProfile) == assignedProfile, "Exported ICC bytes changed")
+        var wrongICCRejected = false
+        do { try ICCProfileResource(name: "wrong.icc", data: assignedProfile).validate(channels: 1) } catch { wrongICCRejected = true }
+        try require(wrongICCRejected, "RGB ICC accepted for mono image")
         icc = NativeToolRecipe(tool: .colorManagement, file: iccRecord)
         icc.values["action"] = 1; icc.values["profile"] = 1
         for intent in 0..<4 {
@@ -279,7 +300,7 @@ extension SirilEngine {
         try require(removedICC == expected, "ICC removal changed pixels")
         try require(try JSONDecoder().decode(NativeToolRecipe.self, from: JSONEncoder().encode(icc)) == icc, "ICC recipe did not persist")
         try fm.removeItem(at: iccRecord.url)
-        checkpoint("PASS: native ICC assignment, independent sRGB transfer function under four intents, removal, FITS output and recipe persistence preserved source pixels")
+        checkpoint("PASS: native ICC assignment, custom profile persistence/replay bytes, exact ICC export, channel validation, independent sRGB transfer function under four intents, removal and FITS output preserved source pixels")
         let identity = NativeToolRecipe(tool: .rotate, file: file)
         try await session.compute(identity, library: records)
         let same = try await session.pixel(view: 1, x: x, y: y)
