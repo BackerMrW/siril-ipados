@@ -88,8 +88,8 @@ extension NativeTool {
         let colour = c("colour", "颜色拉伸模型", ["独立通道", "人眼加权亮度", "等权亮度", "饱和度"], 0)
         let interp = c("interp", "插值", ["最近邻", "双线性", "双三次", "像素面积", "Lanczos4"], 4)
         switch self {
-        case .colorManagement: return [c("action", "操作", ["分配配置文件（保留像素）", "转换颜色空间", "移除配置文件"]),
-            c("profile", "目标配置文件", ["线性 sRGB", "sRGB", "线性 Rec.2020", "Rec.2020", "工作空间", "自定义 ICC 文件"]),
+        case .colorManagement: return [c("action", "操作", ["分配配置文件（保留像素）", "转换颜色空间", "移除配置文件"], 0),
+            c("profile", "目标配置文件", ["线性 sRGB", "sRGB", "线性 Rec.2020", "Rec.2020", "工作空间", "自定义 ICC 文件"], 0),
             c("intent", "转换意图", ["感知", "相对色度", "饱和度", "绝对色度"], 1)]
         case .pcc, .spcc: return PhotometricFields.fields(for: self)
         case .plateSolve: return [b("headerPosition", "使用文件头目标坐标", true),

@@ -262,6 +262,8 @@ extension SirilEngine {
         let iccRecord = try importFile(assignedICC); records.append(iccRecord)
         let iccSession = NativeToolSession(); try await iccSession.open(iccRecord)
         let assignedProfile = try await iccSession.iccProfile(view: 0)
+        let chromaticity = try ICCChromaticity(data: assignedProfile)
+        try require(chromaticity.channels == 3 && !chromaticity.name.isEmpty && abs(chromaticity.coordinates[6] - 0.3457) < 0.0001 && abs(chromaticity.coordinates[7] - 0.3585) < 0.0001, "ICC chromaticity lost D50 whitepoint or profile description")
         var customICC = NativeToolRecipe(tool: .colorManagement, file: file)
         customICC.values["profile"] = 5
         customICC.iccProfile = ICCProfileResource(name: "custom-linear-srgb.icc", data: assignedProfile)

@@ -57,6 +57,7 @@ struct NativeToolView: View {
     @State private var log = ""
     @State private var importingICC = false
     @State private var exportedICC: URL?
+    @State private var iccDiagram: ICCChromaticity?
     @State private var persistTask: Task<Void, Never>?
     @State private var previewTask: Task<Void, Never>?
     @State private var logTask: Task<Void, Never>?
@@ -82,6 +83,7 @@ struct NativeToolView: View {
             }
             .interactiveDismissDisabled(busy)
             .task { await open() }
+            .sheet(item: $iccDiagram) { ICCChromaticityView(profile: $0) }
             .fileImporter(isPresented: $importingICC, allowedContentTypes: [.item]) { result in
                 do {
                     let url = try result.get()
@@ -186,7 +188,9 @@ struct NativeToolView: View {
                         Text("配置文件随参数和处理记录保存，重新打开或重放不需要再次选择原文件。支持与图像匹配的 RGB / 灰度配置文件，最大16 MiB。").font(.caption)
                     }
                     Button("导出原图 ICC") { exportICC(result: false) }
+                    Button("查看原图色域") { showICC(result: false) }
                     if validPreview { Button("导出结果 ICC") { exportICC(result: true) } }
+                    if validPreview { Button("查看结果色域") { showICC(result: true) } }
                     if let exportedICC { ShareLink("保存 / 分享 ICC", item: exportedICC) }
                 }
             }
@@ -300,7 +304,7 @@ struct NativeToolView: View {
             if recipe.tool == .curves { originalCurveHistograms = try await session.curveHistograms(view: 0) }
             if ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_VIEW_CHECK"] == "1" {
                 let section = ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_SECTION"] ?? "ghs"
-                recipe = NativeToolRecipe(tool: section == "icc" ? .colorManagement : section == "platesolve" ? .plateSolve : section == "pcc" ? .pcc : section == "spcc" ? .spcc : section.hasPrefix("deconv") ? .deconvolution : section == "fft-inverse" ? .fftInverse : section.hasPrefix("fft") ? .fftDirect : section == "curves" ? .curves : section == "pixelmath" ? .pixelMath : section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)
+                recipe = NativeToolRecipe(tool: section.hasPrefix("icc") ? .colorManagement : section == "platesolve" ? .plateSolve : section == "pcc" ? .pcc : section == "spcc" ? .spcc : section.hasPrefix("deconv") ? .deconvolution : section == "fft-inverse" ? .fftInverse : section.hasPrefix("fft") ? .fftDirect : section == "curves" ? .curves : section == "pixelmath" ? .pixelMath : section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)
                 if ["platesolve", "pcc", "spcc"].contains(section) {
                     if section == "spcc" {
                         var selected = recipe.spectralSettings
@@ -344,6 +348,7 @@ struct NativeToolView: View {
                     maskImage = try await session.preview(view: 4, channel: -1, automatic: false).uiImage
                 }
                 view = section == "deconv-psf" ? 4 : section == "fft-phase" ? 3 : section == "masks" ? 2 : section == "geometry" ? 0 : 1; validPreview = true
+                if section == "icc-plot" { iccDiagram = try ICCChromaticity(data: await session.iccProfile(view: 1)) }
                 if section == "geometry" { region = ImageSelection(x: 16, y: 24, width: 96, height: 80); selecting = true }
                 guard originalImage != nil, resultImage != nil, section != "masks" || maskImage != nil else { throw EngineError.failed("Native tool preview image missing") }
                 try? await Task.sleep(for: .milliseconds(500))
@@ -371,6 +376,12 @@ struct NativeToolView: View {
                 exportedICC = try await engine.exportICCProfile(file, data: data, result: result)
             } catch { message = error.localizedDescription }
             busy = false
+        }
+    }
+    @MainActor private func showICC(result: Bool) {
+        Task {
+            do { iccDiagram = try ICCChromaticity(data: await session.iccProfile(view: result ? 1 : 0)) }
+            catch { message = error.localizedDescription }
         }
     }
     @MainActor private func pickCurveTone(x: Double, y: Double) {

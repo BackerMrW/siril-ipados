@@ -11,6 +11,7 @@
 #include "algos/siril_random.h"
 #include "algos/background_extraction.h"
 #include "algos/demosaicing.h"
+#include "algos/colors.h"
 #include "core/processing.h"
 #include "algos/statistics.h"
 #include "git-version.h"
@@ -927,6 +928,38 @@ int siril_image_divide_scalar(SirilImage *image, float divisor) {
     int ok = soper(&image->fit, divisor, OPER_DIV, TRUE) == 0;
     g_mutex_unlock(&engine_mutex);
     return ok;
+}
+#include "SirilICCPrimaries.inc"
+int siril_icc_chromaticity(const void *buffer, size_t size, double xy[8], char *description, size_t capacity) {
+    if (!buffer || size < 128 || size > 16 * 1024 * 1024 || !xy || !description || !capacity) return 0;
+    g_mutex_lock(&engine_mutex);
+    cmsHPROFILE profile = cmsOpenProfileFromMem(buffer, (cmsUInt32Number)size);
+    int channels = profile ? cmsGetColorSpace(profile) == cmsSigRgbData ? 3 : cmsGetColorSpace(profile) == cmsSigGrayData ? 1 : 0 : 0;
+    for (int i = 0; i < 8; i++) xy[i] = NAN;
+    description[0] = 0;
+    if (channels) {
+        char *name = siril_color_profile_get_description(profile);
+        g_strlcpy(description, name ? name : "ICC profile", capacity); g_free(name);
+    }
+    if (channels == 3) {
+        cmsCIEXYZTRIPLE primaries; cmsCIEXYZ white;
+        if (!siril_color_profile_get_rgb_matrix_colorants_d50(profile, &primaries, &white)) channels = 0;
+        else {
+            cmsCIEXYZ values[4] = {primaries.Red, primaries.Green, primaries.Blue, white};
+            for (int i = 0; i < 4; i++) { cmsCIExyY point; cmsXYZ2xyY(&point, &values[i]); xy[2 * i] = point.x; xy[2 * i + 1] = point.y; }
+        }
+    }
+    if (profile) cmsCloseProfile(profile);
+    g_mutex_unlock(&engine_mutex);
+    return channels;
+}
+int siril_icc_spectral_locus(double *xy, size_t capacity) {
+    if (!xy || capacity < 644) return 0;
+    for (int i = 0; i < 321; i++) {
+        cmsCIEXYZ xyz = {x1931(380 + i), y1931(380 + i), z1931(380 + i)};
+        cmsCIExyY point; cmsXYZ2xyY(&point, &xyz); xy[2 * i] = point.x; xy[2 * i + 1] = point.y;
+    }
+    xy[642] = xy[0]; xy[643] = xy[1]; return 1;
 }
 size_t siril_image_copy_icc(const SirilImage *image, void *buffer, size_t capacity) {
     if (!image) return 0;

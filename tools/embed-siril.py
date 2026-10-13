@@ -210,6 +210,10 @@ lut = lut.replace('\tlast_pente = slope;\n\tlast_mode = mode;\n', '')
 lut = lut.replace('INDEX_UNSUPPORTED', '1').replace('INDEX_BUILT', '0')
 assert 'gui.' not in lut and 'gfit' not in lut and 'last_' not in lut
 (destination / "SirilDisplayLUT.inc").write_text('// SPDX-License-Identifier: GPL-3.0-or-later\n// Extracted from the pinned original GTK display LUT; no pixel mutation.\n' + lut)
+icc_text = (source / "src/core/icc_profile.c").read_text()
+start = icc_text.index('static gboolean siril_color_profile_get_rgb_matrix_colorants_d50 (')
+end = icc_text.index('static void siril_color_profile_set_tag (', start)
+(destination / "SirilICCPrimaries.inc").write_text('// SPDX-License-Identifier: GPL-3.0-or-later\n// Original D50 profile colorant extraction used by the Siril chromaticity plot.\n' + icc_text[start:end])
 meson = source / "src/meson.build"
 text = meson.read_text()
 needle = "siril_lib = static_library('siril',"

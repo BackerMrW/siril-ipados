@@ -168,6 +168,10 @@ int siril_image_write(const SirilImage *image, const char *path);
 size_t siril_image_copy_icc(const SirilImage *image, void *buffer, size_t capacity);
 /* Validates a user profile against the image's one/three channels. */
 int siril_icc_validate(const void *buffer, size_t size, int channels);
+/* Original D50 CIE xy primaries/white: Rxy Gxy Bxy Wxy; returns 1/3 channels. */
+int siril_icc_chromaticity(const void *buffer, size_t size, double xy[8], char *description, size_t capacity);
+/* Original CIE 1931 spectral locus, 322 xy pairs including closure. */
+int siril_icc_spectral_locus(double *xy, size_t capacity);
 /* Original writers: 1 PNG, 2 JPEG, 3 TIFF, 4 JPEG XL. Exact suffix and no overwrite;
  * PNG accepts 8/16-bit, TIFF 8/16/32-bit; JPEG quality is 1..100. */
 int siril_image_export(SirilImage *image, const char *path, int format, int depth, int quality);

@@ -443,7 +443,7 @@
       "id": "win.icc-tool",
       "title": "Color Management...",
       "group": "root",
-      "status": "原版 ICC 分配/转换/移除、内置/自定义目标和 ICC 导出已接入；色域图待完成"
+      "status": "原版 ICC 分配/转换/移除、内置/自定义目标、ICC 导出与 D50 色域图已接入；逐像素与原生页回归待执行"
     },
     {
       "id": "win.ccm-processing",

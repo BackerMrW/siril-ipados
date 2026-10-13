@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "core/icc_profile.h"
+#include "algos/colors.h"
 static int icc_reference_checks(const char *directory) {
     char source[4096], assigned[4096], converted[4096], removed[4096], custom[4096], script[18000], error[1024];
     // A independently authored D50 RGB destination distinguishes absolute from
@@ -33,6 +34,20 @@ static int icc_reference_checks(const char *directory) {
         unsigned char *profile_bytes = malloc(profile_size); CHECK(profile_bytes);
         CHECK(siril_image_copy_icc(native, profile_bytes, profile_size) == profile_size);
         CHECK(siril_icc_validate(profile_bytes, profile_size, channels));
+        double chromaticity[8]; char description[512];
+        CHECK(siril_icc_chromaticity(profile_bytes, profile_size, chromaticity, description, sizeof description) == channels && description[0]);
+        if (channels == 3) {
+            CHECK(fabs(chromaticity[6] - .3457) < .0001 && fabs(chromaticity[7] - .3585) < .0001);
+            cmsHPROFILE xyz = cmsCreateXYZProfile(); CHECK(xyz);
+            cmsHTRANSFORM chroma = cmsCreateTransform(reference.icc_profile, TYPE_RGB_DBL, xyz, TYPE_XYZ_DBL, INTENT_RELATIVE_COLORIMETRIC, cmsFLAGS_NOCACHE); CHECK(chroma);
+            for (int c = 0; c < 3; c++) {
+                double input_rgb[3] = {0, 0, 0}, expected_xyz[3]; input_rgb[c] = 1;
+                cmsDoTransform(chroma, input_rgb, expected_xyz, 1);
+                double total = expected_xyz[0] + expected_xyz[1] + expected_xyz[2];
+                CHECK(fabs(chromaticity[2 * c] - expected_xyz[0] / total) < 1e-7 && fabs(chromaticity[2 * c + 1] - expected_xyz[1] / total) < 1e-7);
+            }
+            cmsDeleteTransform(chroma); cmsCloseProfile(xyz);
+        } else CHECK(isnan(chromaticity[0]));
         CHECK(!siril_icc_validate(profile_bytes, profile_size, channels == 3 ? 1 : 3));
         CHECK(!siril_icc_validate("not an ICC", 10, channels));
         CHECK(!siril_icc_validate(profile_bytes, 16 * 1024 * 1024 + 1, channels));
@@ -76,6 +91,12 @@ static int icc_reference_checks(const char *directory) {
         clearfits(&original);
     }
     cmsCloseProfile(destination);
+    double locus[644]; CHECK(siril_icc_spectral_locus(locus, 644));
+    CHECK(!siril_icc_spectral_locus(locus, 643) && locus[642] == locus[0] && locus[643] == locus[1]);
+    for (int i = 0; i < 321; i++) {
+        double x = x1931(380 + i), y = y1931(380 + i), z = z1931(380 + i);
+        CHECK(fabs(locus[2 * i] - x / (x + y + z)) < 1e-7 && fabs(locus[2 * i + 1] - y / (x + y + z)) < 1e-7);
+    }
     // A syntactically valid CMYK profile must fail rather than leave the old
     // RGB profile attached and report successful conversion.
     cmsHPROFILE cmyk = cmsCreateInkLimitingDeviceLink(cmsSigCmykData, 300); CHECK(cmyk);
