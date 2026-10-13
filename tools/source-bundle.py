@@ -12,6 +12,9 @@ import urllib.request
 import zipfile
 
 GIT_SOURCES = [
+    ("libheif", "https://github.com/strukturag/libheif.git", "f81f28ac014b1c28dee483ac45b72c6b05bc421a", None),
+    ("libde265", "https://github.com/strukturag/libde265.git", "ba62bf4cfb3242f3bf0a45617ff09e35236e4d82", None),
+    ("dav1d", "https://github.com/videolan/dav1d.git", "54706fc6bc0cdecab7e9593974a4039cc038fca7", None),
     ("libjxl", "https://github.com/libjxl/libjxl.git", "a7a9c787341cf703dede03c2009fa460cae5e5df", None),
     ("libjxl-highway", "https://github.com/google/highway.git", "457c891775a7397bdb0376bb1031e6e027af1c48", None),
     ("libjxl-brotli", "https://github.com/google/brotli.git", "028fb5a23661f123017c060daa546b55cf4bde29", None),

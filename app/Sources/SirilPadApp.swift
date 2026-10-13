@@ -69,7 +69,7 @@ actor SirilEngine {
         defer { if accessed { source.stopAccessingSecurityScopedResource() } }
         let fits = ["fit", "fits", "fts"].contains(source.pathExtension.lowercased())
         let raw = ["dng", "mos", "cr2", "crw", "cr3", "bay", "erf", "raf", "3fr", "kdc", "dcr", "mef", "mrw", "nef", "nrw", "orf", "raw", "rw2", "pef", "ptx", "srw", "arw"]
-        guard fits || (raw + ["jxl", "xisf", "png", "jpg", "jpeg", "tif", "tiff", "bmp", "pnm", "ppm", "pgm"]).contains(source.pathExtension.lowercased()) else {
+        guard fits || (raw + ["heic", "heif", "hif", "avif", "jxl", "xisf", "png", "jpg", "jpeg", "tif", "tiff", "bmp", "pnm", "ppm", "pgm"]).contains(source.pathExtension.lowercased()) else {
             throw EngineError.failed("支持 FITS、XISF、相机 RAW/DNG、JPEG XL、PNG、JPEG、TIFF、BMP 和 PNM 图像；SER 可逐帧导入。HEIF 与其他视频格式仍待适配。")
         }
         let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]

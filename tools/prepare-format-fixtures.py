@@ -135,3 +135,23 @@ bgr = ser_fixture("ser-bgr16be", 101, 16, True)
 Path("app/TestAssets/ser-truncated.ser").write_bytes(bgr[:178 + 8 * 6 * 3 * 2 + 10])
 ser_fixture("ser-colored-cfa", 8, 16, width=32, height=32, colored=True)
 print("PASS: generated independent three-frame SER mono/CFA/RGB/BGR fixtures, both byte orders, timestamps and a truncated sequence")
+
+# Author-supplied independent codec fixtures from a pinned libheif release.
+# Downloaded bytes must match the recorded digest before entering the App.
+import hashlib
+import urllib.request
+heif_fixtures = [
+    ("heif-padded.heic", "rainbow-451x461.heic", "4b2ce727f093944975f143ba2b39c4c64511b766d94552f8d51a755916e7f983"),
+    ("heif-alpha.heic", "with-alpha-512x512.heic", "dac399d3bf1019baaf5f88eef8b277087d0643e735db947c42355237bb9d0221"),
+    ("heif-av1.avif", "simple_osm_tile_alpha.avif", "6d78af07fbad358f4240820331074fff215ae8559bf4756ec480c6a6be2a68d9"),
+    ("heif-16bit.heif", "uncompressed_row_B16R16G16.heif", "f9aa3e065c1973df1e3d540e0cfb5d157b2f3bf078c0efc0122671c4d3671cbc"),
+]
+for target, name, digest in heif_fixtures:
+    output = Path("app/TestAssets") / target
+    candidate = Path("deps-work/libheif/tests/data") / name
+    body = output.read_bytes() if output.exists() else candidate.read_bytes() if candidate.exists() else urllib.request.urlopen(
+        "https://raw.githubusercontent.com/strukturag/libheif/f81f28ac014b1c28dee483ac45b72c6b05bc421a/tests/data/" + name, timeout=60).read()
+    if hashlib.sha256(body).hexdigest() != digest: raise RuntimeError("HEIF fixture checksum mismatch: " + name)
+    output.write_bytes(body)
+Path("app/TestAssets/heif-invalid.heic").write_bytes(b"not a HEIF image")
+print("PASS: verified pinned HEIC/AVIF/16-bit HEIF codec fixtures, padding and alpha")

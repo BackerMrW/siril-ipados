@@ -42,6 +42,52 @@ assert body.count(needle) == 1
 body = body.replace(needle, '\t\t\t\t"no RAW data available.\\n"));\n\t\tlibraw_close(raw);\n\t\treturn OPEN_IMAGE_ERROR;')
 formats.write_text(text[:start] + body + text[end:])
 
+# HEIF planes have a byte stride that can exceed the packed row length.
+# Honor it for every row, including 10/12/16-bit data and optional alpha.
+text = formats.read_text()
+start = text.index('int readheif(')
+end = text.index('\n#endif', text.index('return OPEN_IMAGE_OK;', start))
+body = text[start:end]
+a = body.index('\tgboolean threaded = !processing_in_worker_thread();', body.index('heif_decode_image'))
+b = body.index('\n\tif (mono) {', a)
+body = body[:a] + '''
+    const unsigned int mask = bit_depth == 16 ? 65535u : (1u << bit_depth) - 1;
+    for (int y = 0; y < height; y++) {
+        const uint8_t *row = udata + (size_t)y * stride;
+        for (int x = 0; x < width; x++) {
+            WORD values[3];
+            for (int c = 0; c < 3; c++) {
+                size_t sample = (size_t)x * nchannels + c;
+                if (bit_depth > 8) {
+                    uint16_t value; memcpy(&value, row + sample * sizeof value, sizeof value);
+                    values[c] = roundf_to_WORD((value & mask) * (65535.f / mask));
+                } else values[c] = row[sample];
+                data[(size_t)c * npixels + (size_t)y * width + x] = values[c];
+            }
+            if (values[0] != values[1] || values[0] != values[2]) mono = FALSE;
+        }
+    }
+''' + body[b:]
+needle = '\tint has_alpha = heif_image_handle_has_alpha_channel(handle);'
+assert body.count(needle) == 1
+body = body.replace(needle, '''#ifdef OS_IOS
+    int image_width = heif_image_handle_get_width(handle), image_height = heif_image_handle_get_height(handle);
+    if (image_width <= 0 || image_height <= 0 || image_width > 100000 || image_height > 100000 ||
+        (double)image_width * image_height * 16 > (double)get_available_memory() * .8) {
+        free(icc_buffer); heif_image_handle_release(handle); heif_context_free(ctx); heif_deinit();
+        return OPEN_IMAGE_ERROR;
+    }
+#endif
+''' + needle)
+body = body.replace('if (bit_depth < 0) {', 'if (bit_depth <= 0 || bit_depth > 16) {')
+formats.write_text(text[:start] + body + text[end:])
+
+conversion = source / "src/io/conversion.c"
+text = conversion.read_text()
+needle = '!g_ascii_strcasecmp(extension, "heif")))'
+assert text.count(needle) == 1
+conversion.write_text(text.replace(needle, '!g_ascii_strcasecmp(extension, "heif") || !g_ascii_strcasecmp(extension, "hif")))'))
+
 # Original JPEG XL readers return a channel count, so failures must be negative.
 # Release the compressed input and propagate encoder / filesystem failures.
 text = formats.read_text()
@@ -120,7 +166,7 @@ body = body.replace(needle, '\t\tx1 = fit->rx;\n\t\ty1 = fit->ry;', 1)
 path.write_text(text[:start] + body)
 destination = source / "src/ipados"
 destination.mkdir(exist_ok=True)
-for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc"):
+for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc", "heif-runtime-tests.inc"):
     shutil.copy2(root / "native" / name, destination / name)
 meson = source / "src/meson.build"
 text = meson.read_text()

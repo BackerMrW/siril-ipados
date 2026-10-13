@@ -326,6 +326,22 @@ def main():
            "-DZSTD_BUILD_STATIC=ON", "-DZSTD_MULTITHREAD_SUPPORT=OFF"], source_subdir="build/cmake")
     cmake("libXISF", "https://gitea.nouspiro.space/nou/libXISF.git", "de757840b3973237172b932b14efd011cfc1151d",
           ["-DUSE_BUNDLED_LIBS=ON", "-DUSE_BUNDLED_ZLIB=OFF"], xisf_static_build)
+    cmake("libde265", "https://github.com/strukturag/libde265.git", "ba62bf4cfb3242f3bf0a45617ff09e35236e4d82",
+          ["-DENABLE_DECODER=OFF", "-DENABLE_ENCODER=OFF", "-DENABLE_SDL=OFF",
+           "-DENABLE_SHERLOCK265=OFF", "-DENABLE_INTERNAL_DEVELOPMENT_TOOLS=OFF"])
+    meson("dav1d", "https://github.com/videolan/dav1d.git", "54706fc6bc0cdecab7e9593974a4039cc038fca7",
+          ["-Denable_tools=false", "-Denable_tests=false", "-Denable_examples=false",
+           "-Denable_docs=false", "-Dxxhash_muxer=disabled"])
+    cmake("libheif", "https://github.com/strukturag/libheif.git", "f81f28ac014b1c28dee483ac45b72c6b05bc421a",
+          ["-DENABLE_PLUGIN_LOADING=OFF", "-DWITH_LIBDE265=ON", "-DWITH_LIBDE265_PLUGIN=OFF",
+           "-DWITH_DAV1D=ON", "-DWITH_DAV1D_PLUGIN=OFF", "-DWITH_X265=OFF", "-DWITH_X264=OFF",
+           "-DWITH_OpenH264_DECODER=OFF", "-DWITH_AOM_DECODER=OFF", "-DWITH_AOM_ENCODER=OFF",
+           "-DWITH_KVAZAAR=OFF", "-DWITH_UVG266=OFF", "-DWITH_VVDEC=OFF", "-DWITH_VVENC=OFF",
+           "-DWITH_SvtEnc=OFF", "-DWITH_RAV1E=OFF", "-DWITH_OpenJPEG_ENCODER=OFF",
+           "-DWITH_OpenJPEG_DECODER=OFF", "-DWITH_OPENJPH_ENCODER=OFF", "-DWITH_FFMPEG_DECODER=OFF",
+           "-DWITH_JPEG_ENCODER=OFF", "-DWITH_JPEG_DECODER=OFF", "-DWITH_LIBSHARPYUV=OFF",
+           "-DWITH_UNCOMPRESSED_CODEC=ON", "-DWITH_EXAMPLES=OFF", "-DWITH_GDK_PIXBUF=OFF",
+           "-DBUILD_TESTING=OFF", "-DBUILD_DOCUMENTATION=OFF"])
     cmake("libjxl", "https://github.com/libjxl/libjxl.git", "a7a9c787341cf703dede03c2009fa460cae5e5df",
           ["-DBUILD_TESTING=OFF", "-DJPEGXL_ENABLE_TOOLS=OFF", "-DJPEGXL_ENABLE_DEVTOOLS=OFF",
            "-DJPEGXL_ENABLE_EXAMPLES=OFF", "-DJPEGXL_ENABLE_BENCHMARK=OFF", "-DJPEGXL_ENABLE_JNI=OFF",
@@ -357,7 +373,7 @@ def main():
            "-DWITH_WEBP=OFF", "-DWITH_OPENEXR=OFF", "-DWITH_JASPER=OFF", "-DWITH_OPENJPEG=OFF",
            "-DWITH_ITT=OFF", "-DWITH_PROTOBUF=OFF", "-DOPENCV_GENERATE_PKGCONFIG=ON", "-DIOS_INSTALL_COMBINED=OFF"], ios_opencv_metadata)
     run(["pkg-config", "--modversion", "glib-2.0", "gio-2.0", "cairo", "pango", "pangocairo",
-         "gdk-pixbuf-2.0", "gsl", "lcms2", "fftw3f", "cfitsio", "opencv4", "libcurl", "sqlite3", "libraw", "libxisf", "libzstd", "libjxl", "libjxl_threads"], "core-dependency-versions")
+         "gdk-pixbuf-2.0", "gsl", "lcms2", "fftw3f", "cfitsio", "opencv4", "libcurl", "sqlite3", "libraw", "libxisf", "libzstd", "libjxl", "libjxl_threads", "libheif", "libde265", "dav1d"], "core-dependency-versions")
 
 
 if __name__ == "__main__":

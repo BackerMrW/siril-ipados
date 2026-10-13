@@ -116,6 +116,24 @@ extension SirilEngine {
             try fm.removeItem(at: imported.url)
         }
         checkpoint("PASS: native XISF import and working FITS preserved independent CFA/RGB samples, compressed interleaved storage and exposure")
+        for (name, ext) in [("heif-padded", "heic"), ("heif-alpha", "heic"), ("heif-av1", "avif"), ("heif-16bit", "heif")] {
+            guard let fixture = Bundle.main.url(forResource: name, withExtension: ext) else { throw EngineError.failed("HEIF fixture missing") }
+            let source = try Data(contentsOf: fixture)
+            let imported = try importFile(fixture)
+            var decodeError = [CChar](repeating: 0, count: 512)
+            guard let original = fixture.path.withCString({ siril_image_read_any($0, &decodeError, decodeError.count) }) else { throw EngineError.failed(String(cString: decodeError)) }
+            let restored = try read(imported.url)
+            var originalInfo = SirilImageInfo(); _ = siril_image_info(original, &originalInfo)
+            try require(imported.width == Int(originalInfo.width) && imported.height == Int(originalInfo.height), "HEIF dimensions lost")
+            var a = [Float](repeating: 0, count: 3), b = a
+            let originalChannels = siril_image_pixel(original, originalInfo.width / 2, originalInfo.height / 2, &a)
+            let savedChannels = siril_image_pixel(restored, originalInfo.width / 2, originalInfo.height / 2, &b)
+            siril_image_free(original); siril_image_free(restored)
+            try require(originalChannels == savedChannels && zip(a, b).allSatisfy { abs($0.0 - $0.1) < 1e-7 }, "HEIF working FITS changed pixels")
+            try require(try Data(contentsOf: fixture) == source, "HEIF import changed source")
+            try fm.removeItem(at: imported.url)
+        }
+        checkpoint("PASS: native HEIC/AVIF/16-bit HEIF import preserved decoded pixels, dimensions and source through working FITS")
         for name in ["ser-mono8", "ser-cfa16", "ser-rgb8", "ser-bgr16be"] {
             guard let fixture = Bundle.main.url(forResource: name, withExtension: "ser") else { throw EngineError.failed("SER fixture missing") }
             let sourceBytes = try Data(contentsOf: fixture)
