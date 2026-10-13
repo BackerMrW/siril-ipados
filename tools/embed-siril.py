@@ -41,6 +41,54 @@ needle = '\t\t\t\t"no RAW data available.\\n"));\n\t\treturn OPEN_IMAGE_ERROR;'
 assert body.count(needle) == 1
 body = body.replace(needle, '\t\t\t\t"no RAW data available.\\n"));\n\t\tlibraw_close(raw);\n\t\treturn OPEN_IMAGE_ERROR;')
 formats.write_text(text[:start] + body + text[end:])
+
+# Original JPEG XL readers return a channel count, so failures must be negative.
+# Release the compressed input and propagate encoder / filesystem failures.
+text = formats.read_text()
+start = text.index('int readjxl(')
+end = text.index('int savejxl(', start)
+body = text[start:end]
+needle = '\t\tsiril_log_debug("Error while decoding the jxl file\\n");\n\t\treturn 1;'
+assert body.count(needle) == 1
+body = body.replace(needle, '\t\tsiril_log_debug("Error while decoding the jxl file\\n");\n'
+                    '\t\tg_free(jxl_data); free(pixels); free(icc_profile); free(internal_icc_profile);\n\t\treturn -1;')
+body = body.replace('\tclearfits(fit);', '\tg_free(jxl_data);\n\tclearfits(fit);', 1)
+text = text[:start] + body + text[end:]
+start = text.index('int savejxl(')
+body = text[start:]
+needle = '\tEncodeJpegXlOneshotWrapper(buffer, fit->rx,'
+assert body.count(needle) == 1
+body = body.replace(needle, '\tint encode_error = EncodeJpegXlOneshotWrapper(buffer, fit->rx,', 1)
+needle = '\tg_file_set_contents(name, (const gchar *) compressed, compressed_length, &error);'
+assert body.count(needle) == 1
+body = body.replace(needle, '\tgboolean saved = !encode_error && g_file_set_contents(name, (const gchar *) compressed, compressed_length, &error);')
+needle = '\t\tsiril_log_error(_("Error interleaving image\\n"));\n\t}'
+assert body.count(needle) == 1
+body = body.replace(needle, '\t\tsiril_log_error(_("Error interleaving image\\n"));\n\t\tfree(buffer); free(filename); return OPEN_IMAGE_ERROR;\n\t}')
+needle = '\tfree(filename);\n\tg_error_free(error);\n\treturn OPEN_IMAGE_OK;'
+assert body.count(needle) == 1
+body = body.replace(needle, '\tfree(filename); free(profile);\n\tif (error) g_error_free(error);\n\treturn saved ? OPEN_IMAGE_OK : OPEN_IMAGE_ERROR;')
+formats.write_text(text[:start] + body)
+
+text = commands.read_text()
+start = text.index('int process_savejxl(')
+end = text.index('int process_savepng(', start)
+body = text[start:end]
+needle = 'double quality = g_ascii_strtod(arg, &end);'
+assert body.count(needle) == 1
+body = body.replace(needle, 'quality = g_ascii_strtod(arg, &end);')
+commands.write_text(text[:start] + body + text[end:])
+
+# PCC's automatic background must use the worker's image, not the desktop's
+# global displayed image. The two can have different geometry in embedding.
+path = source / "src/algos/statistics_float.c"
+text = path.read_text()
+start = text.index('double robust_median_f(')
+body = text[start:]
+needle = '\t\tx1 = gfit->rx;\n\t\ty1 = gfit->ry;'
+assert body.count(needle) == 1
+body = body.replace(needle, '\t\tx1 = fit->rx;\n\t\ty1 = fit->ry;', 1)
+path.write_text(text[:start] + body)
 destination = source / "src/ipados"
 destination.mkdir(exist_ok=True)
 for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc"):

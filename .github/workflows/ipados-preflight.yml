@@ -284,7 +284,7 @@ jobs:
           --wrap-mode=nodownload -Dembedded=true -Dgtk=false \
           -Dopenmp=false -Darch_native=false -Dcriterion=false \
           -Dexiv2=false -Dlibraw=true -Dlibtiff=true -Dlibjpeg=true \
-          -Dlibpng=true -Dlibheif=false -DlibXISF=true -Dlibjxl=false \
+          -Dlibpng=true -Dlibheif=false -DlibXISF=true -Dlibjxl=true \
           -Dlibgit2=false -Dffms2=false -Dffmpeg=false -Dlibcurl=true -Dsqlite=true \
           2>&1 | tee diagnostics/siril-configure.log
         configure_status=${PIPESTATUS[0]}

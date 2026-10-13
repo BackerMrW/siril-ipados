@@ -141,6 +141,12 @@ extension SirilEngine {
         var rejectedSER = false
         do { _ = try importSER(brokenSER) } catch { rejectedSER = true }
         try require(rejectedSER && Set(try fm.contentsOfDirectory(atPath: fitsFolder.path)) == beforeSER, "Truncated SER succeeded or left partial imported frames")
+        guard let cancelFixture = Bundle.main.url(forResource: "ser-rgb8", withExtension: "ser") else { throw EngineError.failed("SER cancellation fixture missing") }
+        let cancelledImport = Task { try importSER(cancelFixture) }
+        cancelledImport.cancel()
+        var cancelledSER = false
+        do { _ = try await cancelledImport.value } catch is CancellationError { cancelledSER = true }
+        try require(cancelledSER && Set(try fm.contentsOfDirectory(atPath: fitsFolder.path)) == beforeSER, "Cancelled SER import left frames or reported success")
         checkpoint("PASS: native SER sequence import preserved three exact mono/CFA/RGB/BGR frames, byte orders, exposure and source; truncated input rolled back all partial frames")
         // Every actual native tool must execute, return finite full-resolution
         // pixels and preserve the original. No fake success from command text.

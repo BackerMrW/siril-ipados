@@ -178,6 +178,15 @@ def mbedtls_framework(source):
         "mbedtls-framework", cwd=source)
 
 
+def jxl_dependencies(source):
+    run(["git", "submodule", "update", "--init", "--depth", "1",
+         "third_party/highway", "third_party/brotli"], "jxl-submodules", cwd=source)
+    notices = ROOT / "ThirdPartyLicenses" / "libjxl"
+    notices.mkdir(parents=True, exist_ok=True)
+    for name in ("highway", "brotli"):
+        (notices / f"LICENSE.{name}").write_bytes((source / "third_party" / name / "LICENSE").read_bytes())
+
+
 def xisf_static_build(source):
     """Build only the target library and declare its static compression dependency."""
     path = source / "CMakeLists.txt"
@@ -299,6 +308,12 @@ def main():
            "-DZSTD_BUILD_STATIC=ON", "-DZSTD_MULTITHREAD_SUPPORT=OFF"], source_subdir="build/cmake")
     cmake("libXISF", "https://gitea.nouspiro.space/nou/libXISF.git", "de757840b3973237172b932b14efd011cfc1151d",
           ["-DUSE_BUNDLED_LIBS=ON", "-DUSE_BUNDLED_ZLIB=OFF"], xisf_static_build)
+    cmake("libjxl", "https://github.com/libjxl/libjxl.git", "a7a9c787341cf703dede03c2009fa460cae5e5df",
+          ["-DBUILD_TESTING=OFF", "-DJPEGXL_ENABLE_TOOLS=OFF", "-DJPEGXL_ENABLE_DEVTOOLS=OFF",
+           "-DJPEGXL_ENABLE_EXAMPLES=OFF", "-DJPEGXL_ENABLE_BENCHMARK=OFF", "-DJPEGXL_ENABLE_JNI=OFF",
+           "-DJPEGXL_ENABLE_MANPAGES=OFF", "-DJPEGXL_ENABLE_DOXYGEN=OFF", "-DJPEGXL_ENABLE_SJPEG=OFF",
+           "-DJPEGXL_ENABLE_OPENEXR=OFF", "-DJPEGXL_ENABLE_SKCMS=OFF", "-DJPEGXL_FORCE_SYSTEM_LCMS2=ON",
+           "-DJPEGXL_ENABLE_TCMALLOC=OFF", "-DJPEGXL_ENABLE_PLUGINS=OFF"], jxl_dependencies)
     meson("cairo", "https://gitlab.freedesktop.org/cairo/cairo.git", "4541e0cd3a751b85e52e2a83d02ac6145a5efa85",
           ["-Dtests=disabled", "-Dxlib=disabled", "-Dxcb=disabled", "-Dfontconfig=disabled",
            "-Dfreetype=disabled", "-Dquartz=enabled", "-Dpng=enabled", "-Dglib=enabled",
@@ -324,7 +339,7 @@ def main():
            "-DWITH_WEBP=OFF", "-DWITH_OPENEXR=OFF", "-DWITH_JASPER=OFF", "-DWITH_OPENJPEG=OFF",
            "-DWITH_ITT=OFF", "-DWITH_PROTOBUF=OFF", "-DOPENCV_GENERATE_PKGCONFIG=ON", "-DIOS_INSTALL_COMBINED=OFF"], ios_opencv_metadata)
     run(["pkg-config", "--modversion", "glib-2.0", "gio-2.0", "cairo", "pango", "pangocairo",
-         "gdk-pixbuf-2.0", "gsl", "lcms2", "fftw3f", "cfitsio", "opencv4", "libcurl", "sqlite3", "libraw", "libxisf", "libzstd"], "core-dependency-versions")
+         "gdk-pixbuf-2.0", "gsl", "lcms2", "fftw3f", "cfitsio", "opencv4", "libcurl", "sqlite3", "libraw", "libxisf", "libzstd", "libjxl", "libjxl_threads"], "core-dependency-versions")
 
 
 if __name__ == "__main__":

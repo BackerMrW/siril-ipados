@@ -149,6 +149,7 @@ struct ContentView: View {
     @State private var files: [FITSRecord] = []
     @State private var showImporter = false
     @State private var busy = false
+    @State private var importTask: Task<Void, Never>?
     @State private var progress = ""
     @State private var errors = ""
     @State private var image: UIImage?
@@ -242,6 +243,7 @@ struct ContentView: View {
                 VStack(spacing: 5) {
                     Text(String(cString: siril_core_version())).font(.caption)
                     if busy { ProgressView(progress) }
+                    if importTask != nil { Button("取消导入") { importTask?.cancel() }.font(.caption) }
                     Button("删除与存储", systemImage: "trash") { showStorage = true }.font(.caption).disabled(busy)
                     Button("关于与源码") { showAbout = true }.font(.caption)
                     Button("序列与质量图", systemImage: "square.stack") { showSequences = true }.font(.caption).disabled(busy)
@@ -344,7 +346,7 @@ struct ContentView: View {
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             switch result {
-            case .success(let urls): Task { await importFiles(urls) }
+            case .success(let urls): importTask = Task { await importFiles(urls); importTask = nil }
             case .failure(let error): errors = error.localizedDescription
             }
         }
@@ -592,12 +594,14 @@ struct ContentView: View {
         defer { busy = false; progress = "" }
         var failures: [String] = []
         for (index, url) in urls.enumerated() {
+            if Task.isCancelled { break }
             progress = "导入 \(index + 1) / \(urls.count)"
             do {
                 let imported = url.pathExtension.lowercased() == "ser" ? try await engine.importSER(url, role: importRole) : [try await engine.importFile(url, role: importRole)]
                 files.append(contentsOf: imported)
                 selected.formUnion(imported.map(\.id))
             }
+            catch is CancellationError { break }
             catch { failures.append("\(url.lastPathComponent)：\(error.localizedDescription)") }
         }
         do { try await engine.saveLibrary(files) }

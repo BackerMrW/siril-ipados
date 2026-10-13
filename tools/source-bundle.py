@@ -12,6 +12,9 @@ import urllib.request
 import zipfile
 
 GIT_SOURCES = [
+    ("libjxl", "https://github.com/libjxl/libjxl.git", "a7a9c787341cf703dede03c2009fa460cae5e5df", None),
+    ("libjxl-highway", "https://github.com/google/highway.git", "457c891775a7397bdb0376bb1031e6e027af1c48", None),
+    ("libjxl-brotli", "https://github.com/google/brotli.git", "028fb5a23661f123017c060daa546b55cf4bde29", None),
     ("libXISF", "https://gitea.nouspiro.space/nou/libXISF.git", "de757840b3973237172b932b14efd011cfc1151d", None),
     ("zstd", "https://github.com/facebook/zstd.git", "f8745da6ff1ad1e7bab384bd1f9d742439278e99", None),
     ("Siril-SPCC-database", "https://gitlab.com/free-astro/siril-spcc-database.git", "87af70a92ec1d0ff780bd3ea833aaa7b3b169cc2", None),
