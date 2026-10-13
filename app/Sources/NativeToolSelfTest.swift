@@ -381,6 +381,14 @@ extension SirilEngine {
             do { _ = try importFile(bad) } catch { rejected = true }
             try require(rejected, "malformed \(ext) did not fail safely")
         }
+        for profile in NativeExportProfile.allCases {
+            let exported = try exportImage(file, format: .jxl32, quality: 100, jxlQuality: 100, jxlEffort: 1, profile: profile)
+            let settings = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: exported.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("export.json")))
+            try require(settings["profile"] == String(profile.rawValue) && settings["effort"] == "1" && settings["quality"] == "100.0", "Export color profile or JPEG XL settings were not persisted")
+            let imported = try importFile(exported)
+            try fm.removeItem(at: imported.url)
+        }
+        checkpoint("PASS: native JPEG XL export persisted all three original ICC choices, lossless quality and effort; all outputs imported")
         for job in jobs {
             guard let task = jobHistory().first(where: { $0.id == job.folder.lastPathComponent }) else { throw EngineError.failed("Tool task missing") }
             try trashJob(task)

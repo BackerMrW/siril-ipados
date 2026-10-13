@@ -883,21 +883,30 @@ int siril_image_write(const SirilImage *image, const char *path) {
     return ok;
 }
 
-int siril_image_export_jxl(SirilImage *image, const char *path, int depth, int effort, double quality) {
+int siril_image_export_jxl_profile(SirilImage *image, const char *path, int depth, int effort, double quality, int profile) {
     if (!image || !path || !g_str_has_suffix(path, ".jxl") || (depth != 8 && depth != 32) ||
-        effort < 1 || effort > 9 || !isfinite(quality) || quality < 0 || quality > 100) return 0;
+        effort < 1 || effort > 9 || !isfinite(quality) || quality < 0 || quality > 100 || profile < -1 || profile > 2) return 0;
     g_mutex_lock(&engine_mutex);
+    int old8 = com.pref.icc.export_8bit_method, old16 = com.pref.icc.export_16bit_method;
+    if (profile >= 0) com.pref.icc.export_8bit_method = com.pref.icc.export_16bit_method = profile;
     int ok = 0;
 #ifdef HAVE_LIBJXL
     if (!g_file_test(path, G_FILE_TEST_EXISTS)) ok = savejxl(path, &image->fit, effort, quality, depth == 8) == 0;
 #endif
+    com.pref.icc.export_8bit_method = old8; com.pref.icc.export_16bit_method = old16;
     g_mutex_unlock(&engine_mutex); return ok;
 }
-int siril_image_export(SirilImage *image, const char *path, int format, int depth, int quality) {
-    if (format == 4) return siril_image_export_jxl(image, path, depth, 7, quality);
+int siril_image_export_jxl(SirilImage *image, const char *path, int depth, int effort, double quality) {
+    return siril_image_export_jxl_profile(image, path, depth, effort, quality, -1);
+}
+int siril_image_export_profile(SirilImage *image, const char *path, int format, int depth, int quality, int profile) {
+    if (profile < -1 || profile > 2) return 0;
+    if (format == 4) return siril_image_export_jxl_profile(image, path, depth, 7, quality, profile);
     if (!image || !path || (format == 1 && !g_str_has_suffix(path, ".png")) ||
         (format == 2 && !g_str_has_suffix(path, ".jpg")) || (format == 3 && !g_str_has_suffix(path, ".tif"))) return 0;
     g_mutex_lock(&engine_mutex);
+    int old8 = com.pref.icc.export_8bit_method, old16 = com.pref.icc.export_16bit_method;
+    if (profile >= 0) com.pref.icc.export_8bit_method = com.pref.icc.export_16bit_method = profile;
     int ok = 0;
     if (g_file_test(path, G_FILE_TEST_EXISTS)) goto done;
 #ifdef HAVE_LIBPNG
@@ -910,8 +919,12 @@ int siril_image_export(SirilImage *image, const char *path, int format, int dept
     if (format == 3 && (depth == 8 || depth == 16 || depth == 32)) ok = savetif(path, &image->fit, depth, NULL, NULL, FALSE, TRUE, FALSE) == 0;
 #endif
 done:
+    com.pref.icc.export_8bit_method = old8; com.pref.icc.export_16bit_method = old16;
     g_mutex_unlock(&engine_mutex);
     return ok;
+}
+int siril_image_export(SirilImage *image, const char *path, int format, int depth, int quality) {
+    return siril_image_export_profile(image, path, format, depth, quality, -1);
 }
 
 void siril_copy_processing_log(char *buffer, size_t capacity) {

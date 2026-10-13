@@ -2,6 +2,11 @@
 import SwiftUI
 import SirilCore
 
+enum NativeExportProfile: Int32, CaseIterable, Codable, Identifiable, Sendable {
+    case standard = 0, working = 1, image = 2
+    var id: Int32 { rawValue }
+    var title: String { switch self { case .standard: return "sRGB"; case .working: return "工作颜色空间"; case .image: return "保留图像 ICC" } }
+}
 enum NativeImageFormat: String, CaseIterable, Codable, Identifiable, Sendable {
     case png16, png8, jpeg, tiff32, tiff16, tiff8, jxl32, jxl8
     var id: String { rawValue }
@@ -12,7 +17,7 @@ enum NativeImageFormat: String, CaseIterable, Codable, Identifiable, Sendable {
     var ext: String { isJXL ? "jxl" : native == 1 ? "png" : native == 2 ? "jpg" : "tif" }
 }
 extension SirilEngine {
-    func exportImage(_ file: FITSRecord, format: NativeImageFormat, quality: Int, jxlQuality: Double = 94, jxlEffort: Int = 7) throws -> URL {
+    func exportImage(_ file: FITSRecord, format: NativeImageFormat, quality: Int, jxlQuality: Double = 94, jxlEffort: Int = 7, profile: NativeExportProfile? = nil) throws -> URL {
         guard (1...100).contains(quality) else { throw EngineError.failed("JPEG 质量必须在1–100之间。") }
         guard jxlQuality.isFinite && (0...100).contains(jxlQuality) && (1...9).contains(jxlEffort) else { throw EngineError.failed("JPEG XL 质量范围为0–100，压缩计算量范围为1–9。") }
         let input = try owned(file.url.lastPathComponent, under: documents.appendingPathComponent("FITS"))
@@ -20,10 +25,11 @@ extension SirilEngine {
         let job = try prepareJob(files: [file], script: "# 原版图片导出。格式与位深见 export.json；输入副本和输出均保留。\n")
         let output = job.folder.appendingPathComponent("process/export." + format.ext)
         do {
-            let success = output.path.withCString { format.isJXL ? siril_image_export_jxl(image, $0, format.depth, Int32(jxlEffort), jxlQuality) : siril_image_export(image, $0, format.native, format.depth, Int32(quality)) }
+            let success = output.path.withCString { format.isJXL ? siril_image_export_jxl_profile(image, $0, format.depth, Int32(jxlEffort), jxlQuality, profile?.rawValue ?? -1) : siril_image_export_profile(image, $0, format.native, format.depth, Int32(quality), profile?.rawValue ?? -1) }
             guard success != 0 else { throw EngineError.failed("原版图像导出失败。") }
             var settings: [String: String] = ["format": format.rawValue, "quality": format.isJXL ? String(jxlQuality) : String(quality), "source": file.id.uuidString]
             if format.isJXL { settings["effort"] = String(jxlEffort) }
+            settings["profile"] = profile.map { String($0.rawValue) } ?? "upstream-default"
             try JSONEncoder().encode(settings).write(to: job.folder.appendingPathComponent("export.json"), options: .atomic)
             try writeJobState(job.folder, state: "已完成", message: format.title)
             return output
@@ -38,6 +44,7 @@ struct NativeImageExportView: View {
     @State private var quality = 95
     @State private var jxlQuality = 94.0
     @State private var jxlEffort = 7
+    @State private var profile: NativeExportProfile? = nil
     @State private var output: URL?
     @State private var busy = false
     @State private var message = ""
@@ -46,6 +53,11 @@ struct NativeImageExportView: View {
             Form {
                 Section("原版图像导出") {
                     Picker("格式与位深", selection: $format) { ForEach(NativeImageFormat.allCases) { Text($0.title).tag($0) } }
+                    Picker("导出颜色空间", selection: $profile) {
+                        Text("原版默认").tag(Optional<NativeExportProfile>.none)
+                        ForEach(NativeExportProfile.allCases) { Text($0.title).tag(Optional($0)) }
+                    }
+                    Text("原版默认：8位转为 sRGB，高位深转为工作颜色空间。选择保留图像 ICC 可避免导出颜色空间转换；无损压缩指转换后像素的无损编码。").font(.caption).foregroundStyle(.secondary)
                     if format == .jpeg { Stepper("JPEG 质量：\(quality)", value: $quality, in: 1...100) }
                     if format.isJXL {
                         Toggle("无损压缩", isOn: Binding(get: { jxlQuality == 100 }, set: { jxlQuality = $0 ? 100 : 94 }))
@@ -68,11 +80,12 @@ struct NativeImageExportView: View {
             .onChange(of: quality) { _, _ in output = nil }
             .onChange(of: jxlQuality) { _, _ in output = nil }
             .onChange(of: jxlEffort) { _, _ in output = nil }
+            .onChange(of: profile) { _, _ in output = nil }
             .interactiveDismissDisabled(busy)
         }
     }
     @MainActor private func generate() {
         guard !busy else { return }; busy = true; message = ""; output = nil
-        Task { defer { busy = false }; do { output = try await engine.exportImage(file, format: format, quality: quality, jxlQuality: jxlQuality, jxlEffort: jxlEffort) } catch { message = error.localizedDescription } }
+        Task { defer { busy = false }; do { output = try await engine.exportImage(file, format: format, quality: quality, jxlQuality: jxlQuality, jxlEffort: jxlEffort, profile: profile) } catch { message = error.localizedDescription } }
     }
 }

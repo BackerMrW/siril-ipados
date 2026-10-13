@@ -11,9 +11,9 @@
 
 - 原版工作区：颜色通道、显示模式、直方图、像素读数、矩形/多边形选择、ROI、撤销重做、蒙版及对比预览。
 - 序列：基础浏览/排除帧/质量图/参考帧与选择撤销已接入；其他配准模式、畸变和外部参考仍待补齐；全局一遍/两遍配准、主要叠加算法和校准高级选项已接入，仍非完整序列工作区。
-- 颜色与分析：PCC/SPCC、星表/联网、解算与标注、像差/倾斜；单张/选区/CFA和序列统计、动态PSF/孔径测光、原版序列PSF/差分光变已接入；完整GUI、标准星/其他分析仍待补。
+- 颜色与分析：原版解算、PCC/SPCC、HTTPS/SQLite 已接入；解算独立星表和PCC/SPCC完整数值回归已通过，远程星表端到端仍待验收；标注、像差/倾斜、标准星/其他分析仍待补。单张/选区/CFA和序列统计、动态PSF/孔径测光、原版序列PSF/差分光变已接入。
 - 完整单张工具：原版每个工具的参数、交互输入、应用/取消、作用于序列、蒙版和预览。
-- 格式和依赖：PNG/JPEG/TIFF原版读写已接入本轮构建；RAW、HEIF、JPEG XL、XISF、FFmpeg/FFMS2、curl/SQLite仍关闭并待适配。
+- 格式和依赖：PNG/JPEG/TIFF原版读写与原版 LibRaw/DNG 回归已通过；curl/SQLite 已开启并通过 TLS 与持久化检查；JPEG XL、XISF、SER 已接入并继续专项验证；HEIF、FFmpeg/FFMS2 仍待适配。直接证据与边界见 [当前验证记录](VALIDATION-CURRENT.md)。
 - 平台接口：StarNet 等外部程序、Python/插件、在线下载、文件权限、内存、后台生命周期。需要真正适配，不能把空按钮算完成。
 
 ## 原版动作逐项状态
@@ -63,8 +63,8 @@
 | win.histo-processing | Histogram Transformation... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.payne-processing | Generalised Hyperbolic Stretch Transformations... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.color-calib-processing | Color Calibration... | 待移植或待逐项验证 |
-| win.pcc-processing | Photometric Color Calibration... | 待移植或待逐项验证 |
-| win.spcc-processing | Spectrophotometric Color Calibration... | 待移植或待逐项验证 |
+| win.pcc-processing | Photometric Color Calibration... | 原版工作区/参数/历史已接入，完整测光与独立通道增益数值回归通过；远程星表/真机待验收 |
+| win.spcc-processing | Spectrophotometric Color Calibration... | 原版工作区/光谱模型/参数/历史已接入，完整光谱测光与独立窄带颜色数值回归通过；远程星表/真机待验收 |
 | win.rgb-compositing-processing | RGB Compositing... | 待移植或待逐项验证 |
 | win.merge-cfa-processing | Merge CFA Channels... | 待移植或待逐项验证 |
 | win.split-channel-processing | Split Channels... | 待移植或待逐项验证 |
@@ -97,7 +97,7 @@
 | win.ccm-processing | Color Conversion Matrix... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.fits-header | FITS Header... | 完整文件头查看与搜索已接入（编辑仍待接入） |
 | win.image-information | Image Information... | 只读元数据已接入（原版编辑仍待接入） |
-| win.astrometry | Image Plate Solver... | 待移植或待逐项验证 |
+| win.astrometry | Image Plate Solver... | 原版解算工作区/参数/历史已接入，独立 TAN 星表、中心/比例及 WCS FITS 往返通过；远程星表/真机待验收 |
 | win.annotate-dialog | Annotate... | 待移植或待逐项验证 |
 | win.statistics | Statistics... | 原版单张/选区/CFA 和序列统计已接入（测光等仍待接入） |
 | win.evaluate-noise | Noise Estimation | 待移植或待逐项验证 |

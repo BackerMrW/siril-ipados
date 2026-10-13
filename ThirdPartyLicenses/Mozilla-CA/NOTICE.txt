@@ -1,0 +1,11 @@
+Mozilla CA certificate store, converted to PEM by curl's mk-ca-bundle.
+License: Mozilla Public License 2.0 (LICENSE-MPL-2.0.txt).
+
+The unmodified editable PEM source is included in app/Resources/cacert.pem
+and in the port's published source archive and repository.
+https://github.com/BackerMrW/siril-ipados/blob/main/app/Resources/cacert.pem
+
+Certificate data dated 2026-09-25 03:12:01 UTC.
+SHA-256: a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505
+Upstream conversion and licensing: https://curl.se/docs/caextract.html
+Mozilla source: https://raw.githubusercontent.com/mozilla-firefox/firefox/refs/heads/release/security/nss/lib/ckfw/builtins/certdata.txt

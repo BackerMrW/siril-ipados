@@ -160,6 +160,9 @@ int siril_image_export(SirilImage *image, const char *path, int format, int dept
 /* Original JPEG XL settings: effort 1..9, quality 0..100 (100 = lossless),
  * depth 8 or normalized 32-bit float. Refuses overwrites and invalid settings. */
 int siril_image_export_jxl(SirilImage *image, const char *path, int depth, int effort, double quality);
+/* Profile: -1 upstream defaults, 0 sRGB, 1 working space, 2 image ICC. */
+int siril_image_export_profile(SirilImage *image, const char *path, int format, int depth, int quality, int profile);
+int siril_image_export_jxl_profile(SirilImage *image, const char *path, int depth, int effort, double quality, int profile);
 /* Execute original Siril commands synchronously, stopping at the first error.
  * Blank lines and # comments are accepted. No desktop process or GTK loop.
  * Returns 1 on success; errors identify the source line. */
