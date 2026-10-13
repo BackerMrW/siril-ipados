@@ -71,6 +71,10 @@ static int pcc_star_field(const char *path, const double gain[3], int spectral) 
     const char *keys[] = {"CRVAL1", "CRVAL2", "CRPIX1", "CRPIX2", "CDELT1", "CDELT2"};
     double values[] = {120, 20, 128, 128, -2. / 3600, 2. / 3600};
     for (int i = 0; i < 6; i++) fits_update_key(file, TDOUBLE, keys[i], &values[i], NULL, &status);
+    int wcsaxes = 2; double identity = 1;
+    fits_update_key(file, TINT, "WCSAXES", &wcsaxes, NULL, &status);
+    fits_update_key(file, TDOUBLE, "PC1_1", &identity, NULL, &status);
+    fits_update_key(file, TDOUBLE, "PC2_2", &identity, NULL, &status);
     fits_write_img(file, TFLOAT, 1, (long)side * side * 3, pixels, &status);
     fits_close_file(file, &status); free(pixels); CHECK(status == 0);
     return 0;

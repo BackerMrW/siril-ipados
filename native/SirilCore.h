@@ -7,6 +7,13 @@
 extern "C" {
 #endif
 typedef struct SirilImage SirilImage;
+typedef struct SirilSER SirilSER;
+/* Original SER reader. Open a private writable copy: upstream repairs files
+ * whose interrupted capture left an empty frame-count field. CFA is retained. */
+SirilSER *siril_ser_open(const char *path, char *error, size_t capacity);
+uint32_t siril_ser_count(const SirilSER *session);
+SirilImage *siril_ser_read(SirilSER *session, uint32_t index, char *error, size_t capacity);
+void siril_ser_close(SirilSER *session);
 typedef struct SirilBackground SirilBackground;
 typedef struct {
     int32_t count, included, layers, reference, width, height, drizzle, type;

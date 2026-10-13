@@ -116,6 +116,32 @@ extension SirilEngine {
             try fm.removeItem(at: imported.url)
         }
         checkpoint("PASS: native XISF import and working FITS preserved independent CFA/RGB samples, compressed interleaved storage and exposure")
+        for name in ["ser-mono8", "ser-cfa16", "ser-rgb8", "ser-bgr16be"] {
+            guard let fixture = Bundle.main.url(forResource: name, withExtension: "ser") else { throw EngineError.failed("SER fixture missing") }
+            let sourceBytes = try Data(contentsOf: fixture)
+            let imported = try importSER(fixture)
+            try require(imported.count == 3 && (try Data(contentsOf: fixture)) == sourceBytes, "SER frame count or source preservation")
+            for (frame, record) in imported.enumerated() {
+                let image = try read(record.url)
+                var pixel = [Float](repeating: 0, count: 3)
+                let channels = Int(siril_image_pixel(image, 3, 4, &pixel))
+                siril_image_free(image)
+                let rgb = name.contains("rgb") || name.contains("bgr")
+                try require(record.width == 8 && record.height == 6 && channels == (rgb ? 3 : 1) && abs(record.exposure - 1) < 1e-9, "SER dimensions, channels or exposure lost")
+                for c in 0..<channels {
+                    let expected = name.hasSuffix("8") ? Float(25 + c * 40 + frame * 10) / 255 : Float(1035 + c * 100 + frame * 20) / 65535
+                    try require(abs(pixel[c] - expected) < 1e-7, "SER frame pixels, channel order or orientation changed")
+                }
+                try fm.removeItem(at: record.url)
+            }
+        }
+        guard let brokenSER = Bundle.main.url(forResource: "ser-truncated", withExtension: "ser") else { throw EngineError.failed("Broken SER fixture missing") }
+        let fitsFolder = fm.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("FITS")
+        let beforeSER = Set(try fm.contentsOfDirectory(atPath: fitsFolder.path))
+        var rejectedSER = false
+        do { _ = try importSER(brokenSER) } catch { rejectedSER = true }
+        try require(rejectedSER && Set(try fm.contentsOfDirectory(atPath: fitsFolder.path)) == beforeSER, "Truncated SER succeeded or left partial imported frames")
+        checkpoint("PASS: native SER sequence import preserved three exact mono/CFA/RGB/BGR frames, byte orders, exposure and source; truncated input rolled back all partial frames")
         // Every actual native tool must execute, return finite full-resolution
         // pixels and preserve the original. No fake success from command text.
         for tool in NativeTool.allCases.filter({ ![.fftInverse, .plateSolve, .pcc, .spcc].contains($0) }) {

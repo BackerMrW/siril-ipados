@@ -1045,3 +1045,4 @@ SirilImage *siril_image_mask_copy(SirilImage *image) {
     return result;
 }
 #include "SirilAdvanced.inc"
+#include "SirilSER.inc"

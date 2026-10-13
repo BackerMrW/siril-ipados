@@ -3,6 +3,7 @@
 from pathlib import Path
 import struct
 import zlib
+from datetime import datetime
 
 size = 256
 tags = {}
@@ -90,3 +91,30 @@ for storage in ("planar", "normal"):
     xisf_fixture("xisf-rgb-" + storage, "Float32", 3, pixels, storage, shuffle=4 if storage == "normal" else 0)
 Path("app/TestAssets/xisf-invalid.xisf").write_bytes(b"invalid XISF signature")
 print("PASS: generated independent UInt16 CFA, planar RGB Float32, byte-shuffled zlib interleaved RGB and invalid XISF fixtures")
+
+def ser_fixture(name, color, depth, big_endian=False):
+    epoch = datetime(2020, 1, 1) - datetime(1, 1, 1)
+    ticks = epoch.days * 86400 * 10000000
+    header = b"LUCAM-RECORDER" + struct.pack("<7I", 0, color, int(big_endian), 8, 6, depth, 3)
+    header += b"Independent observer".ljust(40, b"\0") + b"Independent camera".ljust(40, b"\0") + b"Independent telescope".ljust(40, b"\0")
+    header += struct.pack("<QQ", ticks, ticks)
+    assert len(header) == 178
+    pixels = bytearray()
+    for frame in range(3):
+        for y in range(6):
+            for x in range(8):
+                order = (2, 1, 0) if color == 101 else (0, 1, 2) if color == 100 else (0,)
+                for c in order:
+                    value = 10 + c * 40 + frame * 10 + y * 3 + x if depth == 8 else 1000 + c * 100 + frame * 20 + y * 8 + x
+                    pixels.extend(bytes([value]) if depth == 8 else struct.pack(">H" if big_endian else "<H", value))
+    trailer = struct.pack("<3Q", ticks, ticks + 10000000, ticks + 20000000)
+    body = header + pixels + trailer
+    Path("app/TestAssets", name + ".ser").write_bytes(body)
+    return body
+
+ser_fixture("ser-mono8", 0, 8)
+ser_fixture("ser-cfa16", 8, 16)
+ser_fixture("ser-rgb8", 100, 8)
+bgr = ser_fixture("ser-bgr16be", 101, 16, True)
+Path("app/TestAssets/ser-truncated.ser").write_bytes(bgr[:178 + 8 * 6 * 3 * 2 + 10])
+print("PASS: generated independent three-frame SER mono/CFA/RGB/BGR fixtures, both byte orders, timestamps and a truncated sequence")

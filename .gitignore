@@ -9,3 +9,4 @@ siril-ios-build/
 app/Resources/SPCC/
 app/TestAssets/linear-cfa.dng
 app/TestAssets/xisf-*.xisf
+app/TestAssets/ser-*.ser

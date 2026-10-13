@@ -594,9 +594,9 @@ struct ContentView: View {
         for (index, url) in urls.enumerated() {
             progress = "导入 \(index + 1) / \(urls.count)"
             do {
-                let file = try await engine.importFile(url, role: importRole)
-                files.append(file)
-                selected.insert(file.id)
+                let imported = url.pathExtension.lowercased() == "ser" ? try await engine.importSER(url, role: importRole) : [try await engine.importFile(url, role: importRole)]
+                files.append(contentsOf: imported)
+                selected.formUnion(imported.map(\.id))
             }
             catch { failures.append("\(url.lastPathComponent)：\(error.localizedDescription)") }
         }
