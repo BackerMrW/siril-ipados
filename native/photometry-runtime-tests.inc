@@ -48,14 +48,19 @@ static gpointer pcc_reference_worker(gpointer data) {
     return GINT_TO_POINTER(result);
 }
 
-static int pcc_star_field(const char *path, const double gain[3]) {
+static double power_band_flux(double center, double exponent) {
+    return (pow(center + 5, exponent + 1) - pow(center - 5, exponent + 1)) / (exponent + 1);
+}
+static int pcc_star_field(const char *path, const double gain[3], int spectral) {
     const int side = 256;
     float *pixels = calloc((size_t)side * side * 3, sizeof(float)); CHECK(pixels);
     for (int c = 0; c < 3; c++) for (int y = 0; y < side; y++) for (int x = 0; x < side; x++) {
         double signal = .00003 * sin(x * 1.3 + y * .7);
         for (int i = 0; i < 25; i++) {
             double dx = x - (36 + (i % 5) * 45), dy = y - (36 + (i / 5) * 45);
-            signal += (.08 + .003 * i) * exp(-(dx * dx + dy * dy) / (2 * 1.8 * 1.8));
+            const double center[] = {650, 550, 450};
+            double color = spectral ? power_band_flux(center[c], -.8 + i * .08) / power_band_flux(550, -.8 + i * .08) : 1;
+            signal += color * (.08 + .003 * i) * exp(-(dx * dx + dy * dy) / (2 * 1.8 * 1.8));
         }
         pixels[(size_t)c * side * side + y * side + x] = .02 * (c + 1) + gain[c] * signal;
     }
@@ -76,7 +81,7 @@ static int pcc_worker_reference(const char *directory) {
     const double gains[2][3] = {{1, 1, 1}, {.5, 1, 1.5}};
     for (int run = 0; run < 2; run++) {
         char path[4096]; snprintf(path, sizeof path, "%s/pcc-reference-%d.fits", directory, run);
-        CHECK(pcc_star_field(path, gains[run]) == 0);
+        CHECK(pcc_star_field(path, gains[run], 0) == 0);
         fits fit = {0}; CHECK(readfits(path, &fit, NULL, TRUE) == 0 && has_wcs(&fit));
         struct photometric_cc_data args = {.fit = &fit, .bg_auto = TRUE, .nb_stars = 25,
             .fwhm = 4.238676f, .t0 = -2.8f, .t1 = 2.f};
@@ -103,5 +108,56 @@ static int pcc_worker_reference(const char *directory) {
     for (int i = 0; i < 25; i++) for (int c = 0; c < 3; c++)
         CHECK(fabs(colors[0][i][c] - colors[1][i][c]) < .002);
     puts("PASS: complete original PCC aperture-photometry worker recovered the same 25-star colors under independent channel gains and neutralized all backgrounds");
+    return 0;
+}
+
+static int spcc_worker_reference(const char *directory) {
+    char json[4096]; snprintf(json, sizeof json, "%s/spcc-flat-response.json", directory);
+    FILE *metadata = fopen(json, "wb"); CHECK(metadata);
+    const char *body = "{\"wavelength\":{\"value\":[300,400,500,600,800,1100],\"units\":\"nm\"},\"values\":{\"value\":[1,1,1,1,1,1],\"range\":1}}";
+    CHECK(fwrite(body, 1, strlen(body), metadata) == strlen(body) && fclose(metadata) == 0);
+    // Isolated analytic response and white reference, loaded by the original
+    // JSON reader; restore the installed camera database after the test.
+    spcc_object sensor = {.filepath = json, .name = "Independent flat sensor"};
+    spcc_object white = {.filepath = json, .name = "Independent flat photon white"};
+    GList *saved_sensors = com.spcc_data.mono_sensors, *saved_white = com.spcc_data.wb_ref;
+    com.spcc_data.mono_sensors = g_list_append(NULL, &sensor);
+    com.spcc_data.wb_ref = g_list_append(NULL, &white);
+    const double gains[] = {.5, 1, 1.5}, center[] = {650, 550, 450};
+    char path[4096]; snprintf(path, sizeof path, "%s/spcc-reference.fits", directory);
+    CHECK(pcc_star_field(path, gains, 1) == 0);
+    fits fit = {0}; CHECK(readfits(path, &fit, NULL, TRUE) == 0 && has_wcs(&fit));
+    struct photometric_cc_data args = {.fit = &fit, .bg_auto = TRUE, .nb_stars = 25,
+        .fwhm = 4.238676f, .t0 = -2.8f, .t1 = 2.f, .spcc = TRUE, .spcc_mono_sensor = TRUE,
+        .nb_mode = TRUE, .nb_center = {650, 550, 450}, .nb_bandwidth = {10, 10, 10}};
+    args.ref_stars = siril_catalog_new(CAT_SHOW); CHECK(args.ref_stars);
+    args.ref_stars->nbitems = 25;
+    args.ref_stars->cat_items = calloc(25, sizeof(cat_item)); CHECK(args.ref_stars->cat_items);
+    xpsampled grid = init_xpsampled();
+    for (int i = 0; i < 25; i++) {
+        cat_item *star = &args.ref_stars->cat_items[i];
+        star->x = 37 + (i % 5) * 45; star->y = 37 + (i / 5) * 45; star->included = TRUE;
+        star->xp_sampled = calloc(XPSAMPLED_LEN, sizeof(double)); CHECK(star->xp_sampled);
+        for (int j = 0; j < XPSAMPLED_LEN; j++)
+            star->xp_sampled[j] = pow(grid.x[j] / 550, -.8 + i * .08) / grid.x[j];
+    }
+    waiting_for_thread(); CHECK(start_in_new_thread(pcc_reference_worker, &args));
+    CHECK(GPOINTER_TO_INT(waiting_for_thread()) == 0);
+    float sky[3]; for (int c = 0; c < 3; c++) sky[c] = fit.fpdata[c][10 * 256 + 10];
+    CHECK(fabs(sky[0] - sky[1]) < 1e-4 && fabs(sky[2] - sky[1]) < 1e-4);
+    for (int i = 0; i < 25; i++) {
+        int x = 36 + (i % 5) * 45, y = 36 + (i / 5) * 45;
+        double green = fit.fpdata[1][y * 256 + x] - sky[1]; CHECK(green > .01);
+        for (int c = 0; c < 3; c++) {
+            double actual = (fit.fpdata[c][y * 256 + x] - sky[c]) / green;
+            double expected = power_band_flux(center[c], -.8 + i * .08) / power_band_flux(550, -.8 + i * .08);
+            CHECK(fabs(actual - expected) < .002);
+        }
+    }
+    siril_catalog_free(args.ref_stars); clearfits(&fit);
+    spcc_object_free_arrays(&sensor); spcc_object_free_arrays(&white);
+    g_list_free(com.spcc_data.mono_sensors); g_list_free(com.spcc_data.wb_ref);
+    com.spcc_data.mono_sensors = saved_sensors; com.spcc_data.wb_ref = saved_white;
+    puts("PASS: complete original SPCC photometry/regression/white-balance worker recovered analytic 25-star power-law photon colors through three narrow bands and known channel gains");
     return 0;
 }

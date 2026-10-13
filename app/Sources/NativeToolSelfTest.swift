@@ -106,7 +106,7 @@ extension SirilEngine {
             siril_image_free(image)
             let cfa = name == "xisf-cfa"
             try require(imported.width == 8 && imported.height == 6 && channels == (cfa ? 1 : 3) && abs(imported.exposure - 120) < 1e-9, "XISF geometry or exposure lost")
-            for c in 0..<channels {
+            for c in 0..<Int(channels) {
                 let expected: Float = cfa ? 1067 / 65535 : Float(c + 1) * 0.1 + 0.043
                 try require(abs(pixel[c] - expected) < 1e-7, "XISF sample precision or orientation lost")
             }

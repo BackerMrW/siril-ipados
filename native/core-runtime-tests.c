@@ -620,6 +620,7 @@ int main(int argc, char **argv) {
     puts("PASS: original catalog HTTP fetch over verified HTTPS; incorrect hostnames and untrusted roots rejected");
     CHECK(plate_solver_reference(argv[1]) == 0);
     CHECK(pcc_worker_reference(argv[1]) == 0);
+    CHECK(spcc_worker_reference(argv[1]) == 0);
     CHECK(getenv("SIRIL_FORMAT_FIXTURES"));
     char dng_path[4096]; snprintf(dng_path, sizeof dng_path, "%s/linear-cfa.dng", getenv("SIRIL_FORMAT_FIXTURES"));
     SirilImage *dng = siril_image_read_any(dng_path, error, sizeof error); CHECK(dng);
