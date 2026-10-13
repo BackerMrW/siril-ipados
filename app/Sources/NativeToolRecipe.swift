@@ -3,13 +3,14 @@ import Foundation
 
 enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
     case mtf, inverseMTF, asinh, ghs, inverseGHS, modifiedAsinh, inverseModifiedAsinh, linearStretch, automatic, automaticGHS
-    case saturation, greenNoise, negative, unpurple, ccm
+    case saturation, greenNoise, negative, unpurple, ccm, colorManagement
     case median, gaussian, unsharp, clahe, banding, bilateral, guided, denoise, wavelets
     case crop, rotate, rotate90, rotate270, rotate180, mirrorHorizontal, mirrorVertical, binning, resample
     case curves, pixelMath, fftDirect, fftInverse, deconvolution
     case plateSolve, pcc, spcc
     var id: String { rawValue }
     var title: String { switch self {
+    case .colorManagement: return "颜色管理 · ICC"
     case .plateSolve: return "天文解算 · Plate Solve"
     case .pcc: return "测光颜色校准 · PCC"; case .spcc: return "分光测光颜色校准 · SPCC"
     case .deconvolution: return "反卷积与 PSF"
@@ -32,12 +33,12 @@ enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
     case .fftDirect, .fftInverse: return "频谱"
     case .curves, .pixelMath: return "曲线与表达式"
     case .mtf, .inverseMTF, .asinh, .ghs, .inverseGHS, .modifiedAsinh, .inverseModifiedAsinh, .linearStretch, .automatic, .automaticGHS: return "拉伸"
-    case .saturation, .greenNoise, .negative, .unpurple, .ccm: return "颜色"
+    case .saturation, .greenNoise, .negative, .unpurple, .ccm, .colorManagement: return "颜色"
     case .median, .gaussian, .unsharp, .clahe, .banding, .bilateral, .guided, .denoise, .wavelets: return "滤镜"
     default: return "几何"
     } }
     var rgbOnly: Bool { [.pcc, .spcc, .saturation, .greenNoise, .unpurple, .ccm].contains(self) }
-    var acceptsMask: Bool { ![.pcc, .spcc, .plateSolve, .fftDirect, .fftInverse, .curves, .pixelMath, .inverseMTF, .ccm, .banding, .wavelets].contains(self) && group != "几何" }
+    var acceptsMask: Bool { ![.colorManagement, .pcc, .spcc, .plateSolve, .fftDirect, .fftInverse, .curves, .pixelMath, .inverseMTF, .ccm, .banding, .wavelets].contains(self) && group != "几何" }
     static let actions: [String: Self] = ["win.pcc-processing": .pcc, "win.spcc-processing": .spcc, "win.astrometry": .plateSolve, "win.histo-processing": .mtf, "win.asinh-processing": .asinh, "win.payne-processing": .ghs,
         "win.saturation-processing": .saturation, "win.remove-green-processing": .greenNoise, "win.negative-processing": .negative,
         "win.unpurple-processing": .unpurple, "win.ccm-processing": .ccm, "win.medianfilter-processing": .median,
@@ -45,7 +46,7 @@ enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
         "win.denoise-processing": .denoise, "win.wavelets-processing": .wavelets, "win.crop": .crop,
         "win.rotation-processing": .rotate, "win.rotation90-processing": .rotate90, "win.rotation270-processing": .rotate270,
         "win.mirrorx-processing": .mirrorHorizontal, "win.mirrory-processing": .mirrorVertical, "win.binning-processing": .binning, "win.resample-processing": .resample,
-        "win.deconvolution-processing": .deconvolution, "win.fft-processing": .fftDirect, "win.curves-processing": .curves, "win.pixel-math": .pixelMath]
+        "win.deconvolution-processing": .deconvolution, "win.fft-processing": .fftDirect, "win.curves-processing": .curves, "win.pixel-math": .pixelMath, "win.icc-tool": .colorManagement]
 }
 
 struct ToolField: Identifiable, Sendable {
@@ -70,6 +71,9 @@ extension NativeTool {
         let colour = c("colour", "颜色拉伸模型", ["独立通道", "人眼加权亮度", "等权亮度", "饱和度"], 0)
         let interp = c("interp", "插值", ["最近邻", "双线性", "双三次", "像素面积", "Lanczos4"], 4)
         switch self {
+        case .colorManagement: return [c("action", "操作", ["分配配置文件（保留像素）", "转换颜色空间", "移除配置文件"]),
+            c("profile", "目标配置文件", ["线性 sRGB", "sRGB", "线性 Rec.2020", "Rec.2020", "工作空间"]),
+            c("intent", "转换意图", ["感知", "相对色度", "饱和度", "绝对色度"], 1)]
         case .pcc, .spcc: return PhotometricFields.fields(for: self)
         case .plateSolve: return [b("headerPosition", "使用文件头目标坐标", true),
             n("ra", "赤经（度）", 0, 0, 359.999999, false), n("dec", "赤纬（度）", 0, -90, 90, false),
@@ -141,7 +145,7 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
     var spectral: SpectralSettings?
     init(tool: NativeTool, file: FITSRecord) {
         self.tool = tool; values = Dictionary(uniqueKeysWithValues: tool.fields.map { ($0.id, $0.value) })
-        if file.hasMask == true && ![.pixelMath, .fftDirect, .fftInverse].contains(tool) { mask.values["mode"] = 6 }
+        if file.hasMask == true && ![.colorManagement, .pixelMath, .fftDirect, .fftInverse].contains(tool) { mask.values["mode"] = 6 }
         if tool == .curves { curves = CurveRecipe() }
         if tool == .pixelMath { pixelMath = PixelMathRecipe() }
         if tool == .crop { values["width"] = Double(file.width); values["height"] = Double(file.height) }
@@ -150,6 +154,7 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
     }
     func number(_ key: String) -> Double { values[key] ?? 0 }
     func validate(file: FITSRecord) throws {
+        if tool == .colorManagement && mask.number("mode") != 0 { throw EngineError.failed("ICC 操作作用于整张图像，请关闭处理蒙版。") }
         if tool == .spcc { try spectralSettings.validate(mono: number("mono") == 1, dslr: true) }
         if [.pcc, .spcc].contains(tool), number("magnitudeMode") == 2 && number("magnitude") < 0 { throw EngineError.failed("绝对极限星等必须非负。") }
         if tool == .plateSolve {
@@ -195,6 +200,12 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
         let interp = ["nearest", "linear", "cubic", "area", "lanczos4"][Int(number("interp"))]
         var command: String
         switch tool {
+        case .colorManagement:
+            var target = ["srgblinear", "srgb", "rec2020linear", "rec2020", "working"][Int(number("profile"))]
+            if number("action") == 1 && file.channels == 1 {
+                target = ["graylinear", "graysrgb", "graylinear", "grayrec2020", "working"][Int(number("profile"))]
+            }
+            command = number("action") == 2 ? "icc_remove" : number("action") == 0 ? "icc_assign \(target)" : "icc_convert_to \(target) \(["perceptual", "relative", "saturation", "absolute"][Int(number("intent"))])"
         case .pcc, .spcc: command = try photometricCommand()
         case .plateSolve:
             command = "platesolve"

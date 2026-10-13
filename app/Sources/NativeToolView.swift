@@ -164,6 +164,11 @@ struct NativeToolView: View {
                     Text("已有 WCS 默认保留；打开重新解算可重新匹配。畸变模型随处理记录保存，原始 FITS 保留。")
                 }
             }
+            if recipe.tool == .colorManagement {
+                Section("颜色管理") {
+                    Text("分配与移除配置文件保留像素值。转换使用原版 LittleCMS 引擎，需先有源 ICC 配置文件；灰度图保持单通道。应用保存独立 FITS 和操作记录。")
+                }
+            }
             if recipe.tool == .spcc {
                 SpectralEditor(settings: Binding(get: { recipe.spectralSettings }, set: { recipe.spectralSettings = $0 }),
                     mono: recipe.number("mono") == 1, dslr: true)
@@ -211,6 +216,9 @@ struct NativeToolView: View {
         }.disabled(busy || !loaded)
     }
     private var visibleToolFields: [ToolField] {
+        if recipe.tool == .colorManagement {
+            return recipe.tool.fields.filter { $0.id == "action" || (recipe.number("action") != 2 && $0.id == "profile") || (recipe.number("action") == 1 && $0.id == "intent") }
+        }
         if [.pcc, .spcc].contains(recipe.tool) {
             return recipe.tool.fields.filter {
                 if $0.id == "magnitude" { return recipe.number("magnitudeMode") != 0 }

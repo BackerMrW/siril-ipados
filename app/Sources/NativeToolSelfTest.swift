@@ -242,7 +242,7 @@ extension SirilEngine {
                     let after = try await session.pixel(view: 1, x: 10, y: 10)
                     let resized = (0..<3).map { values[$0 * width * height + 32 * width + 20] }
                     try require(info.width == 48 && info.height == 32 && after == resized, "independent nonuniform nearest resampling")
-                case .wavelets, .ccm:
+                case .wavelets, .ccm, .colorManagement:
                     let after = try await session.pixel(view: 1, x: x, y: y)
                     try require(zip(after, expected).allSatisfy { abs($0.0 - $0.1) < 2e-5 }, "identity \(tool.rawValue) changed pixels")
                 default: break
@@ -255,6 +255,31 @@ extension SirilEngine {
             }
         }
         try require(failures.isEmpty, failures.joined(separator: "\n"))
+        var icc = NativeToolRecipe(tool: .colorManagement, file: file)
+        try await session.compute(icc, library: records)
+        let iccJob = try prepareNativeToolJob(file: file, recipe: icc, library: records); jobs.append(iccJob)
+        let assignedICC = try await session.export(icc, to: iccJob)
+        let iccRecord = try importFile(assignedICC); records.append(iccRecord)
+        let iccSession = NativeToolSession(); try await iccSession.open(iccRecord)
+        icc = NativeToolRecipe(tool: .colorManagement, file: iccRecord)
+        icc.values["action"] = 1; icc.values["profile"] = 1
+        for intent in 0..<4 {
+            icc.values["intent"] = Double(intent)
+            try await iccSession.compute(icc, library: records)
+            let after = try await iccSession.pixel(view: 1, x: x, y: y)
+            for c in 0..<3 {
+                let linear = Double(expected[c])
+                let srgb = linear <= 0.0031308 ? linear * 12.92 : 1.055 * pow(linear, 1 / 2.4) - 0.055
+                try require(abs(Double(after[c]) - srgb) < 0.00015, "ICC linear sRGB to sRGB conversion did not match independent transfer function")
+            }
+        }
+        icc.values["action"] = 2
+        try await iccSession.compute(icc, library: records)
+        let removedICC = try await iccSession.pixel(view: 1, x: x, y: y)
+        try require(removedICC == expected, "ICC removal changed pixels")
+        try require(try JSONDecoder().decode(NativeToolRecipe.self, from: JSONEncoder().encode(icc)) == icc, "ICC recipe did not persist")
+        try fm.removeItem(at: iccRecord.url)
+        checkpoint("PASS: native ICC assignment, independent sRGB transfer function under four intents, removal, FITS output and recipe persistence preserved source pixels")
         let identity = NativeToolRecipe(tool: .rotate, file: file)
         try await session.compute(identity, library: records)
         let same = try await session.pixel(view: 1, x: x, y: y)

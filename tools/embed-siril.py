@@ -25,6 +25,22 @@ assert text.count(needle) == 1
 # Explicit sensor options must win over the desktop's saved camera mode.
 text = text.replace(needle, 'if (oscsensor || (!monosensor && mono_or_osc == 1)) {')
 commands.write_text(text)
+icc = source / "src/core/icc_profile.c"
+text = icc.read_text()
+start = text.index('int icc_convert_to_hook(')
+end = text.index('gchar *icc_convert_to_log_hook(', start)
+body = text[start:end]
+# The original transform reads export_intent, while this hook previously changed
+# processing_intent: command intent options silently had no effect.
+assert body.count('com.pref.icc.processing_intent') == 3
+body = body.replace('com.pref.icc.processing_intent', 'com.pref.icc.export_intent')
+needle = '\tsiril_colorspace_transform(fit, args->profile);'
+assert body.count(needle) == 1
+body = body.replace(needle, '\tGSList *previous_tail = g_slist_last(fit->history);\n' + needle)
+# Failed transforms leave the old profile attached. Its presence alone cannot
+# establish success; every completed original transform appends FITS history.
+body = body.replace('if (!fit->icc_profile) {', 'if (!fit->icc_profile || g_slist_last(fit->history) == previous_tail) {')
+icc.write_text(text[:start] + body + text[end:])
 formats = source / "src/io/image_formats_libraries.c"
 text = formats.read_text()
 start = text.index('static int readraw_in_cfa(')
@@ -170,7 +186,7 @@ body = body.replace(needle, '\t\tx1 = fit->rx;\n\t\ty1 = fit->ry;', 1)
 path.write_text(text[:start] + body)
 destination = source / "src/ipados"
 destination.mkdir(exist_ok=True)
-for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "SirilDisplay.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc", "heif-runtime-tests.inc", "keyword-runtime-tests.inc", "display-runtime-tests.inc"):
+for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "SirilDisplay.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc", "heif-runtime-tests.inc", "keyword-runtime-tests.inc", "display-runtime-tests.inc", "icc-runtime-tests.inc"):
     shutil.copy2(root / "native" / name, destination / name)
 # Reuse the pinned desktop LUT arithmetic without GTK state or its UI cache.
 # The iPad bridge owns the image, level bounds, destination and STF parameters.
