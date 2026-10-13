@@ -118,7 +118,6 @@ static int plate_solver_reference(const char *directory) {
     args->mag_mode = LIMIT_MAG_ABSOLUTE; args->magnitude_arg = 20;
     args->cat_center = siril_world_cs_new_from_a_d(120, 20);
     args->ref_stars = siril_catalog_new(CAT_SHOW);
-    args->ref_stars->columns |= 1 << CAT_FIELD_MAG;
     args->ref_stars->center_ra = 120; args->ref_stars->center_dec = 20;
     args->ref_stars->nbitems = 30;
     args->ref_stars->cat_items = calloc(30, sizeof(cat_item));
@@ -145,6 +144,9 @@ static int plate_solver_reference(const char *directory) {
     }
     args->stars[30] = NULL;
     process_plate_solver_input(args);
+    // Input preparation restores CAT_SHOW's RA/DEC-only schema. Declare the
+    // magnitude column supplied by this fixture afterwards, as a parsed catalog does.
+    args->ref_stars->columns |= 1 << CAT_FIELD_MAG;
     waiting_for_thread();
     CHECK(start_in_new_thread(test_plate_solver_worker, args));
     CHECK(GPOINTER_TO_INT(waiting_for_thread()) == 0);
