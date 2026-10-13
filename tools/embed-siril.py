@@ -45,6 +45,10 @@ formats.write_text(text[:start] + body + text[end:])
 # HEIF planes have a byte stride that can exceed the packed row length.
 # Honor it for every row, including 10/12/16-bit data and optional alpha.
 text = formats.read_text()
+# The iOS decoder budget uses the original platform memory helper.
+needle = '#include "core/proto.h"'
+assert text.count(needle) == 1
+text = text.replace(needle, needle + '\n#include "core/OS_utils.h"')
 start = text.index('int readheif(')
 end = text.index('\n#endif', text.index('return OPEN_IMAGE_OK;', start))
 body = text[start:end]
