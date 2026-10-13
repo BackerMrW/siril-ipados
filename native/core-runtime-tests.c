@@ -25,6 +25,7 @@
 #include <sys/stat.h>
 #define CHECK(condition) do { if (!(condition)) { fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #condition); return 1; } } while (0)
 #include "xisf-runtime-tests.inc"
+#include "photometry-runtime-tests.inc"
 static int float_order(const void *a, const void *b) {
     float x = *(const float *)a, y = *(const float *)b;
     return (x > y) - (x < y);
@@ -603,6 +604,7 @@ int main(int argc, char **argv) {
     CHECK(sensor->n > 2 && sensor->x && sensor->y);
     spcc_object_free_arrays(sensor);
     puts("PASS: sandbox data/cache paths and original SPCC metadata, camera lists, white references and spectral array loader");
+    CHECK(photometric_numeric_checks() == 0);
     const char *tls_url = getenv("SIRIL_TLS_TEST_URL");
     CHECK(tls_url && getenv("SIRIL_TLS_WRONG_HOST") && getenv("SIRIL_TLS_UNTRUSTED_CA"));
     gsize response_length = 0; int network_error = 0;
@@ -617,6 +619,7 @@ int main(int argc, char **argv) {
     CHECK(!response && network_error);
     puts("PASS: original catalog HTTP fetch over verified HTTPS; incorrect hostnames and untrusted roots rejected");
     CHECK(plate_solver_reference(argv[1]) == 0);
+    CHECK(pcc_worker_reference(argv[1]) == 0);
     CHECK(getenv("SIRIL_FORMAT_FIXTURES"));
     char dng_path[4096]; snprintf(dng_path, sizeof dng_path, "%s/linear-cfa.dng", getenv("SIRIL_FORMAT_FIXTURES"));
     SirilImage *dng = siril_image_read_any(dng_path, error, sizeof error); CHECK(dng);
