@@ -201,6 +201,24 @@ def xisf_static_build(source):
                         '    string(REPLACE "zstd" "libzstd" PC_REQUIRE_STR ${PC_REQUIRE_STR})')
     path.write_text(text)
 
+    path = source / "libxisf.cpp"
+    text = path.read_text()
+    needle = '            ::uncompress((Bytef*)dstPtr, &size, (const Bytef*)srcPtr, block.first);'
+    assert text.count(needle) == 1
+    text = text.replace(needle, '            if (::uncompress((Bytef*)dstPtr, &size, (const Bytef*)srcPtr, block.first) != Z_OK || size != block.second)\n'
+                               '                throw Error("Zlib decompression failed");')
+    needle = 'if(LZ4_decompress_safe(srcPtr, dstPtr, block.first, block.second) < 0)'
+    assert text.count(needle) == 1
+    text = text.replace(needle, 'if(LZ4_decompress_safe(srcPtr, dstPtr, block.first, block.second) != block.second)')
+    needle = '            if(ZSTD_isError(ZSTD_decompress(dstPtr, block.second, srcPtr, block.first)))'
+    assert text.count(needle) == 1
+    text = text.replace(needle, '            size_t decoded = ZSTD_decompress(dstPtr, block.second, srcPtr, block.first);\n'
+                               '            if(ZSTD_isError(decoded) || decoded != block.second)')
+    needle = '        _io->read(ptr, s);'
+    assert text.count(needle) == 1
+    text = text.replace(needle, needle + '\n        if (_io->fail() || (size_t)_io->gcount() != s) throw Error("Truncated XISF attachment");')
+    path.write_text(text)
+
 
 def cmake(name, url, revision, options, patch=None, source_subdir=None):
     identity = {"revision": revision, "options": options,

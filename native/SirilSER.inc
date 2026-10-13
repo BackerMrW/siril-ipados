@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "io/ser.h"
+#include "io/fits_keywords.h"
 struct SirilSER { struct ser_struct file; };
 SirilSER *siril_ser_open(const char *path, char *error, size_t capacity) {
     if (error && capacity) error[0] = 0;
@@ -35,12 +36,18 @@ SirilImage *siril_ser_read(SirilSER *session, uint32_t index, char *error, size_
     }
     g_mutex_lock(&engine_mutex);
     SirilImage *image = g_try_new0(SirilImage, 1);
+    if (image) set_all_keywords_default(&image->fit);
     int failed = !image || ser_read_frame(&session->file, (int)index, &image->fit, TRUE, FALSE) != SER_OK;
     if (!failed) {
         import_metadata_from_serfile(&session->file, &image->fit);
         // The upstream reader has flipped the top-down SER raster to FITS
         // storage. Describe that buffer consistently to this displayed-pixel ABI.
         image->fit.top_down = FALSE;
+        if (image->fit.keywords.bayer_pattern[0]) {
+            sensor_pattern pattern = get_cfa_pattern_index_from_string(image->fit.keywords.bayer_pattern);
+            adjust_Bayer_pattern_orientation(&pattern, image->fit.ry, TRUE);
+            g_strlcpy(image->fit.keywords.bayer_pattern, filter_pattern[pattern], FLEN_VALUE);
+        }
         g_strlcpy(image->fit.keywords.row_order, "BOTTOM-UP", FLEN_VALUE);
     } else {
         if (image) { clearfits(&image->fit); g_free(image); }

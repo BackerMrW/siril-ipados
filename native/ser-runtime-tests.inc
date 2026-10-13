@@ -20,7 +20,7 @@ static int ser_reference_checks(const char *directory) {
             int channels = k >= 2 ? 3 : 1;
             CHECK(info.width == 8 && info.height == 6 && info.channels == channels);
             CHECK(fabs(info.exposure - 1) < 1e-9);
-            if (k == 1) CHECK(strcmp(info.bayer, "GBRG") == 0); // bottom-up FITS mosaic
+            if (k == 1) CHECK(strcmp(info.bayer, "RGGB") == 0); // sensor pattern with bottom-up FITS storage
             for (int y = 0; y < 6; y++) for (int x = 0; x < 8; x++) {
                 float pixel[3]; CHECK(siril_image_pixel(image, x, y, pixel) == channels);
                 for (int c = 0; c < channels; c++) {

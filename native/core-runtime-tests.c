@@ -28,6 +28,7 @@
 #include "photometry-runtime-tests.inc"
 #include "ser-runtime-tests.inc"
 #include "jxl-runtime-tests.inc"
+#include "cfa-format-tests.inc"
 static int float_order(const void *a, const void *b) {
     float x = *(const float *)a, y = *(const float *)b;
     return (x > y) - (x < y);
@@ -635,6 +636,7 @@ int main(int argc, char **argv) {
     puts("PASS: original LibRaw/Siril decoder imported an independent DNG with exact 16-bit Bayer pixels, full dimensions and CFA metadata");
     CHECK(xisf_reference_checks(argv[1]) == 0);
     CHECK(ser_reference_checks(argv[1]) == 0);
+    CHECK(cfa_format_color_checks(argv[1]) == 0);
     CHECK(jxl_reference_checks(argv[1]) == 0);
     SirilImageInfo info;
     CHECK(siril_image_info(image, &info));

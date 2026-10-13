@@ -29,8 +29,11 @@ static int xisf_reference_checks(const char *directory) {
         }
         siril_image_free(image);
     }
-    snprintf(path, sizeof path, "%s/xisf-invalid.xisf", getenv("SIRIL_FORMAT_FIXTURES"));
-    CHECK(!siril_image_read_any(path, error, sizeof error));
+    const char *invalid[] = {"xisf-invalid", "xisf-truncated", "xisf-corrupt-zlib", "xisf-invalid-geometry"};
+    for (int i = 0; i < 4; i++) {
+        snprintf(path, sizeof path, "%s/%s.xisf", getenv("SIRIL_FORMAT_FIXTURES"), invalid[i]);
+        CHECK(!siril_image_read_any(path, error, sizeof error));
+    }
     puts("PASS: original XISF decoder retained independent CFA, planar/interleaved RGB float pixels, shuffled zlib data, exposure and working FITS; invalid signature rejected");
     return 0;
 }
