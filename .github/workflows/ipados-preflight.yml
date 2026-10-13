@@ -36,10 +36,9 @@ jobs:
       shell: bash
       run: |
         set -euo pipefail
-        git init siril-src
-        git -C siril-src remote add origin https://gitlab.com/free-astro/siril.git
-        git -C siril-src fetch --depth 1 origin 2a724774dc4b2f9218d4d9055e81289b77ca9be3
-        git -C siril-src checkout --detach FETCH_HEAD
+        python3 tools/pinned_source.py --directory siril-src \
+          --url https://gitlab.com/free-astro/siril.git \
+          --revision 2a724774dc4b2f9218d4d9055e81289b77ca9be3
         git -C siril-src rev-parse HEAD > diagnostics/siril-commit.txt
         (cd siril-src && git apply --check ../native/siril-ipados.patch && git apply ../native/siril-ipados.patch)
         git -C siril-src diff --check

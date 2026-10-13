@@ -4,15 +4,12 @@ from pathlib import Path
 import json
 import shutil
 import subprocess
+from pinned_source import fetch_pinned
 
 root = Path.cwd()
 source = root / "deps-work/spcc-data"
 revision = "87af70a92ec1d0ff780bd3ea833aaa7b3b169cc2"
-source.mkdir(parents=True, exist_ok=True)
-subprocess.run(["git", "init", str(source)], check=True)
-subprocess.run(["git", "-C", str(source), "fetch", "--depth", "1",
-                "https://gitlab.com/free-astro/siril-spcc-database.git", revision], check=True)
-subprocess.run(["git", "-C", str(source), "checkout", "--detach", "FETCH_HEAD"], check=True)
+fetch_pinned(source, "https://gitlab.com/free-astro/siril-spcc-database.git", revision)
 actual = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
 assert actual == revision
 destination = root / "app/Resources/SPCC"
