@@ -68,7 +68,29 @@ body = body.replace(needle, '\t\tsiril_log_error(_("Error interleaving image\\n"
 needle = '\tfree(filename);\n\tg_error_free(error);\n\treturn OPEN_IMAGE_OK;'
 assert body.count(needle) == 1
 body = body.replace(needle, '\tfree(filename); free(profile);\n\tif (error) g_error_free(error);\n\treturn saved ? OPEN_IMAGE_OK : OPEN_IMAGE_ERROR;')
+needle = '\tsiril_log_info(_("Save complete.\\n"));'
+assert body.count(needle) == 1
+body = body.replace(needle, '', 1)
+body = body.replace('\tfree(buffer);\n\tfree(compressed);', '\tif (saved) siril_log_info(_("Save complete.\\n"));\n\tfree(buffer);\n\tfree(compressed);', 1)
 formats.write_text(text[:start] + body)
+
+wrapper = source / "src/io/SirilJpegXLWrapper.cpp"
+text = wrapper.read_text()
+needle = '#include <vector>'
+assert text.count(needle) == 1
+text = text.replace(needle, needle + '\n#include "core/OS_utils.h"')
+needle = '      *xsize = info.xsize;'
+assert text.count(needle) == 1
+text = text.replace(needle, '''#ifdef OS_IOS
+      if (!info.xsize || !info.ysize || info.xsize > 100000 || info.ysize > 100000 ||
+          (info.num_color_channels != 1 && info.num_color_channels != 3) || info.num_extra_channels != 0 ||
+          (double)info.xsize * info.ysize * info.num_color_channels * 12 > (double)get_available_memory() * .8) {
+        fprintf(stderr, "JPEG XL layout unsupported or exceeds the available memory budget\\n");
+        return false;
+      }
+#endif
+''' + needle)
+wrapper.write_text(text)
 
 text = commands.read_text()
 start = text.index('int process_savejxl(')
@@ -91,7 +113,7 @@ body = body.replace(needle, '\t\tx1 = fit->rx;\n\t\ty1 = fit->ry;', 1)
 path.write_text(text[:start] + body)
 destination = source / "src/ipados"
 destination.mkdir(exist_ok=True)
-for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc"):
+for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc"):
     shutil.copy2(root / "native" / name, destination / name)
 meson = source / "src/meson.build"
 text = meson.read_text()

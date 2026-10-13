@@ -375,7 +375,7 @@ extension SirilEngine {
             try fm.removeItem(at: imported.url)
             checkpoint("PASS: original \(format.rawValue) export/import preserved full-size RGB planes at declared precision")
         }
-        for ext in ["jpg", "png", "tif"] {
+        for ext in ["jpg", "png", "tif", "jxl"] {
             let bad = folder.appendingPathComponent("invalid." + ext); try Data("not an image".utf8).write(to: bad)
             rejected = false
             do { _ = try importFile(bad) } catch { rejected = true }
