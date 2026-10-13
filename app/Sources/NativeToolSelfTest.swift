@@ -269,6 +269,23 @@ extension SirilEngine {
         let oldDisplay = try JSONDecoder().decode(NativeDisplaySettings.self, from: Data("{\"mode\":0,\"low\":0,\"high\":1,\"unlinked\":false,\"inverted\":false}".utf8))
         try require(oldDisplay.useICC, "Old display preferences lost default ICC management")
         let assignedProfile = try await iccSession.iccProfile(view: 0)
+        var proofDisplay = NativeDisplaySettings(mode: .linear)
+        proofDisplay.proofProfile = ICCProfileResource(name: "proof.icc", data: assignedProfile)
+        proofDisplay.blackPoint = true; proofDisplay.gamutCheck = true
+        for proof in 0...4 {
+            proofDisplay.softProof = proof
+            for intent in 0..<4 {
+                proofDisplay.renderingIntent = intent; proofDisplay.proofingIntent = intent
+                let rendered = try preview(iccRecord.url, channel: -1, settings: proofDisplay)
+                try require(rendered.data.count == width * height * 4, "Soft-proof ICC bytes did not survive native call lifetime")
+            }
+        }
+        let restoredProof = try JSONDecoder().decode(NativeDisplaySettings.self, from: JSONEncoder().encode(proofDisplay))
+        try require(restoredProof == proofDisplay, "Soft-proof profile and rendering settings did not persist")
+        proofDisplay.proofProfile = nil
+        var missingProofRejected = false
+        do { _ = try preview(iccRecord.url, channel: -1, settings: proofDisplay) } catch { missingProofRejected = true }
+        try require(missingProofRejected, "Missing custom proof profile silently rendered without soft-proofing")
         let chromaticity = try ICCChromaticity(data: assignedProfile)
         try require(chromaticity.channels == 3 && !chromaticity.name.isEmpty && abs(chromaticity.coordinates[6] - 0.3457) < 0.0001 && abs(chromaticity.coordinates[7] - 0.3585) < 0.0001, "ICC chromaticity lost D50 whitepoint or profile description")
         var customICC = NativeToolRecipe(tool: .colorManagement, file: file)

@@ -83,6 +83,10 @@ typedef struct {
     int mode; /* Original order: linear, log, sqrt, squared, asinh, STF, histogram equalization. */
     double low, high; /* Normalized display bounds, used by modes 0..4. */
     int unlinked, inverted, icc, rainbow, mask_overlay;
+    int rendering_intent, proofing_intent, black_point, gamut_check;
+    int proof; /* 0 off, 1 sRGB, 2 Rec.2020, 3 working, 4 custom ICC bytes. */
+    const void *proof_data;
+    size_t proof_size;
 } SirilDisplayOptions;
 typedef struct {
     int32_t x, y, width, height; /* displayed top-left coordinates; NULL = full image */

@@ -13,7 +13,7 @@ static int display_icc_reference(const char *directory) {
         SirilImage *image = siril_image_read(path, error, sizeof error); CHECK(image);
         cmsHPROFILE monitor = srgb_trc(); CHECK(monitor);
         for (int mode = 0; mode < 7; mode++) {
-            SirilDisplayOptions settings = {.mode = mode, .low = .01, .high = .9, .icc = 1};
+            SirilDisplayOptions settings = {.mode = mode, .low = .01, .high = .9, .icc = 1, .rendering_intent = 1, .proofing_intent = 1};
             SirilPreview managed, raw;
             CHECK(siril_image_preview_mode(image, 8, -1, &settings, &managed));
             settings.icc = 0; CHECK(siril_image_preview_mode(image, 8, -1, &settings, &raw)); settings.icc = 1;
@@ -36,10 +36,10 @@ static int display_icc_reference(const char *directory) {
                     source_profile = synthetic;
                 }
                 cmsUInt32Number kind = floating ? TYPE_RGB_FLT_PLANAR : channels == 1 ? TYPE_GRAY_8 : TYPE_RGB_8_PLANAR;
-                cmsUInt32Number flags = com.icc.rendering_flags | cmsFLAGS_SOFTPROOFING;
+                cmsUInt32Number flags = cmsFLAGS_SOFTPROOFING;
                 if (!synthetic && fit_icc_is_linear(&reference)) flags |= cmsFLAGS_NOOPTIMIZE;
                 cmsHTRANSFORM transform = cmsCreateProofingTransform(source_profile, kind, monitor, TYPE_RGB_8_PLANAR, monitor,
-                    com.pref.icc.rendering_intent, com.pref.icc.proofing_intent, flags); CHECK(transform);
+                    settings.rendering_intent, settings.proofing_intent, flags); CHECK(transform);
                 float input_float[144]; BYTE input_byte[144], expected[144];
                 for (int y = 0; y < 6; y++) for (int x = 0; x < 8; x++) for (int c = 0; c < channels; c++) {
                     int i = y * 8 + x;

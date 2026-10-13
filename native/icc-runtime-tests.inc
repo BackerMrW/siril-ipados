@@ -78,7 +78,10 @@ static int icc_reference_checks(const char *directory) {
             CHECK(com.pref.icc.export_intent == saved_intent);
             fits result = {0}; CHECK(!readfits(converted, &result, NULL, TRUE));
             CHECK(result.icc_profile && result.color_managed && result.naxes[2] == channels);
-            for (int i = 0; i < 48 * channels; i++) CHECK(fabsf(result.fdata[i] - expected[i]) < 3e-6f);
+            for (int i = 0; i < 48 * channels; i++) {
+                if (fabsf(result.fdata[i] - expected[i]) >= 3e-6f) fprintf(stderr, "ICC pixel mismatch channels=%d intent=%d custom=%d i=%d actual=%.9g expected=%.9g delta=%.9g\n", channels, intent, use_custom, i, result.fdata[i], expected[i], result.fdata[i] - expected[i]);
+                CHECK(fabsf(result.fdata[i] - expected[i]) < 3e-6f);
+            }
             if (use_custom && (intent == 1 || intent == 3)) for (int c = 0; c < 3; c++) intent_pixels[intent == 3][c] = result.fdata[c * 48 + 20];
             clearfits(&result);
         }

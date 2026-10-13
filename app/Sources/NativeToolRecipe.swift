@@ -6,7 +6,7 @@ struct ICCProfileResource: Codable, Equatable, Sendable {
     var name: String
     var data: Data
     func validate(channels: Int) throws {
-        guard data.withUnsafeBytes({ siril_icc_validate($0.baseAddress, $0.count, Int32(channels)) }) != 0 else { throw EngineError.failed("ICC 文件无效、超过16 MiB或与图像通道不匹配。请选择 RGB / 灰度配置文件。") }
+        guard data.withUnsafeBytes({ siril_icc_validate($0.baseAddress, $0.count, Int32(channels)) }) != 0 else { throw EngineError.failed(channels == 0 ? "软打样 ICC 无效或超过16 MiB。请选择可用的 RGB、灰度或 CMYK 配置文件。" : "ICC 文件无效、超过16 MiB或与图像通道不匹配。请选择 RGB / 灰度配置文件。") }
     }
     static func copy(from image: OpaquePointer) throws -> Data {
         let count = Int(siril_image_copy_icc(image, nil, 0))

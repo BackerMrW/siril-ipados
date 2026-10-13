@@ -21,6 +21,9 @@ static int preview_mode_locked(fits *fit, uint32_t maximum, int selected, const 
         (options->unlinked != 0 && options->unlinked != 1) || (options->inverted != 0 && options->inverted != 1) ||
         (options->icc != 0 && options->icc != 1) ||
         (options->rainbow != 0 && options->rainbow != 1) || (options->mask_overlay != 0 && options->mask_overlay != 1) ||
+        options->rendering_intent < 0 || options->rendering_intent > 3 || options->proofing_intent < 0 || options->proofing_intent > 3 ||
+        options->proof < 0 || options->proof > 4 || (options->black_point != 0 && options->black_point != 1) ||
+        (options->gamut_check != 0 && options->gamut_check != 1) ||
         fit->type != DATA_FLOAT || fit->rx <= 0 || fit->ry <= 0 || (fit->naxes[2] != 1 && fit->naxes[2] != 3)) return 0;
     memset(preview, 0, sizeof *preview);
     BYTE palette[256][3];
@@ -42,18 +45,24 @@ static int preview_mode_locked(fits *fit, uint32_t maximum, int selected, const 
     }
     BYTE *luts = g_try_malloc_n((size_t)fit->naxes[2], 65536); if (!luts) return 0;
     int ok = 0, compose = 0;
-    cmsHPROFILE monitor = NULL; cmsHTRANSFORM transform = NULL;
+    cmsHPROFILE monitor = NULL, proof = NULL; cmsHTRANSFORM transform = NULL;
     float *float_lut = NULL; BYTE *row = NULL, *converted_row = NULL;
     int manage = options->icc && fit->icc_profile && fit->color_managed && options->mode != HISTEQ_DISPLAY &&
         !(options->mode == STF_DISPLAY && (options->unlinked || selected >= 0 || fit->naxes[2] == 1));
     if (manage) {
-        monitor = srgb_trc(); if (!monitor) goto done;
-        compose = options->mode < STF_DISPLAY && fit->naxes[2] == 3 && same_primaries(fit->icc_profile, monitor, NULL);
+        monitor = options->rendering_intent == INTENT_PERCEPTUAL ? srgb_monitor_perceptual() : srgb_trc(); if (!monitor) goto done;
+        if (options->proof == 1) proof = srgb_trc();
+        if (options->proof == 2) proof = rec2020_trc();
+        if (options->proof == 3) proof = copyICCProfile(com.icc.working_standard);
+        if (options->proof == 4 && options->proof_data && options->proof_size >= 128 && options->proof_size <= 16 * 1024 * 1024)
+            proof = cmsOpenProfileFromMem(options->proof_data, (cmsUInt32Number)options->proof_size);
+        if (options->proof && !proof) goto done;
+        compose = options->mode < STF_DISPLAY && fit->naxes[2] == 3 && embedded_original_same_primaries(fit->icc_profile, monitor, proof, options->proofing_intent);
         if (compose && fit_icc_is_linear(fit)) {
             float_lut = g_try_malloc_n(3 * 65536, sizeof(float)); if (!float_lut) goto done;
         }
-        if (options->mode == STF_DISPLAY) transform = embedded_original_gamut_transform(fit, monitor);
-        if (!transform) transform = embedded_original_proofing_transform(fit, monitor, float_lut != NULL);
+        if (options->mode == STF_DISPLAY) transform = embedded_original_gamut_transform(fit, monitor, proof, options);
+        if (!transform) transform = embedded_original_proofing_transform(fit, monitor, float_lut != NULL, proof, options);
         if (!transform) goto done;
     }
     for (int c = 0; c < fit->naxes[2]; c++) {
@@ -133,6 +142,7 @@ static int preview_mode_locked(fits *fit, uint32_t maximum, int selected, const 
 done:
     if (transform) cmsDeleteTransform(transform);
     if (monitor) cmsCloseProfile(monitor);
+    if (proof) cmsCloseProfile(proof);
     g_free(float_lut); g_free(row); g_free(converted_row); g_free(luts); return ok;
 }
 int siril_image_preview_mode(SirilImage *image, uint32_t maximum, int channel, const SirilDisplayOptions *options, SirilPreview *preview) {

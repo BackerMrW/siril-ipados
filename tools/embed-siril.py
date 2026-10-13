@@ -42,6 +42,20 @@ body = body.replace(needle, '\tGSList *previous_tail = g_slist_last(fit->history
 # establish success; every completed original transform appends FITS history.
 body = body.replace('if (!fit->icc_profile) {', 'if (!fit->icc_profile || g_slist_last(fit->history) == previous_tail) {')
 icc.write_text(text[:start] + body + text[end:])
+text = icc.read_text()
+start = text.index('void siril_colorspace_transform(fits *fit, cmsHPROFILE profile) {')
+end = text.index('void icc_auto_assign_or_convert(', start)
+body = text[start:end]
+needle = '\tcmsHTRANSFORM transform = cmsCreateTransformTHR((threaded ? com.icc.context_threaded : com.icc.context_single), fit->icc_profile, srctype, profile, desttype, com.pref.icc.export_intent, com.icc.rendering_flags);'
+assert body.count(needle) == 1
+# The bundled fast-float CLUT approximation loses ~5.6e-4 for absolute
+# colorimetry with a different media white. Preserve floating-point precision
+# using the unoptimized public LCMS pipeline for that actual failing case.
+body = body.replace(needle, '''\tgboolean precise_absolute = fit->type == DATA_FLOAT && com.pref.icc.export_intent == INTENT_ABSOLUTE_COLORIMETRIC;
+\tcmsContext context = precise_absolute ? NULL : (threaded ? com.icc.context_threaded : com.icc.context_single);
+\tcmsUInt32Number flags = com.icc.rendering_flags | (precise_absolute ? cmsFLAGS_NOOPTIMIZE : 0);
+\tcmsHTRANSFORM transform = cmsCreateTransformTHR(context, fit->icc_profile, srctype, profile, desttype, com.pref.icc.export_intent, flags);''')
+icc.write_text(text[:start] + body + text[end:])
 masks = source / "src/core/masks.c"
 text = masks.read_text()
 # These original allocators used the bit count as a byte count (8x excess).
@@ -198,7 +212,7 @@ body = body.replace(needle, '\t\tx1 = fit->rx;\n\t\ty1 = fit->ry;', 1)
 path.write_text(text[:start] + body)
 destination = source / "src/ipados"
 destination.mkdir(exist_ok=True)
-for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "SirilDisplay.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc", "heif-runtime-tests.inc", "keyword-runtime-tests.inc", "display-runtime-tests.inc", "icc-runtime-tests.inc", "display-icc-tests.inc", "display-overlay-tests.inc"):
+for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "SirilDisplay.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc", "heif-runtime-tests.inc", "keyword-runtime-tests.inc", "display-runtime-tests.inc", "icc-runtime-tests.inc", "display-icc-tests.inc", "display-overlay-tests.inc", "display-proof-tests.inc"):
     shutil.copy2(root / "native" / name, destination / name)
 # Reuse the pinned desktop LUT arithmetic without GTK state or its UI cache.
 # The iPad bridge owns the image, level bounds, destination and STF parameters.
@@ -234,17 +248,22 @@ proof_end = icc_text.index('cmsHTRANSFORM initialize_proofing_transform()', proo
 gamut_start = icc_text.index('static cmsHTRANSFORM build_gamut_transform()')
 gamut_end = icc_text.index('/* Cached accessor for the above.', gamut_start)
 display_icc = icc_text[proof_start:proof_end] + icc_text[gamut_start:gamut_end]
-display_icc = display_icc.replace('build_proofing_transform(gboolean float_input)', 'embedded_original_proofing_transform(fits *fit, cmsHPROFILE monitor, gboolean float_input)')
-display_icc = display_icc.replace('build_gamut_transform()', 'embedded_original_gamut_transform(fits *fit, cmsHPROFILE monitor)')
-display_icc = re.sub(r'\(com\.gui_icc\.soft_proof && com\.pref\.icc\.soft_proofing_profile_active\)\s*\?\s*com\.gui_icc\.soft_proof\s*:\s*com\.gui_icc\.monitor', 'monitor', display_icc)
+display_icc = display_icc.replace('build_proofing_transform(gboolean float_input)', 'embedded_original_proofing_transform(fits *fit, cmsHPROFILE monitor, gboolean float_input, cmsHPROFILE proof, const SirilDisplayOptions *options)')
+display_icc = display_icc.replace('build_gamut_transform()', 'embedded_original_gamut_transform(fits *fit, cmsHPROFILE monitor, cmsHPROFILE proof, const SirilDisplayOptions *options)')
+display_icc = re.sub(r'\(com\.gui_icc\.soft_proof && com\.pref\.icc\.soft_proofing_profile_active\)\s*\?\s*com\.gui_icc\.soft_proof\s*:\s*com\.gui_icc\.monitor', '(proof ? proof : monitor)', display_icc)
 display_icc = display_icc.replace('com.gui_icc.monitor', 'monitor').replace('gfit', 'fit')
-display_icc = display_icc.replace('com.gui_icc.proofing_flags', '(com.icc.rendering_flags | cmsFLAGS_SOFTPROOFING)')
-display_icc = display_icc.replace('\tif (com.gui_icc.gamut_check) {\n\t\tflags |= cmsFLAGS_GAMUTCHECK;\n\t}\n', '')
-display_icc = display_icc.replace('\tif (com.gui_icc.gamut_check)\n\t\tflags |= cmsFLAGS_GAMUTCHECK;\n', '')
+display_icc = display_icc.replace('com.gui_icc.proofing_flags', '(cmsFLAGS_SOFTPROOFING | ((options->black_point && options->rendering_intent != INTENT_ABSOLUTE_COLORIMETRIC) ? cmsFLAGS_BLACKPOINTCOMPENSATION : 0))')
+display_icc = display_icc.replace('com.gui_icc.gamut_check', '(options->gamut_check && proof)')
+display_icc = display_icc.replace('com.pref.icc.rendering_intent', 'options->rendering_intent').replace('com.pref.icc.proofing_intent', 'options->proofing_intent')
 for mutex in ('soft_proof_profile_mutex', 'monitor_profile_mutex'):
     for action in ('lock', 'unlock'):
         display_icc = display_icc.replace(f'\tg_mutex_{action}(&{mutex});\n', '')
 assert 'com.gui_icc' not in display_icc and 'gfit' not in display_icc
+same_start = icc_text.index('gboolean same_primaries(cmsHPROFILE a, cmsHPROFILE b, cmsHPROFILE c) {')
+same_end = icc_text.index('void reset_icc_transforms()', same_start)
+same = icc_text[same_start:same_end].replace('gboolean same_primaries(cmsHPROFILE a, cmsHPROFILE b, cmsHPROFILE c)', 'static gboolean embedded_original_same_primaries(cmsHPROFILE a, cmsHPROFILE b, cmsHPROFILE c, int proofing_intent)')
+same = same.replace('com.pref.icc.proofing_intent', 'proofing_intent')
+display_icc = same + display_icc
 (destination / "SirilDisplayICC.inc").write_text('// SPDX-License-Identifier: GPL-3.0-or-later\n// Original display transforms adapted to an owned image and explicit sRGB target.\n// Called under the bridge engine mutex; soft-proof/gamut-warning UI is separate.\n' + display_icc)
 meson = source / "src/meson.build"
 text = meson.read_text()

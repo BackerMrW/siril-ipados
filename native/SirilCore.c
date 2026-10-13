@@ -971,12 +971,14 @@ size_t siril_image_copy_icc(const SirilImage *image, void *buffer, size_t capaci
     return ok ? size : 0;
 }
 int siril_icc_validate(const void *buffer, size_t size, int channels) {
-    if (!buffer || size < 128 || size > 16 * 1024 * 1024 || (channels != 1 && channels != 3)) return 0;
+    if (!buffer || size < 128 || size > 16 * 1024 * 1024 || (channels != 0 && channels != 1 && channels != 3)) return 0;
     g_mutex_lock(&engine_mutex);
     cmsHPROFILE profile = cmsOpenProfileFromMem(buffer, (cmsUInt32Number)size);
-    int ok = profile && cmsGetColorSpace(profile) == (channels == 1 ? cmsSigGrayData : cmsSigRgbData);
+    cmsColorSpaceSignature color = profile ? cmsGetColorSpace(profile) : 0;
+    int ok = profile && (channels ? color == (channels == 1 ? cmsSigGrayData : cmsSigRgbData) :
+        (color == cmsSigGrayData || color == cmsSigRgbData || color == cmsSigCmykData));
     if (ok) {
-        cmsUInt32Number kind = channels == 1 ? TYPE_GRAY_FLT : TYPE_RGB_FLT;
+        cmsUInt32Number kind = color == cmsSigGrayData ? TYPE_GRAY_FLT : color == cmsSigCmykData ? TYPE_CMYK_FLT : TYPE_RGB_FLT;
         cmsHTRANSFORM transform = cmsCreateTransform(profile, kind, profile, kind, INTENT_RELATIVE_COLORIMETRIC, 0);
         ok = transform != NULL;
         if (transform) cmsDeleteTransform(transform);

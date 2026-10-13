@@ -138,8 +138,9 @@ actor BackgroundEngine {
         }
     }
     func preview(view: Int, channel: Int, settings: NativeDisplaySettings) throws -> PreviewBytes {
-        var options = settings.native, preview = SirilPreview()
-        guard siril_background_preview_mode(try handle(), Int32(view), Int32(channel), &options, &preview) != 0,
+        var preview = SirilPreview()
+        let success = try settings.withNative { siril_background_preview_mode(try handle(), Int32(view), Int32(channel), &$0, &preview) }
+        guard success != 0,
               let bytes = preview.rgba else { throw EngineError.failed("显示生成失败，请检查显示范围。") }
         defer { siril_preview_free(&preview) }
         return PreviewBytes(data: Data(bytes: bytes, count: Int(preview.width) * Int(preview.height) * 4), width: Int(preview.width), height: Int(preview.height))
