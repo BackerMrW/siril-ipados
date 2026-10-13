@@ -140,6 +140,7 @@ struct ImageAnalysisView: View {
             .task {
                 tab = ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_TAB"].flatMap { Int($0) } ?? initialTab
                 await open()
+                if ProcessInfo.processInfo.environment["SIRIL_KEYWORD_VIEW_CHECK"] == "1" { editingHeader = true }
             }
             .onChange(of: perCFA) { _, _ in Task { await analyze() } }
             .onChange(of: channel) { _, _ in Task { await refreshPreview() } }

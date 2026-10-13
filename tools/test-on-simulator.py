@@ -167,14 +167,15 @@ subprocess.run(["xcrun", "simctl", "io", udid, "screenshot",
 # Open the shared analysis workspace on the persisted gradient, with a visible
 # selection. This launch checks its real SwiftUI/Canvas layout separately from
 # the numerical actor checks above, without re-running the processing pipeline.
-for tab, screenshot in ((0, "native-analysis-simulator.png"), (1, "native-histogram-simulator.png"), (2, "native-header-simulator.png"), (3, "native-stars-simulator.png")):
+for tab, screenshot in ((0, "native-analysis-simulator.png"), (1, "native-histogram-simulator.png"), (2, "native-header-simulator.png"), (3, "native-stars-simulator.png"), (2, "native-keyword-editor-simulator.png")):
     subprocess.run(["xcrun", "simctl", "terminate", udid, "com.backermrw.sirilpad"], check=True, timeout=30)
-    ready = container / "Documents/simulator-analysis-ready.txt"
+    editor_check = "keyword-editor" in screenshot
+    ready = container / ("Documents/simulator-keyword-ready.txt" if editor_check else "Documents/simulator-analysis-ready.txt")
     ready.unlink(missing_ok=True)
     launch = subprocess.Popen(["xcrun", "simctl", "launch", udid, "com.backermrw.sirilpad"],
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                               env=dict(os.environ, SIMCTL_CHILD_SIRIL_SELF_TEST="0", SIMCTL_CHILD_SIRIL_ANALYSIS_VIEW_CHECK="1",
-                                       SIMCTL_CHILD_SIRIL_ANALYSIS_TAB=str(tab)))
+                                       SIMCTL_CHILD_SIRIL_ANALYSIS_TAB=str(tab), SIMCTL_CHILD_SIRIL_KEYWORD_VIEW_CHECK="1" if editor_check else "0"))
     deadline = time.monotonic() + 90
     while not ready.exists() and time.monotonic() < deadline:
         if launch.poll() is not None and launch.returncode != 0:
@@ -191,10 +192,10 @@ for tab, screenshot in ((0, "native-analysis-simulator.png"), (1, "native-histog
                         str(root / "diagnostics/analysis-launch-failure.png")], timeout=30)
         raise RuntimeError(f"Native selected-image analysis workspace tab {tab} did not load")
     text = ready.read_text()
-    if not text.startswith(f"PASS: native analysis workspace tab {tab} "):
+    if not text.startswith("PASS: native FITS keyword editor" if editor_check else f"PASS: native analysis workspace tab {tab} "):
         raise RuntimeError(text)
     print(text, flush=True)
-    (root / f"diagnostics/analysis-workspace-{tab}-check.txt").write_text(text)
+    (root / ("diagnostics/keyword-editor-check.txt" if editor_check else f"diagnostics/analysis-workspace-{tab}-check.txt")).write_text(text)
     time.sleep(1)
     subprocess.run(["xcrun", "simctl", "io", udid, "screenshot",
                     str(root / "diagnostics" / screenshot)], check=True, timeout=30)

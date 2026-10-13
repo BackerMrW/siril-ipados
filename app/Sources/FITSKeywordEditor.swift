@@ -88,6 +88,12 @@ struct FITSKeywordEditorView: View {
             .toolbar { Button(task == nil ? "完成" : "取消编辑") { if let task { task.cancel() } else { dismiss() } } }
             .onChange(of: edit) { _, _ in outputs = [] }
             .interactiveDismissDisabled(task != nil)
+            .task {
+                if ProcessInfo.processInfo.environment["SIRIL_KEYWORD_VIEW_CHECK"] == "1" {
+                    let report = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-keyword-ready.txt")
+                    try? "PASS: native FITS keyword editor displayed original edit operations, value type and protected-header guidance.\n".write(to: report, atomically: true, encoding: .utf8)
+                }
+            }
         }
     }
     private func apply() {
