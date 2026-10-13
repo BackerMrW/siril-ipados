@@ -47,7 +47,7 @@ static int icc_reference_checks(const char *directory) {
             const char *target = use_custom ? custom : channels == 1 ? "graysrgb" : "srgb";
             snprintf(converted, sizeof converted, "%s/icc-converted-%d-%d-%d.fits", directory, channels, intent, use_custom);
             snprintf(script, sizeof script, "load %s\nicc_convert_to %s %s\nsave %s\nclose\n", assigned, target, intents[intent], converted);
-            cmsUInt32Number kind = channels == 1 ? TYPE_GRAY_FLT_PLANAR : TYPE_RGB_FLT_PLANAR;
+            cmsUInt32Number kind = channels == 1 ? TYPE_GRAY_FLT : TYPE_RGB_FLT_PLANAR;
             cmsHTRANSFORM transform = cmsCreateTransform(reference.icc_profile, kind, use_custom ? destination : builtin, kind, intent, com.icc.rendering_flags); CHECK(transform);
             float expected[144];
             cmsDoTransformLineStride(transform, reference.fdata, expected, 8, 6, 8 * sizeof(float), 8 * sizeof(float), 48 * sizeof(float), 48 * sizeof(float));
