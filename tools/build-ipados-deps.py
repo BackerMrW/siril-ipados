@@ -178,16 +178,33 @@ def mbedtls_framework(source):
         "mbedtls-framework", cwd=source)
 
 
-def cmake(name, url, revision, options, patch=None):
+def xisf_static_build(source):
+    """Build only the target library and declare its static compression dependency."""
+    path = source / "CMakeLists.txt"
+    text = path.read_text()
+    assert "#testing\n" in text and "target_link_libraries(XISF PUBLIC PkgConfig::ZSTD)" in text
+    text = text.split("#testing\n")[0]
+    text = text.replace("target_link_libraries(XISF PUBLIC PkgConfig::ZSTD)",
+                        "target_link_libraries(XISF PUBLIC PkgConfig::ZSTD)\n    list(APPEND PC_LIBS_REQUIRE zstd)")
+    # pkg-config uses libzstd, while the linker uses -lzstd.
+    text = text.replace('string(REPLACE "lz4" "liblz4" PC_REQUIRE_STR ${PC_REQUIRE_STR2})',
+                        'string(REPLACE "lz4" "liblz4" PC_REQUIRE_STR ${PC_REQUIRE_STR2})\n'
+                        '    string(REPLACE "zstd" "libzstd" PC_REQUIRE_STR ${PC_REQUIRE_STR})')
+    path.write_text(text)
+
+
+def cmake(name, url, revision, options, patch=None, source_subdir=None):
     identity = {"revision": revision, "options": options,
                 "patch": hashlib.sha256(inspect.getsource(patch).encode()).hexdigest() if patch else None}
+    if source_subdir:
+        identity["source_subdir"] = source_subdir
     if ready(name, identity):
         return
     source = checkout(name, url, revision)
     if patch:
         patch(source)
     build = WORK / f"{name}-build"
-    run(["cmake", "-S", source, "-B", build, "-G", "Ninja",
+    run(["cmake", "-S", source / source_subdir if source_subdir else source, "-B", build, "-G", "Ninja",
          "-DCMAKE_POLICY_VERSION_MINIMUM=3.5", "-DCMAKE_SYSTEM_NAME=iOS",
          f"-DCMAKE_OSX_SYSROOT={SDK}", "-DCMAKE_OSX_ARCHITECTURES=arm64",
          "-DCMAKE_OSX_DEPLOYMENT_TARGET=17.0", "-DCMAKE_BUILD_TYPE=Release",
@@ -277,6 +294,11 @@ def main():
     autotools("libraw", "https://www.libraw.org/data/LibRaw-0.22.2.tar.gz",
               "de86b035655accff8d4010f1a221fdf50d353cb7b1422ba26f14a0db92612cfa",
               ["--disable-examples", "--disable-openmp", "--enable-jpeg", "--enable-zlib", "--enable-lcms"])
+    cmake("zstd", "https://github.com/facebook/zstd.git", "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+          ["-DZSTD_BUILD_PROGRAMS=OFF", "-DZSTD_BUILD_TESTS=OFF", "-DZSTD_BUILD_SHARED=OFF",
+           "-DZSTD_BUILD_STATIC=ON", "-DZSTD_MULTITHREAD_SUPPORT=OFF"], source_subdir="build/cmake")
+    cmake("libXISF", "https://gitea.nouspiro.space/nou/libXISF.git", "de757840b3973237172b932b14efd011cfc1151d",
+          ["-DUSE_BUNDLED_LIBS=ON", "-DUSE_BUNDLED_ZLIB=OFF"], xisf_static_build)
     meson("cairo", "https://gitlab.freedesktop.org/cairo/cairo.git", "4541e0cd3a751b85e52e2a83d02ac6145a5efa85",
           ["-Dtests=disabled", "-Dxlib=disabled", "-Dxcb=disabled", "-Dfontconfig=disabled",
            "-Dfreetype=disabled", "-Dquartz=enabled", "-Dpng=enabled", "-Dglib=enabled",
@@ -302,7 +324,7 @@ def main():
            "-DWITH_WEBP=OFF", "-DWITH_OPENEXR=OFF", "-DWITH_JASPER=OFF", "-DWITH_OPENJPEG=OFF",
            "-DWITH_ITT=OFF", "-DWITH_PROTOBUF=OFF", "-DOPENCV_GENERATE_PKGCONFIG=ON", "-DIOS_INSTALL_COMBINED=OFF"], ios_opencv_metadata)
     run(["pkg-config", "--modversion", "glib-2.0", "gio-2.0", "cairo", "pango", "pangocairo",
-         "gdk-pixbuf-2.0", "gsl", "lcms2", "fftw3f", "cfitsio", "opencv4", "libcurl", "sqlite3", "libraw"], "core-dependency-versions")
+         "gdk-pixbuf-2.0", "gsl", "lcms2", "fftw3f", "cfitsio", "opencv4", "libcurl", "sqlite3", "libraw", "libxisf", "libzstd"], "core-dependency-versions")
 
 
 if __name__ == "__main__":

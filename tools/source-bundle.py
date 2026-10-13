@@ -12,6 +12,8 @@ import urllib.request
 import zipfile
 
 GIT_SOURCES = [
+    ("libXISF", "https://gitea.nouspiro.space/nou/libXISF.git", "de757840b3973237172b932b14efd011cfc1151d", None),
+    ("zstd", "https://github.com/facebook/zstd.git", "f8745da6ff1ad1e7bab384bd1f9d742439278e99", None),
     ("Siril-SPCC-database", "https://gitlab.com/free-astro/siril-spcc-database.git", "87af70a92ec1d0ff780bd3ea833aaa7b3b169cc2", None),
     ("curl", "https://github.com/curl/curl.git", "01346829096c61b372692f6dc43ffa778c6caccd", None),
     ("MbedTLS", "https://github.com/Mbed-TLS/mbedtls.git", "068ff080b369adfac81509f9b57b2afabaf82dc5", None),

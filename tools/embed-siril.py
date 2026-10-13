@@ -43,7 +43,7 @@ body = body.replace(needle, '\t\t\t\t"no RAW data available.\\n"));\n\t\tlibraw_
 formats.write_text(text[:start] + body + text[end:])
 destination = source / "src/ipados"
 destination.mkdir(exist_ok=True)
-for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "core-link-probe.c", "core-runtime-tests.c"):
+for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc"):
     shutil.copy2(root / "native" / name, destination / name)
 meson = source / "src/meson.build"
 text = meson.read_text()

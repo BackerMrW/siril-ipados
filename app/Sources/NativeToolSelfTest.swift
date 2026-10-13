@@ -96,6 +96,26 @@ extension SirilEngine {
         try require(withUnsafePointer(to: rawInfo.bayer) { $0.withMemoryRebound(to: CChar.self, capacity: 80) { String(cString: $0) } } == "RGGB", "DNG CFA metadata lost during working FITS conversion")
         try fm.removeItem(at: rawRecord.url)
         checkpoint("PASS: native DNG import and working FITS round-trip retained exact normalized raw samples and Bayer metadata")
+        for name in ["xisf-cfa", "xisf-rgb-planar", "xisf-rgb-normal"] {
+            guard let fixture = Bundle.main.url(forResource: name, withExtension: "xisf") else { throw EngineError.failed("XISF fixture missing") }
+            let imported = try importFile(fixture)
+            let image = try read(imported.url)
+            var info = SirilImageInfo(); _ = siril_image_info(image, &info)
+            var pixel = [Float](repeating: 0, count: 3)
+            let channels = siril_image_pixel(image, 3, 4, &pixel)
+            siril_image_free(image)
+            let cfa = name == "xisf-cfa"
+            try require(imported.width == 8 && imported.height == 6 && channels == (cfa ? 1 : 3) && abs(imported.exposure - 120) < 1e-9, "XISF geometry or exposure lost")
+            for c in 0..<channels {
+                let expected: Float = cfa ? 1067 / 65535 : Float(c + 1) * 0.1 + 0.043
+                try require(abs(pixel[c] - expected) < 1e-7, "XISF sample precision or orientation lost")
+            }
+            if cfa {
+                try require(withUnsafePointer(to: info.bayer) { $0.withMemoryRebound(to: CChar.self, capacity: 80) { String(cString: $0) } } == "RGGB", "XISF native CFA metadata lost")
+            }
+            try fm.removeItem(at: imported.url)
+        }
+        checkpoint("PASS: native XISF import and working FITS preserved independent CFA/RGB samples, compressed interleaved storage and exposure")
         // Every actual native tool must execute, return finite full-resolution
         // pixels and preserve the original. No fake success from command text.
         for tool in NativeTool.allCases.filter({ ![.fftInverse, .plateSolve, .pcc, .spcc].contains($0) }) {
