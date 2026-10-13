@@ -15,6 +15,7 @@
 #include "core/siril_app_dirs.h"
 #include "algos/photometric_cc.h"
 #include "algos/spcc.h"
+#include "filters/mtf.h"
 #include <curl/curl.h>
 #include <sqlite3.h>
 #include <fitsio.h>
@@ -644,6 +645,7 @@ int main(int argc, char **argv) {
     CHECK(heif_reference_checks(argv[1]) == 0);
     CHECK(keyword_reference_checks(image, argv[1]) == 0);
     CHECK(display_reference_checks(image) == 0);
+    CHECK(display_rgb_reference(argv[1]) == 0);
     SirilImageInfo info;
     CHECK(siril_image_info(image, &info));
     CHECK(info.width == 2 && info.height == 2 && info.channels == 1);

@@ -211,6 +211,15 @@ actor NativeToolSession {
         defer { siril_preview_free(&p) }
         return PreviewBytes(data: Data(bytes: rgba, count: Int(p.width) * Int(p.height) * 4), width: Int(p.width), height: Int(p.height))
     }
+    func preview(view: Int, channel: Int, settings: NativeDisplaySettings) throws -> PreviewBytes {
+        let pointer = view == 0 ? original : view == 4 ? kernelImage : view == 3 ? phaseImage : view == 2 ? (rangeImage ?? maskImage) : result
+        guard let pointer else { throw EngineError.failed("当前没有可显示的图像。") }
+        var info = SirilImageInfo(); _ = siril_image_info(pointer, &info)
+        var options = settings.native, preview = SirilPreview()
+        guard siril_image_preview_mode(pointer, 2048, info.channels == 1 ? -1 : Int32(channel), &options, &preview) != 0, let bytes = preview.rgba else { throw EngineError.failed("显示生成失败，请检查显示范围。") }
+        defer { siril_preview_free(&preview) }
+        return PreviewBytes(data: Data(bytes: bytes, count: Int(preview.width) * Int(preview.height) * 4), width: Int(preview.width), height: Int(preview.height))
+    }
     func info(view: Int) throws -> SirilImageInfo {
         let pointer = view == 0 ? original : view == 4 ? kernelImage : view == 3 ? phaseImage : view == 2 ? (rangeImage ?? maskImage) : result
         guard let pointer else { throw EngineError.failed("没有可读图像。") }

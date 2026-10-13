@@ -39,6 +39,11 @@ extension SirilEngine {
         let before = try inspectSequence(location)
         try require(before.info.count == 3 && before.info.included == 3 && before.info.width == 2 && before.info.layers == 1, "native metadata")
         let preview = try sequencePreview(location, index: 2, automatic: false)
+        for mode in NativeDisplayMode.allCases {
+            var display = NativeDisplaySettings(); display.mode = mode
+            let rendered = try sequencePreview(location, index: 2, settings: display)
+            try require(rendered.width == preview.width && rendered.height == preview.height, "Shared sequence display changed frame geometry")
+        }
         try require(preview.width == 2 && preview.height == 2 && preview.data.count == 16, "native full-frame preview")
         var options = BatchOptions()
         options.register = false; options.rejection = .none; options.normalization = .none; options.outputNormalization = false

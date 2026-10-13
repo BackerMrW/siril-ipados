@@ -43,7 +43,7 @@ struct NativeToolView: View {
     @State private var resultHeight = 1
     @State private var view = 0
     @State private var channel = -1
-    @State private var automatic = false
+    @State private var displaySettings = NativeDisplaySettings(mode: .linear)
     @State private var selecting = false
     @State private var region: ImageSelection?
     @State private var busy = false
@@ -91,7 +91,7 @@ struct NativeToolView: View {
             }
             .onChange(of: view) { _, _ in refresh() }
             .onChange(of: channel) { _, _ in refresh() }
-            .onChange(of: automatic) { _, _ in refresh() }
+            .onChange(of: displaySettings) { _, _ in refresh() }
             .onDisappear {
                 UIApplication.shared.isIdleTimerDisabled = false
                 previewTask?.cancel(); logTask?.cancel()
@@ -119,8 +119,8 @@ struct NativeToolView: View {
             } else { ContentUnavailableView(view == 2 ? "当前没有蒙版预览" : "请计算预览", systemImage: "photo") }
             HStack {
                 Picker("显示通道", selection: $channel) { Text("RGB / 灰度").tag(-1); if file.channels == 3 { Text("红").tag(0); Text("绿").tag(1); Text("蓝").tag(2) } }
-                Toggle("显示自动拉伸", isOn: $automatic)
             }.padding(.horizontal)
+            NativeDisplayControls(settings: $displaySettings).padding(.horizontal)
             if recipe.tool == .crop { Toggle("在原图上拖出裁剪选区", isOn: $selecting).padding(.horizontal) }
             if let region { Text(region.description).font(.caption) }
         }.disabled(busy)
@@ -266,7 +266,7 @@ struct NativeToolView: View {
             try await session.open(file)
             let opticalInfo = try await session.info(view: 0)
             sourceOptics = ["diameter": opticalInfo.aperture, "focal": opticalInfo.focal_length, "pixelSize": opticalInfo.pixel_size_x]
-            let bytes = try await session.preview(view: 0, channel: channel, automatic: automatic)
+            let bytes = try await session.preview(view: 0, channel: channel, settings: displaySettings)
             originalImage = bytes.uiImage; loaded = true
             if recipe.tool == .curves { originalCurveHistograms = try await session.curveHistograms(view: 0) }
             if ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_VIEW_CHECK"] == "1" {
@@ -356,10 +356,10 @@ struct NativeToolView: View {
     }
     @MainActor private func refresh() {
         previewTask?.cancel()
-        let selectedView = view, selectedChannel = channel, stretch = automatic
+        let selectedView = view, selectedChannel = channel, stretch = displaySettings
         previewTask = Task {
             do {
-                let bytes = try await session.preview(view: selectedView, channel: selectedChannel, automatic: stretch)
+                let bytes = try await session.preview(view: selectedView, channel: selectedChannel, settings: stretch)
                 try Task.checkCancellation()
                 if selectedView == 0 { originalImage = bytes.uiImage } else if selectedView == 1 { resultImage = bytes.uiImage } else { maskImage = bytes.uiImage }
             } catch is CancellationError { } catch { if selectedView == 0 || validPreview { message = error.localizedDescription } }
@@ -377,7 +377,7 @@ struct NativeToolView: View {
                 try await session.compute(current, library: library)
                 let info = try await session.info(view: 1); resultWidth = Int(info.width); resultHeight = Int(info.height)
                 if current.tool == .curves { resultCurveHistograms = try await session.curveHistograms(view: 1) }
-                resultImage = try await session.preview(view: 1, channel: channel, automatic: automatic).uiImage
+                resultImage = try await session.preview(view: 1, channel: channel, settings: displaySettings).uiImage
                 if current.mask.number("mode") != 0 || (current.tool == .curves && current.curveSettings.current.channels[current.curveSettings.selectedChannel].rangeEnabled) {
                     maskImage = try await session.preview(view: 2, channel: -1, automatic: false).uiImage
                 } else { maskImage = nil }

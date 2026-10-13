@@ -152,7 +152,7 @@ struct SequenceBackgroundView: View {
     @State private var index = 0
     @State private var view = 0
     @State private var channel = -1
-    @State private var automatic = true
+    @State private var displaySettings = NativeDisplaySettings.load()
     @State private var computed = false
     @State private var busy = false
     @State private var applying = false
@@ -199,7 +199,7 @@ struct SequenceBackgroundView: View {
             .onChange(of: index) { _, _ in Task { await perform { try await loadFrame() } } }
             .onChange(of: view) { _, _ in Task { await perform { try await refresh() } } }
             .onChange(of: channel) { _, _ in Task { await perform { try await refresh() } } }
-            .onChange(of: automatic) { _, _ in Task { await perform { try await refresh() } } }
+            .onChange(of: displaySettings) { _, _ in Task { await perform { try await refresh() } } }
             .onChange(of: scenePhase) { _, phase in if phase != .active && sliderEditing { sliderEditing = false; record() } }
         }
     }
@@ -222,7 +222,7 @@ struct SequenceBackgroundView: View {
                 Picker("显示通道", selection: $channel) { Text("RGB").tag(-1); Text("R").tag(0); Text("G").tag(1); Text("B").tag(2) }
                     .pickerStyle(.segmented).padding(.horizontal)
             }
-            Toggle("自动拉伸显示", isOn: $automatic).padding(.horizontal)
+            NativeDisplayControls(settings: $displaySettings).padding(.horizontal)
             Text("逐帧重新采样；手动选点请用单张背景提取。预览不修改原图。")
                 .font(.caption).foregroundStyle(.secondary).padding(.horizontal)
         }.disabled(busy)
@@ -304,7 +304,7 @@ struct SequenceBackgroundView: View {
         try await engine.openSequenceBackground(location, index: index, into: preview)
         try await refresh()
     }
-    @MainActor private func refresh() async throws { image = try await preview.preview(view: view, channel: channel, automatic: automatic).uiImage }
+    @MainActor private func refresh() async throws { image = try await preview.preview(view: view, channel: channel, settings: displaySettings).uiImage }
     @MainActor private func perform(_ action: @MainActor () async throws -> Void) async {
         guard !busy else { return }; busy = true; message = ""
         UIApplication.shared.isIdleTimerDisabled = true

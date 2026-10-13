@@ -137,6 +137,13 @@ actor BackgroundEngine {
             throw EngineError.failed(String(cString: error).isEmpty ? "背景计算失败，请检查参数" : String(cString: error))
         }
     }
+    func preview(view: Int, channel: Int, settings: NativeDisplaySettings) throws -> PreviewBytes {
+        var options = settings.native, preview = SirilPreview()
+        guard siril_background_preview_mode(try handle(), Int32(view), Int32(channel), &options, &preview) != 0,
+              let bytes = preview.rgba else { throw EngineError.failed("显示生成失败，请检查显示范围。") }
+        defer { siril_preview_free(&preview) }
+        return PreviewBytes(data: Data(bytes: bytes, count: Int(preview.width) * Int(preview.height) * 4), width: Int(preview.width), height: Int(preview.height))
+    }
     func preview(view: Int, channel: Int, automatic: Bool) throws -> PreviewBytes {
         var preview = SirilPreview()
         guard siril_background_preview(try handle(), Int32(view), Int32(channel), automatic ? 1 : 0, &preview) != 0,
@@ -199,7 +206,7 @@ struct BackgroundExtractionView: View {
     @State private var status = ""
     @State private var view = 0
     @State private var channel = -1
-    @State private var automatic = true
+    @State private var displaySettings = NativeDisplaySettings.load()
     @State private var editMode = 0
     @State private var selected: Int?
     @State private var output: URL?
@@ -246,7 +253,7 @@ struct BackgroundExtractionView: View {
             }
             .onChange(of: view) { _, _ in Task { await perform { try await refresh() } } }
             .onChange(of: channel) { _, _ in Task { await perform { try await refresh() } } }
-            .onChange(of: automatic) { _, _ in Task { await perform { try await refresh() } } }
+            .onChange(of: displaySettings) { _, _ in Task { await perform { try await refresh() } } }
         }
     }
     private var imagePanel: some View {
@@ -273,7 +280,7 @@ struct BackgroundExtractionView: View {
                         Text("RGB").tag(-1); Text("R").tag(0); Text("G").tag(1); Text("B").tag(2)
                     }.pickerStyle(.segmented)
                 }
-                Toggle("自动拉伸显示", isOn: $automatic)
+                NativeDisplayControls(settings: $displaySettings)
             }.disabled(busy).padding(.horizontal)
             Text("双指缩放与拖动查看图像；显示拉伸不改变 FITS 像素。")
                 .font(.caption).foregroundStyle(.secondary)
@@ -380,7 +387,7 @@ struct BackgroundExtractionView: View {
         do { try await action() } catch { status = error.localizedDescription }
     }
     @MainActor private func refresh() async throws {
-        image = try await engine.preview(view: view, channel: channel, automatic: automatic).uiImage
+        image = try await engine.preview(view: view, channel: channel, settings: displaySettings).uiImage
     }
     @MainActor private func changedSamples() async throws {
         markers = try await engine.samples(); selected = nil

@@ -218,6 +218,7 @@ void siril_background_clear(SirilBackground *session);
 int siril_background_compute(SirilBackground *session, const SirilBackgroundOptions *options, char *error, size_t capacity);
 /* view: 0 original, 1 corrected, 2 background model; channel: -1 RGB or 0..2. */
 int siril_background_preview(SirilBackground *session, int view, int channel, int automatic, SirilPreview *preview);
+int siril_background_preview_mode(SirilBackground *session, int view, int channel, const SirilDisplayOptions *options, SirilPreview *preview);
 int siril_background_write(SirilBackground *session, const char *path);
 #ifdef __cplusplus
 }

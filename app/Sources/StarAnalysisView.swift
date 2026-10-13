@@ -14,7 +14,7 @@ struct StarAnalysisView: View {
     @State private var history: StarHistory?
     @State private var selected: Set<UUID> = []
     @State private var selecting = true
-    @State private var automatic = true
+    @State private var displaySettings = NativeDisplaySettings.load()
     @State private var busy = false
     @State private var message = ""
     @State private var sortColumn = 9
@@ -41,7 +41,7 @@ struct StarAnalysisView: View {
             .navigationTitle("动态 PSF 与测光").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(busy) } }
             .task { await open() }
-            .onChange(of: automatic) { _, _ in Task { await preview() } }
+            .onChange(of: displaySettings) { _, _ in Task { await preview() } }
             .onChange(of: edit.settings.channel) { _, _ in Task { await preview() } }
             .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
             .sheet(isPresented: $showDeconvolution) {
@@ -63,7 +63,8 @@ struct StarAnalysisView: View {
                            hypot(star.x - x, star.y - y) <= max(10, star.fwhmX * 2) { selected = [star.id] }
                     }).background(.black)
             } else { ProgressView("读取原始图像").frame(maxWidth: .infinity, maxHeight: .infinity) }
-            HStack { Toggle("框选星点", isOn: $selecting); Toggle("自动拉伸", isOn: $automatic) }.padding(.horizontal).disabled(busy)
+            Toggle("框选星点", isOn: $selecting).padding(.horizontal).disabled(busy)
+            NativeDisplayControls(settings: $displaySettings).padding(.horizontal).disabled(busy)
             Text(selection?.description ?? "整图检测 · 框选后可拟合单颗星")
                 .font(.caption.monospaced())
             HStack {
@@ -190,7 +191,7 @@ struct StarAnalysisView: View {
         do {
             _ = try await engine.open(file.url)
             history = try StarHistory.load(for: file); edit = history!.current
-            image = try await engine.preview(channel: edit.settings.channel, automatic: automatic).uiImage
+            image = try await engine.preview(channel: edit.settings.channel, settings: displaySettings).uiImage
             if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1" {
                 guard let region = selection else { throw EngineError.failed("Missing star selection") }
                 var value = edit; value.stars = [try await engine.fitStar(region: region, settings: edit.settings)]
@@ -203,7 +204,7 @@ struct StarAnalysisView: View {
     }
     @MainActor private func preview() async {
         guard !busy else { return }; busy = true; defer { busy = false }
-        do { image = try await engine.preview(channel: edit.settings.channel, automatic: automatic).uiImage }
+        do { image = try await engine.preview(channel: edit.settings.channel, settings: displaySettings).uiImage }
         catch { message = error.localizedDescription }
     }
     @MainActor private func calculate(find: Bool) async {

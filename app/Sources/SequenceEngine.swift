@@ -152,7 +152,7 @@ extension SirilEngine {
             try FileManager.default.removeItem(at: urls.journal)
         } catch { try recoverSequenceEdit(location); throw error }
     }
-    func sequencePreview(_ location: SequenceLocation, index: Int, channel: Int = -1, automatic: Bool = true) throws -> PreviewBytes {
+    func sequencePreview(_ location: SequenceLocation, index: Int, channel: Int = -1, automatic: Bool = true, settings: NativeDisplaySettings? = nil) throws -> PreviewBytes {
         _ = try inspectSequence(location)
         let folder = try sequenceFolder(location)
         var error = [CChar](repeating: 0, count: 512)
@@ -160,7 +160,9 @@ extension SirilEngine {
         guard let image = folder.path.withCString({ directory in location.name.withCString { siril_sequence_frame(directory, $0, Int32(index), &error, capacity) } }) else { throw EngineError.failed(String(cString: error)) }
         defer { siril_image_free(image) }
         var preview = SirilPreview()
-        guard siril_image_preview_display(image, 1536, Int32(channel), automatic ? 1 : 0, &preview) != 0, let bytes = preview.rgba else { throw EngineError.failed("无法预览序列帧") }
+        var options = settings?.native ?? NativeDisplaySettings().native
+        let success = settings == nil ? siril_image_preview_display(image, 1536, Int32(channel), automatic ? 1 : 0, &preview) : siril_image_preview_mode(image, 1536, Int32(channel), &options, &preview)
+        guard success != 0, let bytes = preview.rgba else { throw EngineError.failed("无法预览序列帧，请检查显示范围。") }
         defer { siril_preview_free(&preview) }
         return PreviewBytes(data: Data(bytes: bytes, count: Int(preview.width * preview.height) * 4), width: Int(preview.width), height: Int(preview.height))
     }

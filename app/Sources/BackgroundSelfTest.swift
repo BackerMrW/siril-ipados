@@ -16,6 +16,13 @@ import SwiftUI
     history.record(BackgroundEdit(settings: settings, points: original.map(BackgroundPoint.init)))
     try await engine.compute(settings)
     let before = try await engine.preview(view: 1, channel: -1, automatic: false)
+    for view in 0...2 {
+        for mode in NativeDisplayMode.allCases {
+            var display = NativeDisplaySettings(); display.mode = mode
+            let rendered = try await engine.preview(view: view, channel: -1, settings: display)
+            try check(rendered.width == file.width && rendered.height == file.height, "Shared display changed background input/result/model dimensions")
+        }
+    }
     try await engine.move(index: 0, x: 50, y: 50)
     let moved = try await engine.samples()
     try check(moved.count == original.count && moved[0].x == 50 && moved[0].y == 50,

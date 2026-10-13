@@ -38,7 +38,7 @@ struct SequenceWorkspace: View {
     @State private var index = 0
     @State private var layer = 0
     @State private var channel = -1
-    @State private var automatic = true
+    @State private var displaySettings = NativeDisplaySettings.load()
     @State private var image: UIImage?
     @State private var previewTask: Task<Void, Never>?
     @State private var xMetric: SequenceMetric = .frame
@@ -256,7 +256,7 @@ struct SequenceWorkspace: View {
         }
         .onChange(of: index) { _, _ in refreshPreview() }
         .onChange(of: channel) { _, _ in refreshPreview() }
-        .onChange(of: automatic) { _, _ in refreshPreview() }
+        .onChange(of: displaySettings) { _, _ in refreshPreview() }
         .onChange(of: layer) { _, _ in Task { await reload() } }
         .onAppear { if resultStatus != nil { perform { let status = try await engine.sequenceResultStatus(location); await adopt(status) } } }
         .onDisappear { previewTask?.cancel(); logTask?.cancel() }
@@ -317,7 +317,7 @@ struct SequenceWorkspace: View {
                 Text("RGB / 灰度").tag(-1)
                 if snapshot.info.layers == 3 { Text("红").tag(0); Text("绿").tag(1); Text("蓝").tag(2) }
             }
-            Toggle("自动拉伸显示", isOn: $automatic)
+            NativeDisplayControls(settings: $displaySettings)
         }
     }
     @ViewBuilder private func qualityPlot(_ snapshot: SequenceSnapshot) -> some View {
@@ -380,10 +380,10 @@ struct SequenceWorkspace: View {
     }
     @MainActor private func refreshPreview() {
         previewTask?.cancel(); image = nil
-        let current = index, display = channel, automatic = automatic
+        let current = index, display = channel, settings = displaySettings
         previewTask = Task {
             do {
-                let bytes = try await engine.sequencePreview(currentLocation, index: current, channel: display, automatic: automatic)
+                let bytes = try await engine.sequencePreview(currentLocation, index: current, channel: display, settings: settings)
                 guard !Task.isCancelled else { return }
                 image = bytes.uiImage
             } catch { if !Task.isCancelled { message = error.localizedDescription } }

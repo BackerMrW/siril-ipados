@@ -12,6 +12,7 @@ struct SequencePhotometryView: View {
     @State private var history: SequencePhotometryHistory?
     @State private var selection: ImageSelection?
     @State private var image: UIImage?
+    @State private var displaySettings = NativeDisplaySettings.load()
     @State private var report: SequencePhotometryReport?
     @State private var folder: URL?
     @State private var runs: [URL] = []
@@ -33,11 +34,13 @@ struct SequencePhotometryView: View {
             .task { await open() }
             .onChange(of: recipe.current) { _, _ in Task { await preview() } }
             .onChange(of: recipe.settings.channel) { _, _ in Task { await preview() } }
+            .onChange(of: displaySettings) { _, _ in Task { await preview() } }
             .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         }
     }
     private var imagePanel: some View {
         VStack {
+            NativeDisplayControls(settings: $displaySettings).padding(.horizontal).disabled(busy)
             if let image, let snapshot {
                 ZoomableImageCanvas(image: image, samples: recipe.regions.enumerated().map { i, r in
                     SampleMarker(id: i, x: Double(r.x) + Double(r.width) / 2, y: Double(r.y) + Double(r.height) / 2,
@@ -130,7 +133,7 @@ struct SequencePhotometryView: View {
             snapshot = try await engine.inspectSequence(location)
             history = try await engine.photometryHistory(location); recipe = history!.current
             if let snapshot, !snapshot.frames.contains(where: { $0.id == recipe.current && $0.included }) { recipe.current = snapshot.frames.first(where: \.included)?.id ?? 0 }
-            image = try await engine.sequencePreview(location, index: recipe.current, channel: recipe.settings.channel).uiImage
+            image = try await engine.sequencePreview(location, index: recipe.current, channel: recipe.settings.channel, settings: displaySettings).uiImage
             runs = try await engine.sequencePhotometryReports(location)
             if let latest = runs.last { load(latest) }
             if ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] == "photometry" {
@@ -147,7 +150,7 @@ struct SequencePhotometryView: View {
     }
     @MainActor private func preview() async {
         guard !busy else { return }; busy = true; defer { busy = false }
-        do { image = try await engine.sequencePreview(location, index: recipe.current, channel: recipe.settings.channel).uiImage }
+        do { image = try await engine.sequencePreview(location, index: recipe.current, channel: recipe.settings.channel, settings: displaySettings).uiImage }
         catch { message = error.localizedDescription }
     }
     @MainActor private func save() {

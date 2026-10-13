@@ -186,7 +186,7 @@ struct ImageAnalysisView: View {
                 }.joined(separator: "  "))
                 .font(.caption.monospaced()).textSelection(.enabled)
             }
-            Text("像素读数使用原始浮点值；自动拉伸只改变显示。")
+            Text("像素读数使用原始浮点值；显示模式只改变预览。")
                 .font(.caption2).foregroundStyle(.secondary).padding(.bottom, 8)
         }
     }

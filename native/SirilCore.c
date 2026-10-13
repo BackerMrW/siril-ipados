@@ -861,15 +861,16 @@ int siril_image_preview_display(SirilImage *image, uint32_t maximum, int channel
 int siril_image_preview(SirilImage *image, uint32_t maximum, SirilPreview *preview) {
     return siril_image_preview_display(image, maximum, -1, 1, preview);
 }
-int siril_background_preview(SirilBackground *session, int view, int channel, int automatic, SirilPreview *preview) {
+static int preview_mode_locked(fits *fit, uint32_t maximum, int selected, const SirilDisplayOptions *options, SirilPreview *preview);
+static int background_preview_settings(SirilBackground *session, int view, int channel, int automatic, const SirilDisplayOptions *options, SirilPreview *preview) {
     if (!session || view < 0 || view > 2) return 0;
     g_mutex_lock(&engine_mutex);
     int ok = 0;
     fits model = {0};
     fits *original = &session->original->fit;
-    if (view == 0) ok = preview_locked(original, 2048, channel, automatic, preview);
+    if (view == 0) ok = options ? preview_mode_locked(original, 2048, channel, options, preview) : preview_locked(original, 2048, channel, automatic, preview);
     else if (session->computed) {
-        if (view == 1) ok = preview_locked(&session->corrected, 2048, channel, automatic, preview);
+        if (view == 1) ok = options ? preview_mode_locked(&session->corrected, 2048, channel, options, preview) : preview_locked(&session->corrected, 2048, channel, automatic, preview);
         else if (copyfits(original, &model, CP_ALLOC | CP_DEEPCOPY, 0) == 0) {
             /* Same model-view reconstruction as the original GTK dialog. */
             size_t count = (size_t)original->rx * original->ry;
@@ -884,12 +885,19 @@ int siril_background_preview(SirilBackground *session, int view, int channel, in
                 }
             }
             invalidate_stats_from_fit(&model);
-            ok = preview_locked(&model, 2048, channel, automatic, preview);
+            ok = options ? preview_mode_locked(&model, 2048, channel, options, preview) : preview_locked(&model, 2048, channel, automatic, preview);
         }
     }
     clearfits(&model);
     g_mutex_unlock(&engine_mutex);
     return ok;
+}
+int siril_background_preview(SirilBackground *session, int view, int channel, int automatic, SirilPreview *preview) {
+    return background_preview_settings(session, view, channel, automatic, NULL, preview);
+}
+int siril_background_preview_mode(SirilBackground *session, int view, int channel, const SirilDisplayOptions *options, SirilPreview *preview) {
+    if (!options) return 0;
+    return background_preview_settings(session, view, channel, 0, options, preview);
 }
 int siril_background_write(SirilBackground *session, const char *path) {
     if (!session || !path) return 0;
