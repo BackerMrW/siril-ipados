@@ -255,6 +255,31 @@ done:
     g_mutex_unlock(&engine_mutex);
     return result;
 }
+int siril_sequence_enable_drizzle(const char *directory, const char *name,
+    char *error, size_t error_size) {
+    g_mutex_lock(&engine_mutex);
+    initialize();
+    sequence *seq = embedded_sequence(directory, name, error, error_size);
+    int ok = 0;
+    if (!seq) goto done;
+    if (seq->type != SEQ_REGULAR) goto free_seq;
+    for (int i = 0; i < seq->number; i++) {
+        fits weights = {0};
+        gchar *path = get_sequence_cache_filename(seq, i, "drizztmp", "fit", NULL);
+        int invalid = !path || readfits(path, &weights, NULL, FALSE);
+        if (!invalid) invalid = weights.rx != seq->rx || weights.ry != seq->ry || weights.naxes[2] != seq->nb_layers;
+        clearfits(&weights); g_free(path);
+        if (invalid) goto free_seq;
+    }
+    seq->is_drizzle = TRUE;
+    ok = writeseqfile(seq) == 0;
+free_seq:
+    if (!ok && error && error_size) snprintf(error, error_size, "Cannot validate or save cropped Drizzle weights");
+    free_sequence(seq, TRUE);
+done:
+    g_mutex_unlock(&engine_mutex);
+    return ok;
+}
 int siril_sequence_select(const char *directory, const char *name, const uint8_t *included,
     size_t count, int reference, char *error, size_t error_size) {
     g_mutex_lock(&engine_mutex);

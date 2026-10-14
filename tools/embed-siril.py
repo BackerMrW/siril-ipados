@@ -6,6 +6,30 @@ import re
 
 root = Path.cwd()
 source = root / "siril-src"
+# Crop Drizzle weights with the same original geometry operation as pixels.
+# The native caller validates every output weight before enabling Drizzle.
+geometry = source / "src/algos/geometry.c"
+text = geometry.read_text()
+start = text.index('int crop_image_hook(struct generic_seq_args *args,')
+end = text.index('int crop_finalize_hook(', start)
+body = text[start:end]
+needle = '\tint ret = crop(fit, &(c_args->area));'
+assert body.count(needle) == 1
+body = body.replace(needle, needle + r'''
+    if (!ret && args->seq->is_drizzle) {
+        fits weights = {0};
+        gchar *input = get_sequence_cache_filename(args->seq, i, "drizztmp", "fit", NULL);
+        gchar *output = get_sequence_cache_filename(args->seq, i, "drizztmp", "fit", args->new_seq_prefix);
+        ret = !input || !output || readfits(input, &weights, NULL, FALSE);
+        if (!ret && (weights.rx != args->seq->rx || weights.ry != args->seq->ry ||
+                weights.naxes[2] != args->seq->nb_layers)) ret = 1;
+        if (!ret) ret = crop(&weights, &(c_args->area));
+        if (!ret) ret = savefits(output, &weights);
+        clearfits(&weights);
+        g_free(input); g_free(output);
+    }
+''')
+geometry.write_text(text[:start] + body + text[end:])
 # Keep the original sequence keyword hooks and surface failed updates/writes.
 # The typed bridge bypasses shell quoting and stops on the first failed frame.
 keywords = source / "src/io/fits_keywords.c"

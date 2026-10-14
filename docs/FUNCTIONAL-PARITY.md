@@ -31,7 +31,7 @@
 | win.pickstar | Pick a Star | 待移植或待逐项验证 |
 | win.crop | Crop | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.rotation-processing | Rotate & Crop | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
-| win.seq-crop | Crop Sequence... | 待移植或待逐项验证 |
+| win.seq-crop | Crop Sequence... | 普通/FITSEQ 原版参与帧裁剪、矩形选区、参考帧映射、撤销/回滚已在两个 SDK 整轮验证；Drizzle 权重补充待执行，真机未验收 |
 | win.mask_from_image | Mask from current image | 待移植或待逐项验证 |
 | win.mask_from_color | Mask from color | 待移植或待逐项验证 |
 | win.mask_from_stars | Mask from stars | 待移植或待逐项验证 |

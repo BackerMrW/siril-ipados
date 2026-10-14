@@ -305,14 +305,14 @@ extension SirilEngine {
         try require(metadata.info.count == 3 && metadata.info.width == 512 && metadata.info.height == 512 && metadata.info.reference == 1, "output dimensions/count/reference mapping: \(metadata.info.width)x\(metadata.info.height), count \(metadata.info.count), reference \(metadata.info.reference)")
         try require(metadata.frames.map { Int($0.native.file_number) } == [1, 3, 4], "excluded middle frame exported")
         let reader = ImageAnalysisEngine()
-        func floats(_ url: URL, channels: Int = 3) throws -> [Float] {
+        func floats(_ url: URL, channels: Int = 3, width: Int = 512, height: Int = 512) throws -> [Float] {
             let data = try Data(contentsOf: url)
             var end = 0
             while end + 80 <= data.count {
                 if String(data: data[end..<(end + 8)], encoding: .ascii)?.trimmingCharacters(in: .whitespaces) == "END" { break }
                 end += 80
             }
-            let start = ((end + 80 + 2879) / 2880) * 2880, count = 512 * 512 * channels
+            let start = ((end + 80 + 2879) / 2880) * 2880, count = width * height * channels
             guard start + count * 4 <= data.count else { throw EngineError.failed("Truncated float FITS fixture") }
             return (0..<count).map { i in
                 let offset = start + i * 4
@@ -366,7 +366,60 @@ extension SirilEngine {
 
         let outputURLs = try FileManager.default.contentsOfDirectory(at: process, includingPropertiesForKeys: nil).filter { $0.lastPathComponent.hasPrefix(drizzled.base) && $0.pathExtension == "fit" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
         let weightURLs = weights.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let preservedDrizzleBytes = try outputURLs.map { try Data(contentsOf: $0) }
+        let preservedCropWeightBytes = try weightURLs.map { try Data(contentsOf: $0) }
         let outputValues = try outputURLs.map { try floats($0) }, weightValues = try weightURLs.map { try floats($0) }
+        let drizzleSequenceBytes = try Data(contentsOf: process.appendingPathComponent(drizzled.name))
+        try editSequence(drizzled, selection: SequenceSelection(included: [true, false, true], reference: 2))
+        let cropArea = ImageSelection(x: 93, y: 87, width: 37, height: 29)
+        let croppedDrizzle = try cropSequence(drizzled, region: cropArea)
+        let cropInfo = try inspectSequence(croppedDrizzle, layer: 1)
+        try require(cropInfo.info.drizzle != 0 && cropInfo.info.width == 37 && cropInfo.info.height == 29 &&
+            cropInfo.info.count == 2 && cropInfo.info.reference == 1 && cropInfo.frames.map { $0.native.file_number } == [1, 4], "cropped Drizzle metadata/selection/reference")
+        let croppedImages = try FileManager.default.contentsOfDirectory(at: process, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix(croppedDrizzle.base) && $0.pathExtension == "fit" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let croppedWeights = try FileManager.default.contentsOfDirectory(at: process.appendingPathComponent("drizztmp"), includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix(croppedDrizzle.base) }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        try require(croppedImages.count == 2 && croppedWeights.count == 2, "cropped Drizzle excluded-frame files")
+        let croppedPixels = try croppedImages.map { try floats($0, width: 37, height: 29) }
+        let croppedCounts = try croppedWeights.map { try floats($0, width: 37, height: 29) }
+        for (out, input) in [0, 2].enumerated() {
+            for channel in 0..<3 { for y in 0..<29 { for x in 0..<37 {
+                let sourceIndex = channel * 512 * 512 + (512 - cropArea.y - 29 + y) * 512 + cropArea.x + x
+                let target = channel * 37 * 29 + y * 37 + x
+                try require(croppedPixels[out][target] == outputValues[input][sourceIndex] && croppedCounts[out][target] == weightValues[input][sourceIndex], "Drizzle crop independent pixel/weight geometry")
+            } } }
+        }
+        let croppedStack = try stackSequence(croppedDrizzle, options: options, layer: 1)
+        let croppedStackPixels = try floats(croppedStack, width: 37, height: 29)
+        var coveredCrop = 0
+        for i in croppedStackPixels.indices {
+            let weight = Double(croppedCounts[0][i]) + Double(croppedCounts[1][i])
+            let expected = weight > 0 ? (Double(croppedPixels[0][i]) * Double(croppedCounts[0][i]) + Double(croppedPixels[1][i]) * Double(croppedCounts[1][i])) / weight : 0
+            try require(abs(Double(croppedStackPixels[i]) - expected) < 2e-5, "cropped Drizzle independent weighted stack")
+            if weight > 0 { coveredCrop += 1 }
+        }
+        try require(coveredCrop > 100, "cropped Drizzle fixture has no weighted coverage")
+        let withheldWeight = process.appendingPathComponent("drizztmp/withheld-crop-weight.fit")
+        let runs = process.deletingLastPathComponent().appendingPathComponent("SequenceRuns")
+        let previousRuns = Set(try FileManager.default.contentsOfDirectory(atPath: runs.path))
+        try FileManager.default.moveItem(at: weightURLs[2], to: withheldWeight)
+        var cropRejected = false
+        do { _ = try cropSequence(drizzled, region: cropArea) } catch { cropRejected = true }
+        try FileManager.default.moveItem(at: withheldWeight, to: weightURLs[2])
+        try require(cropRejected, "missing Drizzle weight accepted")
+        let failedRuns = Set(try FileManager.default.contentsOfDirectory(atPath: runs.path)).subtracting(previousRuns)
+        try require(failedRuns.count == 1, "missing-weight crop has no retained run")
+        for id in failedRuns {
+            let prefix = "r_" + id.replacingOccurrences(of: "-", with: "") + "_"
+            for directory in [process, process.appendingPathComponent("drizztmp")] {
+                try require(try FileManager.default.contentsOfDirectory(atPath: directory.path).allSatisfy { !$0.hasPrefix(prefix) }, "missing-weight crop left partial output")
+            }
+        }
+        try editSequence(drizzled, undo: true)
+        try require(try Data(contentsOf: process.appendingPathComponent(drizzled.name)) == drizzleSequenceBytes, "Drizzle crop changed source sequence")
+        for (i, url) in weightURLs.enumerated() { try require(try Data(contentsOf: url) == preservedCropWeightBytes[i], "Drizzle crop changed source weights") }
+        for (i, url) in outputURLs.enumerated() { try require(try Data(contentsOf: url) == preservedDrizzleBytes[i], "Drizzle crop changed source image") }
         let stacked = try stackSequence(drizzled, options: options, layer: 1)
         let actual = try floats(stacked)
         for channel in 0..<3 {

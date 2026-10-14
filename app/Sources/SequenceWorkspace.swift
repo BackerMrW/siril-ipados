@@ -120,8 +120,8 @@ struct SequenceWorkspace: View {
                             let status = try await engine.recordSequenceResult(entry: location, source: source, output: output)
                             await adopt(status)
                         }
-                    }.disabled(cropRegion == nil || snapshot.info.drizzle != 0)
-                    Text("生成独立裁剪序列，保留输入帧与参考帧对应；可通过处理结果历史撤销。Drizzle 权重裁剪尚未接入。")
+                    }.disabled(cropRegion == nil)
+                    Text("生成独立裁剪序列，保留输入帧与参考帧对应；Drizzle 权重同步裁剪，可通过处理结果历史撤销。")
                         .font(.caption).foregroundStyle(.secondary)
                 }.id("sequence-crop")
                 Section("参与帧和参考帧") {

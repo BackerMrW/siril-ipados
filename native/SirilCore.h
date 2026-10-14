@@ -41,6 +41,10 @@ int siril_sequence_files(const char *directory, const char *name, char *output,
  * owns transactional backup/undo; this never deletes or changes FITS pixels. */
 int siril_sequence_select(const char *directory, const char *name, const uint8_t *included,
     size_t count, int reference, char *error, size_t error_size);
+/* Validate all cropped weight maps, then persist the Drizzle flag. Caller
+ * discards the private output after any failure. Never modifies source files. */
+int siril_sequence_enable_drizzle(const char *directory, const char *name,
+    char *error, size_t error_size);
 /* Original selected-frame keyword worker. Mutates files in directory; callers
  * must provide a private copy and discard all results after failure. */
 int siril_sequence_edit_keyword(const char *directory, const char *name, int action,

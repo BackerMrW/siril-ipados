@@ -233,8 +233,8 @@ extension SirilEngine {
     func cropSequence(_ location: SequenceLocation, region: ImageSelection) throws -> SequenceLocation {
         let before = try inspectSequence(location)
         let selected = before.frames.filter(\.included)
-        guard !selected.isEmpty, before.info.drizzle == 0, location.base.utf8.count < 180 else {
-            throw EngineError.failed("裁剪需要参与帧及有效的序列名称；Drizzle 权重裁剪尚未接入。")
+        guard !selected.isEmpty, location.base.utf8.count < 180 else {
+            throw EngineError.failed("裁剪需要参与帧及有效的序列名称。")
         }
         guard region.x >= 0, region.y >= 0, region.width > 0, region.height > 0,
               selected.allSatisfy({ region.width <= Int($0.native.width) && region.height <= Int($0.native.height) &&
@@ -249,13 +249,19 @@ extension SirilEngine {
             _ = try runSequenceCommand(location, command: "seqcrop \(sequenceCommandName(location)) \(region.x) \(region.y) \(region.width) \(region.height) -prefix=$PREFIX",
                 title: "原版参与帧裁剪 · \(region.description)", producesSequence: true, runID: runID)
             try JSONEncoder().encode(region).write(to: folder.appendingPathComponent("crop.json"), options: .atomic)
+            var error = [CChar](repeating: 0, count: 512); let capacity = error.count
+            if before.info.drizzle != 0 {
+                let valid = process.path.withCString { directory in output.name.withCString {
+                    siril_sequence_enable_drizzle(directory, $0, &error, capacity)
+                } }
+                guard valid != 0 else { throw EngineError.failed(String(cString: error)) }
+            }
             let generated = try inspectSequence(output)
-            guard generated.info.count == Int32(selected.count), generated.info.layers == before.info.layers,
+            guard generated.info.count == Int32(selected.count), generated.info.layers == before.info.layers, generated.info.drizzle == before.info.drizzle,
                   generated.frames.allSatisfy({ Int($0.native.width) == region.width && Int($0.native.height) == region.height }),
                   before.info.type != 0 || generated.frames.map({ $0.native.file_number }) == selected.map({ $0.native.file_number }) else {
                 throw EngineError.failed("裁剪输出的帧数、编号、尺寸或通道不符；请查看本次日志。")
             }
-            var error = [CChar](repeating: 0, count: 512); let capacity = error.count
             for frame in generated.frames {
                 guard let image = process.path.withCString({ directory in output.name.withCString {
                     siril_sequence_frame(directory, $0, Int32(frame.id), &error, capacity)
