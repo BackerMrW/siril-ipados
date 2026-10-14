@@ -551,6 +551,27 @@ extension SirilEngine {
         try fm.removeItem(at: editedRecord.url)
         try require(try Data(contentsOf: file.url) == sourceBytes, "Keyword edits changed original source")
         checkpoint("PASS: native batch FITS keyword editing preserved exact pixels/source, persisted its recipe and rolled back every output on a partial failure")
+        keywordEdit.action = .set; keywordEdit.key = "MASKID"; keywordEdit.value = "Masked keyword result"; keywordEdit.stringValue = true
+        let maskSourceBytes = try Data(contentsOf: saved.url.appendingPathExtension("mask.fits"))
+        let maskedKeywordOutputs = try editFITSKeywords([saved], edit: keywordEdit)
+        let maskedKeywordJob = maskedKeywordOutputs[0].deletingLastPathComponent().deletingLastPathComponent()
+        try require(try Data(contentsOf: maskedKeywordOutputs[0].appendingPathExtension("mask.fits")) == maskSourceBytes &&
+            Data(contentsOf: maskedKeywordJob.appendingPathComponent("input-mask_00001.fits")) == maskSourceBytes, "keyword editing lost output or source mask bytes")
+        let maskedKeywordRecord = try importFile(maskedKeywordOutputs[0], role: .results); records.append(maskedKeywordRecord)
+        let maskedKeywordSession = NativeToolSession(); try await maskedKeywordSession.open(maskedKeywordRecord)
+        let restoredKeyword = NativeToolRecipe(tool: .resample, file: maskedKeywordRecord)
+        try await maskedKeywordSession.compute(restoredKeyword, library: records)
+        let keywordMaskPixel = try await maskedKeywordSession.pixel(view: 2, x: x, y: y)[0]
+        let keywordImagePixel = try await maskedKeywordSession.pixel(view: 0, x: x, y: y)
+        try require(keywordMaskPixel == beforeMask && keywordImagePixel == maskedPixel, "keyword result lost saved mask weights or changed pixels")
+        keywordEdit.action = .delete; keywordEdit.key = "MASKID"
+        let priorMaskedTasks = Set(jobHistory().map(\.id))
+        rejected = false
+        do { _ = try editFITSKeywords([maskedKeywordRecord, file], edit: keywordEdit) } catch { rejected = true }
+        let failedMaskedTasks = jobHistory().filter { !priorMaskedTasks.contains($0.id) }
+        try require(rejected && failedMaskedTasks.count == 1 && (try resultFiles(in: failedMaskedTasks[0].folder)).isEmpty, "failed masked keyword edit retained a partial image or mask")
+        try require(try Data(contentsOf: saved.url.appendingPathExtension("mask.fits")) == maskSourceBytes, "keyword edit changed source mask bytes")
+        checkpoint("PASS: FITS keyword editing retained exact saved mask companions/input snapshots and reopened unchanged mask weights/pixels; failed batches removed image and mask outputs")
         for job in jobs {
             guard let task = jobHistory().first(where: { $0.id == job.folder.lastPathComponent }) else { throw EngineError.failed("Tool task missing") }
             try trashJob(task)

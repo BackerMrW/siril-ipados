@@ -98,6 +98,7 @@ extension SirilEngine {
                 try Task.checkCancellation()
                 let source = try owned(file.url.lastPathComponent, under: documents.appendingPathComponent("FITS"))
                 let original = try read(source); defer { siril_image_free(original) }
+                try attachSavedDisplayMask(original, url: source)
                 var error = [CChar](repeating: 0, count: 512); let capacity = error.count
                 let result = edit.key.withCString { key in edit.value.withCString { value in edit.comment.withCString { comment in
                     siril_image_edit_keyword(original, edit.action.rawValue, key, value, comment, edit.stringValue ? 1 : 0, &error, capacity)
@@ -105,14 +106,23 @@ extension SirilEngine {
                 guard let result else { throw EngineError.failed(String(cString: error)) }
                 defer { siril_image_free(result) }
                 let output = job.folder.appendingPathComponent(String(format: "process/keywords_%05d.fits", index + 1))
-                guard output.path.withCString({ siril_image_write(result, $0) }) != 0 else { throw EngineError.failed("关键字结果保存失败。") }
                 outputs.append(output)
+                guard output.path.withCString({ siril_image_write(result, $0) }) != 0 else { throw EngineError.failed("关键字结果保存失败。") }
+                let companion = source.appendingPathExtension("mask.fits")
+                if FileManager.default.fileExists(atPath: companion.path) {
+                    let mask = try owned(companion.lastPathComponent, under: documents.appendingPathComponent("FITS"))
+                    try FileManager.default.copyItem(at: mask, to: job.folder.appendingPathComponent(String(format: "input-mask_%05d.fits", index + 1)))
+                    try FileManager.default.copyItem(at: mask, to: output.appendingPathExtension("mask.fits"))
+                }
             }
             try Task.checkCancellation()
             try writeJobState(job.folder, state: "已完成", count: outputs.count)
             return outputs
         } catch {
-            for output in outputs { try? FileManager.default.removeItem(at: output) }
+            for output in outputs {
+                try? FileManager.default.removeItem(at: output)
+                try? FileManager.default.removeItem(at: output.appendingPathExtension("mask.fits"))
+            }
             try? writeJobState(job.folder, state: "编辑失败或取消", message: error.localizedDescription)
             throw error
         }

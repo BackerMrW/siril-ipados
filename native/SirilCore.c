@@ -830,7 +830,7 @@ SirilImage *siril_image_edit_keyword(SirilImage *image, int action, const char *
     if (!embedded_keyword_format(&image->fit, action, key, value, comment, string_value, formatted)) goto done;
     result = g_try_new0(SirilImage, 1);
     if (!result) goto done;
-    if (copyfits(&image->fit, &result->fit, CP_ALLOC | CP_DEEPCOPY, 0) ||
+    if (copyfits(&image->fit, &result->fit, CP_ALLOC | CP_DEEPCOPY | CP_COPYMASK, 0) ||
         updateFITSKeyword(&result->fit, action == 3 ? NULL : key, action == 2 ? value : NULL,
             action == 0 ? formatted : NULL, action == 0 || action == 3 ? comment : NULL, TRUE, FALSE)) {
         clearfits(&result->fit); g_free(result); result = NULL;
