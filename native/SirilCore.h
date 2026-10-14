@@ -103,6 +103,7 @@ typedef struct {
 typedef struct {
     uint64_t total, good;
     double mean, median, sigma, average_deviation, mad, sqrt_bwmv, minimum, maximum, norm;
+    double background_noise; /* Original CFITSIO robust background estimate. */
 } SirilChannelStatistics;
 /* Dynamic PSF / single-image aperture photometry. Coordinates are displayed
  * pixel centres (index + .5), FWHM remains pixels, angular values are separate.

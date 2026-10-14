@@ -76,7 +76,7 @@ actor ImageAnalysisEngine {
         guard count > 0 else { throw EngineError.failed("Siril 统计计算失败，请检查图像和选区") }
         let stats = raw.prefix(Int(count)).map { s in
             ChannelStatistics(total: s.total, good: s.good,
-                values: [s.mean, s.median, s.sigma, s.average_deviation, s.mad, s.sqrt_bwmv, s.minimum, s.maximum], norm: s.norm)
+                values: [s.mean, s.median, s.sigma, s.average_deviation, s.mad, s.sqrt_bwmv, s.minimum, s.maximum, s.background_noise], norm: s.norm)
         }
         var info = SirilImageInfo()
         _ = siril_image_info(image, &info)
@@ -123,7 +123,7 @@ struct ImageAnalysisView: View {
     @State private var tab = 0
     @State private var busy = false
     @State private var message = ""
-    private let statNames = ["mean", "median", "sigma", "avgDev", "MAD", "sqrt(BWMV)", "min", "max"]
+    private let statNames = ["mean", "median", "sigma", "avgDev", "MAD", "sqrt(BWMV)", "min", "max", "bgNoise"]
 
     var body: some View {
         NavigationStack {
@@ -248,6 +248,8 @@ struct ImageAnalysisView: View {
                 Button("复制统计数据") { UIPasteboard.general.string = statisticsText(snapshot) }
                 Text("非归一化浮点图像按原版显示为 16 位标度。零值和无效像素的处理遵循 Siril 原版统计。")
                     .font(.caption2).foregroundStyle(.secondary)
+                Text("bgNoise 是原版稳健背景噪声估计；sigma 是整个图像或当前选区的标准差。图像渐变和天体信号会影响两者。")
+                    .font(.caption2).foregroundStyle(.secondary)
             }
         }
     }
@@ -319,6 +321,9 @@ struct ImageAnalysisView: View {
                 pixel = try await engine.pixel(x: selection?.x ?? file.width / 2, y: selection?.y ?? file.height / 2)
                 let report = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-analysis-ready.txt")
                 guard image != nil, snapshot != nil else { throw EngineError.failed("Analysis view did not load") }
+                guard snapshot!.statistics.allSatisfy({ $0.values.count == statNames.count && $0.values[8].isFinite && $0.values[8] >= 0 }) else {
+                    throw EngineError.failed("Analysis background noise did not load")
+                }
                 try "PASS: native analysis workspace tab \(tab) loaded the image, original statistics, histogram and header.\n".write(to: report, atomically: true, encoding: .utf8)
             }
         } catch { message = error.localizedDescription }

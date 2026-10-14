@@ -100,7 +100,7 @@
 | win.astrometry | Image Plate Solver... | 原版解算工作区/参数/历史已接入，独立 TAN 星表、中心/比例及 WCS FITS 往返通过；远程星表/真机待验收 |
 | win.annotate-dialog | Annotate... | 待移植或待逐项验证 |
 | win.statistics | Statistics... | 原版单张/选区/CFA 和序列统计已接入（测光等仍待接入） |
-| win.evaluate-noise | Noise Estimation | 待移植或待逐项验证 |
+| win.evaluate-noise | Noise Estimation | 原版稳健背景噪声已接入统计、选区/CFA及复制报告；独立 Gaussian RGB/8/16位幅度、渐变与源像素补充待 Apple 执行，真机未验收 |
 | win.ccd-inspector | Aberration Inspector | 待移植或待逐项验证 |
 | win.show-tilt | Show Tilt | 待移植或待逐项验证 |
 | win.show-disto | Show Distortions | 待移植或待逐项验证 |

@@ -762,7 +762,8 @@ int siril_image_statistics(SirilImage *image, const SirilRegion *region, int per
         results[c] = (SirilChannelStatistics){
             .total = stat->total, .good = stat->ngoodpix, .mean = stat->mean, .median = stat->median,
             .sigma = stat->sigma, .average_deviation = stat->avgDev, .mad = stat->mad,
-            .sqrt_bwmv = stat->sqrtbwmv, .minimum = stat->min, .maximum = stat->max, .norm = stat->normValue
+            .sqrt_bwmv = stat->sqrtbwmv, .minimum = stat->min, .maximum = stat->max, .norm = stat->normValue,
+            .background_noise = stat->bgnoise
         };
         free_stats(stat);
     }

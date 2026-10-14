@@ -6,6 +6,15 @@ struct UpstreamFeature: Decodable, Identifiable {
     let title: String
     let group: String
     let status: String
+    var currentStatus: String {
+        switch id {
+        case "win.linearmatch-processing", "win.rgradient-processing":
+            return "原版计算、参数与独立结果已接入；真机未验收。"
+        case "win.evaluate-noise":
+            return "原版背景噪声已接入统计、选区/CFA与复制报告；真机未验收。"
+        default: return status
+        }
+    }
 }
 struct UpstreamInventory: Decodable {
     let entries: [UpstreamFeature]
@@ -36,6 +45,7 @@ struct ToolInventoryView: View {
                     Button("背景提取 · Background Extraction") { dismiss(); onBackground() }
                     Button("批处理与单张工具") { dismiss(); onProcessing() }
                     Button("统计 · Statistics") { dismiss(); onAnalysis(0) }
+                    Button("背景噪声估计 · Noise Estimation") { dismiss(); onAnalysis(0) }.disabled(!canUseNativeTools)
                     Button("直方图与像素读数") { dismiss(); onAnalysis(1) }
                     Button("动态 PSF 与孔径测光") { dismiss(); onAnalysis(3) }.disabled(!canUseNativeTools)
                     Button("FITS 文件头 · FITS Header") { dismiss(); onAnalysis(2) }
@@ -57,8 +67,10 @@ struct ToolInventoryView: View {
                                 Button(entry.title) { dismiss(); onNativeTool(tool) }.disabled(!canUseNativeTools)
                             } else if ["win.psf", "win.dyn-psf", "win.photometry"].contains(entry.id) {
                                 Button(entry.title) { dismiss(); onAnalysis(3) }.disabled(!canUseNativeTools)
+                            } else if entry.id == "win.evaluate-noise" {
+                                Button(entry.title) { dismiss(); onAnalysis(0) }.disabled(!canUseNativeTools)
                             } else { Text(entry.title).font(.headline) }
-                            Text(entry.status).font(.caption).foregroundStyle(.secondary)
+                            Text(entry.currentStatus).font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
