@@ -137,6 +137,20 @@ struct NativeToolView: View {
             }.padding(.horizontal)
             NativeDisplayControls(settings: $displaySettings).padding(.horizontal)
             if recipe.tool == .crop { Toggle("在原图上拖出裁剪选区", isOn: $selecting).padding(.horizontal) }
+            if recipe.tool == .rotationalGradient {
+                Toggle("在原图选择中心星点", isOn: $selecting).padding(.horizontal)
+                Button("以选区内星点拟合中心") {
+                    guard let region else { return }
+                    busy = true
+                    Task {
+                        defer { busy = false }
+                        do {
+                            let star = try await session.fitGradientCenter(region)
+                            recipe.values["xc"] = star.x; recipe.values["yc"] = star.y
+                        } catch { message = error.localizedDescription }
+                    }
+                }.disabled(region == nil || busy).padding(.horizontal)
+            }
             if let region { Text(region.description).font(.caption) }
         }.disabled(busy)
     }
@@ -318,6 +332,11 @@ struct NativeToolView: View {
                 recipe = NativeToolRecipe(tool: section.hasPrefix("icc") ? .colorManagement : section == "platesolve" ? .plateSolve : section == "pcc" ? .pcc : section == "spcc" ? .spcc : section.hasPrefix("deconv") ? .deconvolution : section == "fft-inverse" ? .fftInverse : section.hasPrefix("fft") ? .fftDirect : section == "curves" ? .curves : section == "pixelmath" ? .pixelMath : section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)
                 if section == "linear-match" {
                     recipe = NativeToolRecipe(tool: .linearMatch, file: file); recipe.guideID = file.id
+                }
+                if section == "rotational-gradient" {
+                    recipe = NativeToolRecipe(tool: .rotationalGradient, file: file)
+                    recipe.values["xc"] = Double(file.width) / 2; recipe.values["yc"] = Double(file.height) / 2
+                    recipe.values["radial"] = 1.5; recipe.values["angle"] = 13
                 }
                 if ["platesolve", "pcc", "spcc"].contains(section) {
                     if section == "spcc" {

@@ -83,7 +83,7 @@
 | win.fft-processing | Fourier Transform... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.medianfilter-processing | Median Filter... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.denoise-processing | Noise Reduction... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
-| win.rgradient-processing | Rotational Gradient... | 待移植或待逐项验证 |
+| win.rgradient-processing | Rotational Gradient... | 原版极坐标差分、中心/径向/旋转参数、选区 Gaussian 中心拟合、蒙版及私有结果/历史已接入；独立全像素和原生页待 Apple 执行，真机未验收 |
 | win.unpurple-processing | Unpurple Filter... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.rotation90-processing | Rotate 90 degrees, clockwise | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.rotation270-processing | Rotate 90 degrees, counter-clockwise | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |

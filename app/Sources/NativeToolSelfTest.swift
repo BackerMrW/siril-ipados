@@ -285,6 +285,65 @@ extension SirilEngine {
         try require(matchRejected, "linear match accepted no usable reference pixels")
         try require(try Data(contentsOf: file.url) == sourceBytes && Data(contentsOf: matchReference.url) == referenceBytes, "linear match changed either input")
         checkpoint("PASS: original linear match full RGB gain/offset, high-limit outlier rejection, private replay, parameters and failed fit preserve both inputs")
+        var gradient = NativeToolRecipe(tool: .rotationalGradient, file: file)
+        gradient.values["xc"] = 45.5; gradient.values["yc"] = 47.25
+        gradient.values["radial"] = 1.5; gradient.values["angle"] = 13
+        let fittedCenter = try await session.fitGradientCenter(ImageSelection(x: 38, y: 40, width: 16, height: 16))
+        try require(abs(fittedCenter.x - 45.5) < 1 && abs(fittedCenter.y - 48.5) < 1, "rotational gradient original Gaussian centre fit")
+        func sampleGradient(channel: Int, x: Double, y: Double) -> Float {
+            let fx = Float(x), fy = Float(y), ix = Int(fx), iy = Int(fy)
+            func pixel(_ x: Int, _ y: Int) -> Float {
+                values[channel * width * height + min(max(y, 0), height - 1) * width + min(max(x, 0), width - 1)]
+            }
+            let dx = fx - Float(ix), dy = fy - Float(iy)
+            return pixel(ix, iy) * (1 - dx) * (1 - dy) + pixel(ix, iy + 1) * (1 - dx) * dy +
+                pixel(ix + 1, iy) * dx * (1 - dy) + pixel(ix + 1, iy + 1) * dx * dy
+        }
+        var gradientExpected = [Float](repeating: 0, count: values.count)
+        let angle = 13.0 * Double.pi / 180
+        for channel in 0..<3 { for y in 0..<height { for x in 0..<width {
+            let dx = Double(x) - 45.5, dy = Double(y) - 47.25
+            let radius = hypot(dx, dy) - 1.5, theta = atan2(dy, dx)
+            let positive = sampleGradient(channel: channel, x: 45.5 + radius * cos(theta + angle), y: 47.25 + radius * sin(theta + angle))
+            let negative = sampleGradient(channel: channel, x: 45.5 + radius * cos(theta - angle), y: 47.25 + radius * sin(theta - angle))
+            let i = channel * width * height + y * width + x
+            gradientExpected[i] = min(1, values[i] + values[i] - positive - negative)
+        } } }
+        let gradientMinimum = gradientExpected.min()!
+        gradientExpected = gradientExpected.map { $0 - gradientMinimum }
+        try await session.compute(gradient, library: records)
+        let gradientJob = try prepareNativeToolJob(file: file, recipe: gradient, library: records); jobs.append(gradientJob)
+        let gradientOutput = try await session.export(gradient, to: gradientJob)
+        let gradientData = try Data(contentsOf: gradientOutput)
+        var gradientEnd = 0
+        while gradientEnd + 80 <= gradientData.count && String(data: gradientData[gradientEnd..<(gradientEnd + 8)], encoding: .ascii)?.trimmingCharacters(in: .whitespaces) != "END" { gradientEnd += 80 }
+        let gradientStart = ((gradientEnd + 80 + 2879) / 2880) * 2880
+        try require(gradientStart + values.count * 4 <= gradientData.count, "rotational gradient result truncated")
+        for channel in 0..<3 { for row in 0..<height { for x in 0..<width {
+            let offset = gradientStart + (channel * width * height + row * width + x) * 4
+            let actual = Float(bitPattern: gradientData[offset..<(offset + 4)].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) })
+            let expected = gradientExpected[channel * width * height + (height - 1 - row) * width + x]
+            try require(abs(actual - expected) < 3e-6, "rotational gradient independent full RGB polar interpolation/minimum")
+        } } }
+        try require(try await session.header(view: 1).contains("Rotational gradient radial shift"), "rotational gradient original history log")
+        for depth in 0..<3 {
+            gradient.mask.values["mode"] = 1; gradient.mask.values["depth"] = Double(depth); gradient.mask.values["factor"] = 0.6
+            try await session.compute(gradient, library: records)
+            let blended = try await session.pixel(view: 1, x: x, y: y)
+            let weight = try await session.pixel(view: 2, x: x, y: y)[0]
+            for c in 0..<3 {
+                let i = c * width * height + y * width + x
+                try require(abs(blended[c] - (gradientExpected[i] * weight + values[i] * (1 - weight))) < 3e-6, "rotational gradient 8/16/32-bit mask blend")
+            }
+        }
+        gradient.mask.values["mode"] = 0; gradient.values["radial"] = 0; gradient.values["angle"] = 0
+        try await session.compute(gradient, library: records)
+        try require(try await session.pixel(view: 1, x: x, y: y).allSatisfy { abs($0) < 3e-6 }, "zero-shift rotational gradient")
+        gradient.values["xc"] = Double(width)
+        var gradientRejected = false
+        do { try gradient.validate(file: file) } catch { gradientRejected = true }
+        try require(gradientRejected && Data(contentsOf: file.url) == sourceBytes, "rotational gradient invalid centre/source preservation")
+        checkpoint("PASS: original rotational gradient independent RGB polar interpolation, global minimum, zero shift, fitted centre, mask depths and original history")
         // Every actual native tool must execute, return finite full-resolution
         // pixels and preserve the original. No fake success from command text.
         for tool in NativeTool.allCases.filter({ ![.fftInverse, .plateSolve, .pcc, .spcc].contains($0) }) {

@@ -143,6 +143,16 @@ actor NativeToolSession {
         original = nil; result = nil; maskImage = nil; rangeImage = nil; phaseImage = nil; kernelImage = nil; computed = nil; source = nil
         if let folder { try? FileManager.default.removeItem(at: folder) }; folder = nil
     }
+    func fitGradientCenter(_ region: ImageSelection) throws -> StarMeasurement {
+        guard let original else { throw EngineError.failed("原图已关闭。") }
+        let settings = StarSettings()
+        var area = region.native, finder = settings.finder, photometry = settings.phot, result = SirilStarMeasurement()
+        var error = [CChar](repeating: 0, count: 512); let capacity = error.count
+        guard siril_image_fit_star(original, &area, &finder, &photometry, &result, &error, capacity) != 0 else {
+            throw EngineError.failed(String(cString: error))
+        }
+        return try StarMeasurement(result)
+    }
     func compute(_ recipe: NativeToolRecipe, library: [FITSRecord]) throws {
         guard let folder, let source else { throw EngineError.failed("工具会话已关闭。") }
         computed = nil

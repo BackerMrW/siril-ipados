@@ -21,12 +21,13 @@ struct ICCProfileResource: Codable, Equatable, Sendable {
 enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
     case mtf, inverseMTF, asinh, ghs, inverseGHS, modifiedAsinh, inverseModifiedAsinh, linearStretch, automatic, automaticGHS
     case saturation, greenNoise, negative, unpurple, ccm, colorManagement, linearMatch
-    case median, gaussian, unsharp, clahe, banding, bilateral, guided, denoise, wavelets
+    case median, gaussian, unsharp, clahe, banding, bilateral, guided, denoise, wavelets, rotationalGradient
     case crop, rotate, rotate90, rotate270, rotate180, mirrorHorizontal, mirrorVertical, binning, resample
     case curves, pixelMath, fftDirect, fftInverse, deconvolution
     case plateSolve, pcc, spcc
     var id: String { rawValue }
     var title: String { switch self {
+    case .rotationalGradient: return "旋转梯度 · Rotational Gradient"
     case .linearMatch: return "线性匹配 · Linear Match"
     case .colorManagement: return "颜色管理 · ICC"
     case .plateSolve: return "天文解算 · Plate Solve"
@@ -52,7 +53,7 @@ enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
     case .curves, .pixelMath: return "曲线与表达式"
     case .mtf, .inverseMTF, .asinh, .ghs, .inverseGHS, .modifiedAsinh, .inverseModifiedAsinh, .linearStretch, .automatic, .automaticGHS: return "拉伸"
     case .saturation, .greenNoise, .negative, .unpurple, .ccm, .colorManagement, .linearMatch: return "颜色"
-    case .median, .gaussian, .unsharp, .clahe, .banding, .bilateral, .guided, .denoise, .wavelets: return "滤镜"
+    case .median, .gaussian, .unsharp, .clahe, .banding, .bilateral, .guided, .denoise, .wavelets, .rotationalGradient: return "滤镜"
     default: return "几何"
     } }
     var rgbOnly: Bool { [.pcc, .spcc, .saturation, .greenNoise, .unpurple, .ccm].contains(self) }
@@ -64,7 +65,7 @@ enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
         "win.denoise-processing": .denoise, "win.wavelets-processing": .wavelets, "win.crop": .crop,
         "win.rotation-processing": .rotate, "win.rotation90-processing": .rotate90, "win.rotation270-processing": .rotate270,
         "win.mirrorx-processing": .mirrorHorizontal, "win.mirrory-processing": .mirrorVertical, "win.binning-processing": .binning, "win.resample-processing": .resample,
-        "win.deconvolution-processing": .deconvolution, "win.fft-processing": .fftDirect, "win.curves-processing": .curves, "win.pixel-math": .pixelMath, "win.icc-tool": .colorManagement, "win.linearmatch-processing": .linearMatch]
+        "win.deconvolution-processing": .deconvolution, "win.fft-processing": .fftDirect, "win.curves-processing": .curves, "win.pixel-math": .pixelMath, "win.icc-tool": .colorManagement, "win.linearmatch-processing": .linearMatch, "win.rgradient-processing": .rotationalGradient]
 }
 
 struct ToolField: Identifiable, Sendable {
@@ -89,6 +90,8 @@ extension NativeTool {
         let colour = c("colour", "颜色拉伸模型", ["独立通道", "人眼加权亮度", "等权亮度", "饱和度"], 0)
         let interp = c("interp", "插值", ["最近邻", "双线性", "双三次", "像素面积", "Lanczos4"], 4)
         switch self {
+        case .rotationalGradient: return [n("xc", "中心 X（像素）", 0, 0, 100000, false), n("yc", "中心 Y（像素）", 0, 0, 100000, false),
+            n("radial", "径向位移（像素）", 0, 0, 100, false), n("angle", "旋转位移（度）", 0, 0, 90, false)]
         case .linearMatch: return [n("low", "参考像素下限", 0, 0, 1, false), n("high", "参考像素上限", 0.92, 0, 1, false)]
         case .colorManagement: return [c("action", "操作", ["分配配置文件（保留像素）", "转换颜色空间", "移除配置文件"], 0),
             c("profile", "目标配置文件", ["线性 sRGB", "sRGB", "线性 Rec.2020", "Rec.2020", "工作空间", "自定义 ICC 文件"], 0),
@@ -174,6 +177,9 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
     }
     func number(_ key: String) -> Double { values[key] ?? 0 }
     func validate(file: FITSRecord) throws {
+        if tool == .rotationalGradient, number("xc") >= Double(file.width) || number("yc") >= Double(file.height) {
+            throw EngineError.failed("旋转梯度中心必须位于原图内。")
+        }
         if tool == .linearMatch {
             guard guideID != nil else { throw EngineError.failed("请选择线性匹配参考图。") }
             guard number("low") < number("high") else { throw EngineError.failed("参考像素下限必须小于上限。") }
@@ -228,6 +234,7 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
         let interp = ["nearest", "linear", "cubic", "area", "lanczos4"][Int(number("interp"))]
         var command: String
         switch tool {
+        case .rotationalGradient: command = "rgradient \(n("xc")) \(n("yc")) \(n("radial")) \(n("angle"))"
         case .linearMatch: command = "linear_match guide.fits \(n("low")) \(n("high"))"
         case .colorManagement:
             var target = ["srgblinear", "srgb", "rec2020linear", "rec2020", "working", "target-profile.icc"][Int(number("profile"))]

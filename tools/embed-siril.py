@@ -36,6 +36,13 @@ body = body.replace(needle, '\trectangle area = c_args->area;\n\tint ret = crop(
     }
 ''')
 geometry.write_text(text[:start] + body + text[end:])
+# generic_image_worker passes args->user to every log hook.
+rgradient = source / "src/filters/rgradient.c"
+text = rgradient.read_text()
+needle = '''\tstruct generic_img_args *ga = (struct generic_img_args *) p;
+\tstruct rgradient_data *args = (struct rgradient_data *) ga->user;'''
+assert text.count(needle) == 1
+rgradient.write_text(text.replace(needle, '\tstruct rgradient_data *args = (struct rgradient_data *) p;'))
 # Keep the original sequence keyword hooks and surface failed updates/writes.
 # The typed bridge bypasses shell quoting and stops on the first failed frame.
 keywords = source / "src/io/fits_keywords.c"
