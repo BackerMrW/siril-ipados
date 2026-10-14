@@ -20,21 +20,18 @@ if not available:
     raise RuntimeError("No installed iPad simulator runtime")
 available.sort(key=lambda pair: (not pair[0].endswith(expected_runtime), pair[1]["state"] != "Booted"))
 runtime, device = available[0]
-udid = device["udid"]
+device_type = device.get("deviceTypeIdentifier")
+if not device_type:
+    types = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devicetypes", "--json"], text=True, timeout=60))
+    device_type = next((t["identifier"] for t in types["devicetypes"] if t["name"] == device["name"]), None)
+if not device_type:
+    raise RuntimeError("Cannot identify the installed iPad device type")
+# CI snapshots can have a Booted preinstalled device whose app-launch service
+# stalls even while simctl spawn runs C tests. Use fresh data for this job.
+udid = subprocess.check_output(["xcrun", "simctl", "create", "Siril regression", device_type, runtime], text=True, timeout=60).strip()
 print(f"Testing on {device['name']} ({udid}), runtime {runtime}, SDK {sdk_version}", flush=True)
-if device["state"] != "Booted":
-    subprocess.run(["xcrun", "simctl", "boot", udid], check=True, timeout=90)
-try:
-    subprocess.run(["xcrun", "simctl", "bootstatus", udid, "-b"], check=True, timeout=180)
-except subprocess.TimeoutExpired:
-    # Some CI images leave bootstatus waiting for unrelated data migration.
-    # A Booted device can still execute the engine and App checks below.
-    state = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "--json"], text=True))
-    booted = any(d["udid"] == udid and d["state"] == "Booted"
-                 for group in state["devices"].values() for d in group)
-    if not booted:
-        raise RuntimeError("iPad simulator did not boot within the bounded launch attempts")
-    print("bootstatus timed out; testing the Booted device directly", flush=True)
+subprocess.run(["xcrun", "simctl", "boot", udid], check=True, timeout=90)
+subprocess.run(["xcrun", "simctl", "bootstatus", udid, "-b"], check=True, timeout=180)
 directory = tempfile.mkdtemp(prefix="siril-numeric-")
 tls = Path(directory)
 (tls / "openssl.cnf").write_text("""[req]
@@ -89,9 +86,15 @@ subprocess.run(["xcrun", "simctl", "install", udid,
                 str(root / "app-build/Build/Products/Release-iphonesimulator/SirilPad.app")], check=True, timeout=90)
 container = Path(subprocess.check_output(["xcrun", "simctl", "get_app_container", udid,
                                          "com.backermrw.sirilpad", "data"], text=True, timeout=45).strip())
-for name in ("simulator-app-selftest.txt", "simulator-background-ready.txt", "simulator-analysis-ready.txt"):
+for name in ("simulator-app-selftest.txt", "simulator-app-selftest-progress.txt", "simulator-background-ready.txt", "simulator-analysis-ready.txt"):
     (container / "Documents" / name).unlink(missing_ok=True)
 report = container / "Documents/simulator-app-selftest.txt"
+def capture_selftest_progress():
+    progress = container / "Documents/simulator-app-selftest-progress.txt"
+    if progress.exists():
+        (root / "diagnostics/simulator-app-selftest-progress.txt").write_bytes(progress.read_bytes())
+        print(progress.read_text(), flush=True)
+
 launch_outputs = []
 for attempt, seconds in enumerate((90, 180), start=1):
     launch = subprocess.Popen(["xcrun", "simctl", "launch", udid, "com.backermrw.sirilpad"],
@@ -115,6 +118,7 @@ for attempt, seconds in enumerate((90, 180), start=1):
         break
     crashes = list((Path.home() / "Library/Logs/DiagnosticReports").glob("SirilPad*.ips"))
     if crashes:
+        capture_selftest_progress()
         progress = container / "Documents/native-tool-tests.log"
         if progress.exists():
             (root / "diagnostics/native-tool-tests.log").write_bytes(progress.read_bytes())
@@ -125,6 +129,7 @@ for attempt, seconds in enumerate((90, 180), start=1):
     if attempt == 1:
         print("First CoreSimulator launch did not produce a report; retrying the launch client once", flush=True)
 (root / "diagnostics/app-launch-client.log").write_text("\n".join(launch_outputs))
+capture_selftest_progress()
 if not report.exists():
     progress = container / "Documents/native-tool-tests.log"
     if progress.exists():
@@ -138,6 +143,13 @@ if not report.exists():
             subprocess.run(["sample", pid, "3", "1", "-file", str(root / f"diagnostics/app-hang-{pid}.txt")], timeout=15)
     except (subprocess.SubprocessError, OSError):
         pass
+    try:
+        system_log = subprocess.run(["xcrun", "simctl", "spawn", udid, "log", "show", "--last", "5m", "--style", "compact",
+            "--predicate", 'process == "SirilPad" OR process == "SpringBoard" OR eventMessage CONTAINS[c] "com.backermrw.sirilpad"'],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)
+        (root / "diagnostics/app-system-log.txt").write_text(system_log.stdout)
+    except (subprocess.SubprocessError, OSError) as error:
+        (root / "diagnostics/app-system-log.txt").write_text(str(error))
     subprocess.run(["xcrun", "simctl", "io", udid, "screenshot",
                     str(root / "diagnostics/app-launch-failure.png")], timeout=30)
     for path in (Path.home() / "Library/Logs/DiagnosticReports").glob("SirilPad*.ips"):

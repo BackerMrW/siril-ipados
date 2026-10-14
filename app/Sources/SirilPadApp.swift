@@ -482,6 +482,13 @@ struct ContentView: View {
     @MainActor private func runSimulatorCheck() async {
         let report = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("simulator-app-selftest.txt")
+        let phaseReport = report.deletingLastPathComponent().appendingPathComponent("simulator-app-selftest-progress.txt")
+        var phases: [String] = []
+        func checkpoint(_ phase: String) {
+            phases.append(Date().description + " " + phase)
+            try? phases.joined(separator: "\n").write(to: phaseReport, atomically: true, encoding: .utf8)
+        }
+        checkpoint("START: Swift self-check launched")
         do {
             guard let source = Bundle.main.url(forResource: "light", withExtension: "fits") else {
                 throw EngineError.failed("Bundled FITS fixture missing")
@@ -513,14 +520,23 @@ struct ContentView: View {
                 throw EngineError.failed("Native batch result missing")
             }
             let processed = try await engine.importFile(result, role: .results)
+            checkpoint("START: batch numeric checks")
             try await engine.batchSelfTest(files: batch)
+            checkpoint("START: Drizzle checks")
             try await engine.drizzleSelfTest()
+            checkpoint("START: sequence frame/crop/keyword checks")
             try await engine.sequenceSelfTest()
+            checkpoint("START: DFT/KOMBAT pattern checks")
             try await engine.patternRegistrationSelfTest()
+            checkpoint("START: sequence registration/crop/storage checks")
             try await engine.sequenceRegistrationSelfTest()
+            checkpoint("START: sequence background checks")
             try await engine.sequenceBackgroundSelfTest()
+            checkpoint("START: native image tool checks")
             try await engine.nativeToolSelfTest()
+            checkpoint("START: PSF/photometry checks")
             try await engine.starAnalysisSelfTest()
+            checkpoint("START: remaining workspace/storage/analysis checks")
             guard processed.width == 2 && processed.height == 2 else { throw EngineError.failed("Batch output dimensions changed") }
             await loadPreview(processed)
             try await engine.saveLibrary([record, processed])
@@ -593,6 +609,7 @@ struct ContentView: View {
             try "PASS: Swift actor imported FITS, calibrated and stacked lights with original Siril commands, verified advanced batch settings and exact exposure-scaled calibration with single/multiple calibration inputs, real one/two-pass Bayer Drizzle with nonuniform-flat calibration, RGB photometry and weight-map delete/restore/permanent cleanup, compatible old settings, restored library/history, ran manual MTF, tested native background samples/RBF/model/FITS export, sample move with median rereads, stale-model invalidation, rejected edits, persistent sample/parameter undo and redo across reopened native sessions, redo branching, undo clear, zoomed canvas drag coordinate conversion/cancellation/edge bounds and one commit per drag, companion history trash/recovery/permanent cleanup, and verified original full/selected statistics and histogram counts, full-resolution pixel reads and complete FITS header. Batch/trash deletion, interrupted restore recovery, persistent FITS undo/redo/branching, permanent storage cleanup, task restoration and symlink safety passed. Native sequence frame reads, actual excluded-frame stack pixels, persisted selection undo/redo and branching, interrupted edit recovery, original sequence statistics/quality CSV, active-task protection, restack history and task delete/restore/permanent cleanup passed; actual quality graph fixtures were measured. Sequence registration application verified selected output counts, original file-number/reference mapping, real 2x FITS and subpixel star alignment, unique outputs and source preservation, unmeasured-frame rejection, Bayer Drizzle with a saved flat, independent weighted stack pixels, missing-output failure detection and task weight cleanup. Sequence background GUI worker verified real corrected FITS, exact per-frame preview, selected original numbering/reference, repeated independent outputs, source preservation, persisted parameter undo/redo/branching/30-step limit, partial-failure detection and saved failure recipes, source-selection undo and task delete/restore/permanent cleanup. Independent sequence output deletion verified exact native filenames including .fts, Drizzle weights, selection/background/quality histories, source/sibling/stack preservation, undo, permanent cleanup, interrupted deletion rollback and restoration completion, restore-conflict rejection, active-task/source protection and symlink/traversal rejection. Persistent whole-sequence result undo/redo verified native mono/RGB dimensions and pixels, original source ancestry, duplicate completion and sibling rebasing, branch reset without file changes, missing-output fallback and restored redo, rejected failed outputs/active tasks/cross-job/traversal histories and whole-task cursor restoration. Native image tools executed all 41 original workers; independent negative/MTF/SCNR/crop/mirror/binning and identity pixel checks, 8/16/32-bit mask blending/inversion, luminance/threshold/blur/feather masks, saved-mask geometry, parameter history/branching, companion restoration/cleanup and stale-result rejection passed. Original PNG/JPEG/TIFF export/import checked RGB orientation and declared precision, overwrite refusal and malformed-format failure. Bundled original feature inventory and notices were verified.\n"
                 .write(to: report, atomically: true, encoding: .utf8)
         } catch {
+            checkpoint("FAIL: " + error.localizedDescription)
             try? ("FAIL: " + error.localizedDescription + "\n" + String(SirilEngine.processingLog().suffix(16000)))
                 .write(to: report, atomically: true, encoding: .utf8)
         }
