@@ -42,6 +42,9 @@ extension SirilEngine {
             } }
             try Self.processingLog().write(to: folder.appendingPathComponent("processing.log"), atomically: true, encoding: .utf8)
             guard success != 0 else { throw EngineError.failed(String(cString: error)) }
+            // The synchronous native worker has finished. The actor remains
+            // serial while validating, but sequenceFolder rejects active jobs.
+            activeJobIDs.remove(location.job)
             let after = try inspectSequence(location, layer: recipe.layer)
             guard after.info.count == before.info.count, after.selection.included == before.selection.included,
                   before.info.reference < 0 || after.info.reference == before.info.reference,
