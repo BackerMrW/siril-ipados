@@ -48,7 +48,9 @@ extension SirilEngine {
             try measurePatternRegistration(source, recipe: recipe)
             let measured = try inspectSequence(source)
             try require(measured.selection == selection && measured.frames[0].native.has_registration != 0 && measured.frames[1].native.has_registration == 0 && measured.frames[2].native.has_registration != 0, "\(method) selection/reference and excluded-frame matrices")
-            try require(abs(measured.frames[2].native.translation_x - 4) < 0.35 && abs(measured.frames[2].native.translation_y - 5) < 0.35, "\(method) independent known integer shift: \(measured.frames[2].native.translation_x),\(measured.frames[2].native.translation_y)")
+            // H maps the displaced frame into the reference in displayed
+            // coordinates: input (-4,+5) needs correction (+4,-5).
+            try require(abs(measured.frames[2].native.translation_x - 4) < 0.35 && abs(measured.frames[2].native.translation_y + 5) < 0.35, "\(method) independent known integer shift: \(measured.frames[2].native.translation_x),\(measured.frames[2].native.translation_y)")
             let output = try applySequenceRegistration(source, options: options, layer: 0)
             let generated = try inspectSequence(output)
             try require(generated.info.count == 2 && generated.info.reference == 0 && generated.frames.map { $0.native.file_number } == [1, 3], "\(method) applied output numbering/reference")
