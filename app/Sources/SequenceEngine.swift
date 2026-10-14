@@ -196,10 +196,11 @@ extension SirilEngine {
         }
         return job
     }
-    func runSequenceCommand(_ location: SequenceLocation, command: String, title: String, options: BatchOptions? = nil, flat: URL? = nil, producesSequence: Bool = false) throws -> URL {
+    func runSequenceCommand(_ location: SequenceLocation, command: String, title: String, options: BatchOptions? = nil, flat: URL? = nil, producesSequence: Bool = false, runID: UUID = UUID()) throws -> URL {
         let snapshot = try inspectSequence(location)
         let process = try sequenceFolder(location), job = process.deletingLastPathComponent()
-        let folder = try owned(UUID().uuidString, under: try owned("SequenceRuns", under: job))
+        let folder = try owned(runID.uuidString, under: try owned("SequenceRuns", under: job))
+        guard !FileManager.default.fileExists(atPath: folder.path) else { throw EngineError.failed("序列运行编号已使用，请重新运行。") }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let prefix = "r_" + folder.lastPathComponent.replacingOccurrences(of: "-", with: "") + "_"
         try JSONEncoder().encode(location).write(to: folder.appendingPathComponent("source-location.json"), options: .atomic)
@@ -228,6 +229,64 @@ extension SirilEngine {
     func sequenceCommandName(_ location: SequenceLocation) throws -> String {
         guard !location.base.contains("\""), !location.base.contains("\n"), !location.base.contains("\r") else { throw EngineError.failed("序列名称含无效命令字符。") }
         return "\"" + location.base + "\""
+    }
+    func cropSequence(_ location: SequenceLocation, region: ImageSelection) throws -> SequenceLocation {
+        let before = try inspectSequence(location)
+        let selected = before.frames.filter(\.included)
+        guard !selected.isEmpty, before.info.drizzle == 0, location.base.utf8.count < 180 else {
+            throw EngineError.failed("裁剪需要参与帧及有效的序列名称；Drizzle 权重裁剪尚未接入。")
+        }
+        guard region.x >= 0, region.y >= 0, region.width > 0, region.height > 0,
+              selected.allSatisfy({ region.width <= Int($0.native.width) && region.height <= Int($0.native.height) &&
+                  region.x <= Int($0.native.width) - region.width && region.y <= Int($0.native.height) - region.height }) else {
+            throw EngineError.failed("裁剪选区必须位于每一张参与帧内。")
+        }
+        let process = try sequenceFolder(location), root = process.deletingLastPathComponent()
+        let runID = UUID(), prefix = "r_" + runID.uuidString.replacingOccurrences(of: "-", with: "") + "_"
+        let folder = try owned(runID.uuidString, under: try owned("SequenceRuns", under: root))
+        let output = SequenceLocation(job: location.job, name: prefix + location.name)
+        do {
+            _ = try runSequenceCommand(location, command: "seqcrop \(sequenceCommandName(location)) \(region.x) \(region.y) \(region.width) \(region.height) -prefix=$PREFIX",
+                title: "原版参与帧裁剪 · \(region.description)", producesSequence: true, runID: runID)
+            try JSONEncoder().encode(region).write(to: folder.appendingPathComponent("crop.json"), options: .atomic)
+            let generated = try inspectSequence(output)
+            guard generated.info.count == Int32(selected.count), generated.info.layers == before.info.layers,
+                  generated.frames.allSatisfy({ Int($0.native.width) == region.width && Int($0.native.height) == region.height }),
+                  before.info.type != 0 || generated.frames.map({ $0.native.file_number }) == selected.map({ $0.native.file_number }) else {
+                throw EngineError.failed("裁剪输出的帧数、编号、尺寸或通道不符；请查看本次日志。")
+            }
+            var error = [CChar](repeating: 0, count: 512); let capacity = error.count
+            for frame in generated.frames {
+                guard let image = process.path.withCString({ directory in output.name.withCString {
+                    siril_sequence_frame(directory, $0, Int32(frame.id), &error, capacity)
+                } }) else { throw EngineError.failed(String(cString: error)) }
+                siril_image_free(image)
+            }
+            let reference = before.info.reference >= 0 ? selected.firstIndex(where: { $0.id == Int(before.info.reference) }) ?? -1 : -1
+            try editSequence(output, selection: SequenceSelection(included: Array(repeating: true, count: selected.count), reference: reference))
+            try writeJobState(folder, state: "已完成", message: "裁剪后的所有参与帧已验证。")
+            return output
+        } catch {
+            if FileManager.default.fileExists(atPath: folder.path) {
+                try? JSONEncoder().encode(region).write(to: folder.appendingPathComponent("crop.json"), options: .atomic)
+                try? writeJobState(folder, state: "裁剪失败或取消", message: error.localizedDescription)
+            }
+            siril_release_workspace()
+            // Only this run's UUID-prefixed regular files are removed. Failed
+            // partial sequences never become usable processing results.
+            for directory in [process, process.appendingPathComponent("cache"), process.appendingPathComponent("drizztmp")] {
+                guard FileManager.default.fileExists(atPath: directory.path) else { continue }
+                let parent: URL
+                if directory == process { parent = process }
+                else { parent = try owned(directory.lastPathComponent, under: process) }
+                for item in try FileManager.default.contentsOfDirectory(at: parent, includingPropertiesForKeys: [.isRegularFileKey]) where item.lastPathComponent.hasPrefix(prefix) {
+                    let ownedFile = try owned(item.lastPathComponent, under: parent)
+                    guard (try ownedFile.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile == true else { throw EngineError.failed("裁剪输出清理遇到非普通文件。") }
+                    try FileManager.default.removeItem(at: ownedFile)
+                }
+            }
+            throw error
+        }
     }
     func measureSequence(_ location: SequenceLocation, options: BatchOptions, layer: Int) throws {
         let snapshot = try inspectSequence(location, layer: layer)

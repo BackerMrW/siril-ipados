@@ -177,6 +177,71 @@ extension SirilEngine {
                 try require(siril_image_pixel(frame, Int32(x), Int32(y), &pixel) == 1 && pixel[0] == baseline[y * 2 + x], "FITSEQ worker changed float pixels")
             } }
         }
+        let cropInputPaths = try sequenceFilePaths(location)
+        let cropInputBytes = try cropInputPaths.map { try Data(contentsOf: sequenceKeywordSource($0, under: job.folder)) }
+        let cropArea = ImageSelection(x: 1, y: 0, width: 1, height: 2)
+        let cropped = try cropSequence(location, region: cropArea)
+        let croppedInfo = try inspectSequence(cropped)
+        try require(croppedInfo.info.count == 2 && croppedInfo.info.width == 1 && croppedInfo.info.height == 2 && croppedInfo.info.reference == 1,
+            "selected sequence crop dimensions/count/reference")
+        try require(croppedInfo.frames.map({ $0.native.file_number }) == [1, 3], "crop exported an excluded frame or changed original numbers")
+        var cropError = [CChar](repeating: 0, count: 512); let cropCapacity = cropError.count
+        for frame in croppedInfo.frames {
+            guard let image = job.folder.appendingPathComponent("process").path.withCString({ directory in cropped.name.withCString {
+                siril_sequence_frame(directory, $0, Int32(frame.id), &cropError, cropCapacity)
+            } }) else { throw EngineError.failed("Cropped frame unavailable") }
+            defer { siril_image_free(image) }
+            for y in 0..<2 {
+                var pixel: [Float] = [0, 0, 0]
+                try require(siril_image_pixel(image, 0, Int32(y), &pixel) == 1 &&
+                    abs(pixel[0] - baseline[y * 2 + 1] - (frame.native.file_number == 3 ? 0.4 : 0)) < 2e-5, "crop changed independent selected pixels")
+            }
+        }
+        for (i, path) in cropInputPaths.enumerated() {
+            try require(try Data(contentsOf: sequenceKeywordSource(path, under: job.folder)) == cropInputBytes[i], "crop changed source bytes or flags")
+        }
+        var cropRejected = false
+        do { _ = try cropSequence(location, region: ImageSelection(x: Int.max, y: 0, width: 1, height: 2)) } catch { cropRejected = true }
+        try require(cropRejected, "invalid crop coordinates accepted or overflowed")
+        let cropStatus = try recordSequenceResult(entry: location, source: location, output: cropped)
+        try require(cropStatus.history.current == cropped && cropStatus.canUndo, "crop missing from sequence result history")
+        let cropUndo = try replaySequenceResult(location, redo: false)
+        try require(cropUndo.history.current == location, "crop result undo lost source sequence")
+        let cropRedo = try replaySequenceResult(location, redo: true)
+        try require(cropRedo.history.current == cropped, "crop result redo lost saved output")
+        _ = try replaySequenceResult(location, redo: false)
+        var failureSelection = branch; failureSelection.reference = 0
+        try editSequence(location, selection: failureSelection)
+        let process = job.folder.appendingPathComponent("process"), runs = job.folder.appendingPathComponent("SequenceRuns")
+        let priorCropRuns = Set(try FileManager.default.contentsOfDirectory(atPath: runs.path))
+        let missingFrame = process.appendingPathComponent("light_00003.fit"), withheldFrame = process.appendingPathComponent("crop-withheld.fit")
+        try FileManager.default.moveItem(at: missingFrame, to: withheldFrame)
+        cropRejected = false
+        do { _ = try cropSequence(location, region: cropArea) } catch { cropRejected = true }
+        try FileManager.default.moveItem(at: withheldFrame, to: missingFrame)
+        try editSequence(location, selection: branch)
+        let failedRunNames = try FileManager.default.contentsOfDirectory(atPath: runs.path).filter { !priorCropRuns.contains($0) }
+        try require(cropRejected && failedRunNames.count == 1, "missing-frame crop did not create a failed run")
+        let failedCropFolder = runs.appendingPathComponent(failedRunNames[0])
+        let failedCropState = try JSONDecoder().decode(JobState.self, from: Data(contentsOf: failedCropFolder.appendingPathComponent("job.json")))
+        let failedCropPrefix = "r_" + failedRunNames[0].replacingOccurrences(of: "-", with: "") + "_"
+        try require(failedCropState.state == "裁剪失败或取消" && FileManager.default.fileExists(atPath: failedCropFolder.appendingPathComponent("crop.json").path) &&
+            (try FileManager.default.contentsOfDirectory(atPath: process.path)).allSatisfy({ !$0.hasPrefix(failedCropPrefix) }), "failed crop retained partial output or lost its recipe")
+        let croppedContainer = try cropSequence(containerLocation, region: cropArea)
+        let croppedContainerInfo = try inspectSequence(croppedContainer)
+        try require(croppedContainerInfo.info.count == 2 && croppedContainerInfo.info.width == 1 && croppedContainerInfo.info.height == 2 && croppedContainerInfo.info.reference == 0,
+            "FITSEQ crop lost selected HDUs/dimensions/reference")
+        for frame in croppedContainerInfo.frames {
+            guard let image = containerProcess.path.withCString({ directory in croppedContainer.name.withCString {
+                siril_sequence_frame(directory, $0, Int32(frame.id), &cropError, cropCapacity)
+            } }) else { throw EngineError.failed("Cropped FITSEQ HDU unavailable") }
+            defer { siril_image_free(image) }
+            for y in 0..<2 {
+                var pixel: [Float] = [0, 0, 0]
+                try require(siril_image_pixel(image, 0, Int32(y), &pixel) == 1 && abs(pixel[0] - baseline[y * 2 + 1]) < 2e-5, "FITSEQ crop changed independent float pixels")
+            }
+        }
+        try require(try Data(contentsOf: containerProcess.appendingPathComponent("keyword_multi.fit")) == container, "FITSEQ crop changed input container bytes")
         guard let task = jobHistory().first(where: { $0.id == location.job }) else { throw EngineError.failed("Sequence task history missing") }
         try require(task.results.contains(all) && task.results.contains(subset), "restacks absent from task results")
         try trashJob(task)

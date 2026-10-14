@@ -357,6 +357,7 @@ jobs:
         path: |
           diagnostics/native-tools-icc*-simulator.png
           diagnostics/native-keyword-editor-simulator.png
+          diagnostics/native-sequence-crop-simulator.png
         if-no-files-found: warn
     - name: Upload diagnostic files
       if: always()

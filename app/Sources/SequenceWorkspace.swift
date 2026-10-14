@@ -64,6 +64,8 @@ struct SequenceWorkspace: View {
     @State private var initializedLayer = false
     @State private var showDelete = false
     @State private var showOutputs = false
+    @State private var selectingCrop = false
+    @State private var cropRegion: ImageSelection?
     @State private var resultStatus: SequenceResultStatus?
     @State private var backgroundSource: SequenceLocation?
     private var currentLocation: SequenceLocation { resultStatus?.history.current ?? location }
@@ -100,6 +102,28 @@ struct SequenceWorkspace: View {
                     }
                 }
                 framePreview(snapshot)
+                Section("序列裁剪") {
+                    Toggle("拖动选择裁剪区域", isOn: $selectingCrop)
+                    if let cropRegion { Text(cropRegion.description).textSelection(.enabled) }
+                    HStack {
+                        Button("当前帧全图") {
+                            cropRegion = ImageSelection(x: 0, y: 0, width: Int(snapshot.frames[index].native.width), height: Int(snapshot.frames[index].native.height))
+                        }
+                        Button("清除选区") { cropRegion = nil; selectingCrop = false }
+                    }.buttonStyle(.borderless)
+                    Button("裁剪当前参与帧") {
+                        guard let cropRegion else { return }
+                        perform {
+                            let source = currentLocation
+                            let output = try await engine.cropSequence(source, region: cropRegion)
+                            generated = output; log = SirilEngine.processingLog()
+                            let status = try await engine.recordSequenceResult(entry: location, source: source, output: output)
+                            await adopt(status)
+                        }
+                    }.disabled(cropRegion == nil || snapshot.info.drizzle != 0)
+                    Text("生成独立裁剪序列，保留输入帧与参考帧对应；可通过处理结果历史撤销。Drizzle 权重裁剪尚未接入。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }.id("sequence-crop")
                 Section("参与帧和参考帧") {
                     Toggle("当前帧参与处理", isOn: Binding(get: { snapshot.frames[index].included }, set: { includeCurrent($0) }))
                     Picker("参考帧", selection: Binding(get: { Int(snapshot.info.reference) }, set: { reference in
@@ -218,6 +242,12 @@ struct SequenceWorkspace: View {
                 for _ in 0..<60 where image == nil { try? await Task.sleep(for: .milliseconds(50)) }
                 guard image != nil else { return }
                 let section = ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] ?? "frames"
+                if section == "crop", let snapshot {
+                    cropRegion = ImageSelection(x: Int(snapshot.info.width) / 4, y: Int(snapshot.info.height) / 4,
+                        width: max(1, Int(snapshot.info.width) / 2), height: max(1, Int(snapshot.info.height) / 2))
+                    selectingCrop = true
+                    try? await Task.sleep(for: .milliseconds(400)); proxy.scrollTo("sequence-crop", anchor: .center)
+                }
                 if section == "results" {
                     do {
                         let outputs = try await engine.sequenceOutputRecords(job: location.job)
@@ -308,7 +338,8 @@ struct SequenceWorkspace: View {
     @ViewBuilder private func framePreview(_ snapshot: SequenceSnapshot) -> some View {
         Section("逐帧预览") {
             if let image {
-                ZoomableImageCanvas(image: image, samples: [], imageWidth: Double(snapshot.frames[index].native.width), imageHeight: Double(snapshot.frames[index].native.height), onTap: nil)
+                ZoomableImageCanvas(image: image, samples: [], imageWidth: Double(snapshot.frames[index].native.width), imageHeight: Double(snapshot.frames[index].native.height),
+                    region: cropRegion, selecting: selectingCrop, onSelection: { cropRegion = $0 }, onTap: nil)
                     .frame(height: 320).listRowInsets(EdgeInsets()).background(.black)
             } else { ProgressView("读取当前帧") }
             HStack {
@@ -357,6 +388,7 @@ struct SequenceWorkspace: View {
             previewTask?.cancel(); image = nil; snapshot = nil
             index = 0; layer = 0; channel = -1; initializedLayer = false
             plotFrame = nil; from = 1; generated = nil; result = nil; export = nil
+            cropRegion = nil; selectingCrop = false
         }
         resultStatus = status
         await reload(); to = snapshot?.frames.count ?? 1
