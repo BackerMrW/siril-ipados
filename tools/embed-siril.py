@@ -6,6 +6,17 @@ import re
 
 root = Path.cwd()
 source = root / "siril-src"
+# A singleton third FITS axis is a monochrome image. Normalize the working
+# layout before the full/partial readers' three-channel checks.
+fits_io = source / "src/io/image_format_fits.c"
+text = fits_io.read_text()
+needle = '\tif (fit->naxis == 3 && fit->naxes[2] != 3) {'
+assert text.count(needle) == 3
+text = text.replace(needle, '\tif (fit->naxis == 3 && fit->naxes[2] == 1) fit->naxis = 2;\n' + needle)
+needle = '\tfit->naxes[2] = nblayer;\n\tfit->naxis = 3;'
+assert text.count(needle) == 1
+text = text.replace(needle, '\tfit->naxes[2] = nblayer;\n\tfit->naxis = nblayer == 1 ? 2 : 3;')
+fits_io.write_text(text)
 # Crop Drizzle weights with the same original geometry operation as pixels.
 # The native caller validates every output weight before enabling Drizzle.
 geometry = source / "src/algos/geometry.c"

@@ -22,7 +22,7 @@ static int noise_reference(const char *directory) {
         fitsfile *file = NULL; int status = 0;
         long axes[3] = {W, H, mode ? 1 : 3};
         fits_create_file(&file, create, &status);
-        fits_create_img(file, mode == 0 ? FLOAT_IMG : mode == 1 ? USHORT_IMG : BYTE_IMG, mode ? 2 : 3, axes, &status);
+        fits_create_img(file, mode == 0 ? FLOAT_IMG : mode == 1 ? USHORT_IMG : BYTE_IMG, mode == 2 ? 2 : 3, axes, &status);
         if (!mode) fits_write_img(file, TFLOAT, 1, 3 * N, pixels, &status);
         else if (mode == 1) {
             unsigned short integer[N];
