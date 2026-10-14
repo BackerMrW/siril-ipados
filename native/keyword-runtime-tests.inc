@@ -44,10 +44,15 @@ static int keyword_reference_checks(SirilImage *original, const char *directory)
     char sequence_dir[4096]; snprintf(sequence_dir, sizeof sequence_dir, "%s/keyword-sequence", directory);
     CHECK(!g_mkdir_with_parents(sequence_dir, 0700));
     for (int i = 1; i <= 3; i++) {
-        snprintf(output, sizeof output, "%s/k_%05d.fts", sequence_dir, i);
+        snprintf(output, sizeof output, "%s/k_%05d%s", sequence_dir, i, com.pref.ext);
         CHECK(siril_image_write(original, output));
     }
     CHECK(siril_sequence_discover(sequence_dir, error, sizeof error));
+    for (int i = 1; i <= 3; i++) {
+        char scanned[4096]; snprintf(scanned, sizeof scanned, "%s/k_%05d%s", sequence_dir, i, com.pref.ext);
+        snprintf(output, sizeof output, "%s/k_%05d.fts", sequence_dir, i);
+        CHECK(!rename(scanned, output));
+    }
     const uint8_t flags[3] = {1, 0, 1};
     CHECK(siril_sequence_select(sequence_dir, "k_.seq", flags, 3, 2, error, sizeof error));
     CHECK(siril_sequence_edit_keyword(sequence_dir, "k_.seq", 0, "TARGNUM", "42.5", NULL, 0, error, sizeof error));
