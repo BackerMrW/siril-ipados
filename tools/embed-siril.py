@@ -10,6 +10,9 @@ source = root / "siril-src"
 # The native caller validates every output weight before enabling Drizzle.
 geometry = source / "src/algos/geometry.c"
 text = geometry.read_text()
+needle = '#include "io/image_format_fits.h"'
+assert text.count(needle) == 1
+text = text.replace(needle, '#include "io/fits_keywords.h"\n' + needle)
 start = text.index('int crop_image_hook(struct generic_seq_args *args,')
 end = text.index('int crop_finalize_hook(', start)
 body = text[start:end]
