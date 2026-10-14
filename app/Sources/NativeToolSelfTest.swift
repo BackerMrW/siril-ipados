@@ -573,7 +573,9 @@ extension SirilEngine {
         try require(try Data(contentsOf: file.url) == sourceBytes, "Keyword edits changed original source")
         checkpoint("PASS: native batch FITS keyword editing preserved exact pixels/source, persisted its recipe and rolled back every output on a partial failure")
         keywordEdit.action = .set; keywordEdit.key = "MASKID"; keywordEdit.value = "Masked keyword result"; keywordEdit.stringValue = true
-        let keywordSource = maskedICCRecord
+        // The earlier trash lifecycle removes saved and its descendants.
+        // Reimport the retained processing output as a fresh masked input.
+        let keywordSource = try importFile(output, role: .results); records.append(keywordSource)
         let maskSourceBytes = try Data(contentsOf: keywordSource.url.appendingPathExtension("mask.fits"))
         let maskedKeywordOutputs = try editFITSKeywords([keywordSource], edit: keywordEdit)
         let maskedKeywordJob = maskedKeywordOutputs[0].deletingLastPathComponent().deletingLastPathComponent()
