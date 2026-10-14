@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "cmyk-proof-fixture.inc"
 static int display_proof_reference(const char *directory) {
     char input[4096], path[4096], custom[4096], script[18000], error[512];
     snprintf(input, sizeof input, "%s/proof-input.fits", directory);
@@ -16,15 +17,21 @@ static int display_proof_reference(const char *directory) {
     cmsHPROFILE custom_profile = cmsOpenProfileFromFile(custom, "r"); CHECK(custom_profile);
     cmsUInt32Number custom_size = 0; CHECK(cmsSaveProfileToMem(custom_profile, NULL, &custom_size));
     BYTE *custom_bytes = malloc(custom_size); CHECK(custom_bytes && cmsSaveProfileToMem(custom_profile, custom_bytes, &custom_size));
+    cmsHPROFILE cmyk = make_cmyk_proof_fixture(); CHECK(cmyk);
+    cmsUInt32Number cmyk_size = 0; CHECK(cmsSaveProfileToMem(cmyk, NULL, &cmyk_size));
+    BYTE *cmyk_bytes = malloc(cmyk_size); CHECK(cmyk_bytes && cmsSaveProfileToMem(cmyk, cmyk_bytes, &cmyk_size));
+    cmsCloseProfile(cmyk); cmyk = cmsOpenProfileFromMem(cmyk_bytes, cmyk_size); CHECK(cmyk);
+    CHECK(siril_icc_validate(cmyk_bytes, cmyk_size, 0) && !siril_icc_validate(cmyk_bytes, cmyk_size, 3));
     cmsContext context = cmsCreateContext(NULL, NULL); CHECK(context);
     cmsUInt16Number alarms[16] = {65535, 0, 65535}; cmsSetAlarmCodesTHR(context, alarms);
     SirilDisplayOptions settings = {.mode = 0, .low = 0, .high = 1};
     SirilPreview raw; CHECK(siril_image_preview_mode(image, 8, -1, &settings, &raw));
     BYTE source[144]; for (int c = 0; c < 3; c++) for (int i = 0; i < 48; i++) source[c * 48 + i] = raw.rgba[i * 4 + c];
     int warnings = 0;
-    for (int proof = 1; proof <= 4; proof++) {
-        cmsHPROFILE target = proof == 1 ? srgb_trc() : proof == 2 ? rec2020_trc() : proof == 3 ? copyICCProfile(com.icc.working_standard) : copyICCProfile(custom_profile); CHECK(target);
-        settings.icc = 1; settings.proof = proof; settings.proof_data = custom_bytes; settings.proof_size = custom_size;
+    for (int proof = 1; proof <= 5; proof++) {
+        cmsHPROFILE target = proof == 1 ? srgb_trc() : proof == 2 ? rec2020_trc() : proof == 3 ? copyICCProfile(com.icc.working_standard) : copyICCProfile(proof == 5 ? cmyk : custom_profile); CHECK(target);
+        settings.icc = 1; settings.proof = proof >= 4 ? 4 : proof;
+        settings.proof_data = proof == 5 ? cmyk_bytes : custom_bytes; settings.proof_size = proof == 5 ? cmyk_size : custom_size;
         for (int rendering = 0; rendering < 4; rendering++) for (int intent = 0; intent < 4; intent++) for (int gamut = 0; gamut <= 1; gamut++) {
             settings.rendering_intent = rendering; settings.proofing_intent = intent; settings.black_point = 1; settings.gamut_check = gamut;
             cmsUInt32Number flags = cmsFLAGS_SOFTPROOFING | cmsFLAGS_NOOPTIMIZE;
@@ -52,7 +59,7 @@ static int display_proof_reference(const char *directory) {
         float pixel[3]; CHECK(siril_image_pixel(image, x, y, pixel) == 3);
         for (int c = 0; c < 3; c++) CHECK(pixel[c] == pixels[c * 48 + (5 - y) * 8 + x]);
     }
-    siril_preview_free(&raw); free(custom_bytes); cmsCloseProfile(custom_profile); cmsDeleteContext(context);
+    siril_preview_free(&raw); free(custom_bytes); free(cmyk_bytes); cmsCloseProfile(cmyk); cmsCloseProfile(custom_profile); cmsDeleteContext(context);
     siril_image_free(image); clearfits(&reference); siril_release_workspace();
     puts("PASS: original display soft-proofing matched independent LittleCMS for all rendering/proofing intents, built-in/custom ICC, black-point compensation and actual magenta gamut warnings; invalid settings rejected and source preserved");
     return 0;

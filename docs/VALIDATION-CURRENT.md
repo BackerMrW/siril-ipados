@@ -4,6 +4,8 @@
 
 ## 已有直接执行证据
 
+- 2026-10-14 核对 `563e882c386622cf297f022abf5049ec06fd0fdd` 的[整轮回归](https://github.com/BackerMrW/siril-ipados/actions/runs/38409372470)：设备和模拟器均成功。ICC 分配/转换/移除、单色/RGB 与四种意图、绝对色度精确路径、显示 ICC 与浮点 LUT、全256色伪彩色、七模式8/16/32位蒙版叠加与恢复、128组内置/自定义 RGB 打样和实际品红警示均通过独立数值检查；完整 Swift 和原生界面回归通过。新补的独立虚拟 CMYK 打样样本已在 Windows 生成/序列化/转换验证通过，Apple 补充回归尚待执行；完整 Siril 移植仍未完成。
+
 - `11fbd02b5c130a5f6c50b21e0148c82bea70e304` 的[两个 SDK 任务](https://github.com/BackerMrW/siril-ipados/actions/runs/38350644889)均成功。原版解算器匹配独立 TAN 星表，RA/DEC 中心和 2 arcsec/pixel 比例通过严格检查，WCS 经 FITS 保存/读取保留；原版 LibRaw 读取独立 16-bit DNG 的尺寸、线性像素、方向、CFA 及 Swift 工作 FITS 往返通过。原有单张工具、序列、蒙版、撤销/存储和原生页面回归也通过。
 - 原版 `fetch_url` 在本地 HTTPS 服务器上验证受信任证书，拒绝错误主机名和不受信任根证书。Apple SQLite 持久化测试通过；原版 SPCC 数据库的 15 个单色传感器、51 个彩色传感器和 147 份白参考，以及原版数组读取器通过。该证据不代表已实测所有远程星表服务。
 - `2b0a63771d33a42d27a3f877ab7da08173e47278` 的[模拟器执行](https://github.com/BackerMrW/siril-ipados/actions/runs/38353299535)已通过完整 PCC 和 SPCC 数值检查：PCC 在两组不同通道增益的 25 星图上恢复一致颜色并中和背景；SPCC 从独立幂律光子谱、三段窄带积分和已知通道增益恢复预期颜色。另有解析光谱插值/积分、通道增益应用与无效系数不修改像素检查。此任务整体因后续 XISF 测试样本的大小写错误失败，不能算整轮回归成功。
