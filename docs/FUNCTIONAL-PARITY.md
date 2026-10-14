@@ -95,7 +95,7 @@
 | win.clipboard | Copy to clipboard | 待移植或待逐项验证 |
 | win.icc-tool | Color Management... | 原版 ICC 分配/转换/移除、内置/自定义目标、四种意图、ICC 导出和 D50 色域图已接入；独立数值、持久化重放与原生页已随563e882整轮通过 |
 | win.ccm-processing | Color Conversion Matrix... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
-| win.fits-header | FITS Header... | 完整文件头查看/搜索、原版关键字单张与批量编辑及失败回滚已通过；普通/FITSEQ 序列参与帧编辑、独立输出/源字节保留、配准与参考帧保留已随4077027整轮通过；补充蒙版保留待验证 |
+| win.fits-header | FITS Header... | 完整文件头查看/搜索、单张/批量及普通/FITSEQ 参与帧编辑已接入；独立输出/源字节、配准/参考帧、已有蒙版/输入快照与失败回滚已随88d39eb整轮通过 |
 | win.image-information | Image Information... | 只读元数据已接入（原版编辑仍待接入） |
 | win.astrometry | Image Plate Solver... | 原版解算工作区/参数/历史已接入，独立 TAN 星表、中心/比例及 WCS FITS 往返通过；远程星表/真机待验收 |
 | win.annotate-dialog | Annotate... | 待移植或待逐项验证 |

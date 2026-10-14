@@ -4,6 +4,8 @@
 
 ## 已有直接执行证据
 
+- 2026-10-14 核对 `88d39ebe924ac482557f0b52225a67fa27a5e279` 的[两个 SDK 整轮回归](https://github.com/BackerMrW/siril-ipados/actions/runs/38535775544)：设备与模拟器均成功。普通/FITSEQ、39个原版工具、ICC/160组软打样、显示/蒙版及完整 Swift 与原生页面检查通过；单张/批量关键字编辑保留蒙版伴随文件与输入快照、重新导入的权重/像素、首张成功后的失败回滚检查通过。原版`boxselect -clear`实际清除 ROI，后续全图裁剪逐像素一致。页面小包 SHA-256 为`71db1d37f309b491abc45e5924ce601d143bdf423d5fc44bac98605b10567994`；实际核对 RGB 色域图的 CIE 1931 轨迹、D50 白点、图像 ICC 和 sRGB 参考、图例及说明可见且无遮挡。真机/真实大图与完整剩余功能未验收，未发布新版本。
+
 - 2026-10-14 核对 `40770278afdc7c2de3beb947320950830ef066ba` 的[普通/FITSEQ 序列整轮回归](https://github.com/BackerMrW/siril-ipados/actions/runs/38528074527)：设备和模拟器均成功。原版参与帧关键字四种操作、实际注释卡/删除、`.fts` 扩展名、独立 CFITSIO 多 HDU 像素、排除帧与参考帧均通过；Swift 私有输出、源文件/容器字节、既有配准数据、任务内帧链接解析及越界链接拒绝、失败输出清理和完整原生页面回归通过。后续补充蒙版保留和页面小包仍待验证。
 
 - 2026-10-14 核对 `14b1194e0f46f42319a343da757ee7c00f04ae3b` 的[CMYK 补充回归](https://github.com/BackerMrW/siril-ipados/actions/runs/38521674925)及 `70e2f8405ae699ebdd2e86aacb81c483dee4d98e` 的[ICC 蒙版保留回归](https://github.com/BackerMrW/siril-ipados/actions/runs/38522026329)：两个 SDK 均成功，完整模拟器 C/Swift 与原生页面回归通过。软打样对照扩展至160组，包含独立虚拟 CMYK 打印配置文件；ICC 分配/保存/重新导入与完整 sRGB 转换保留既有蒙版权重，未启用部分颜色转换。
