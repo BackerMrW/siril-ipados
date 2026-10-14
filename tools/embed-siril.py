@@ -15,7 +15,7 @@ end = text.index('int crop_finalize_hook(', start)
 body = text[start:end]
 needle = '\tint ret = crop(fit, &(c_args->area));'
 assert body.count(needle) == 1
-body = body.replace(needle, needle + r'''
+body = body.replace(needle, '\trectangle area = c_args->area;\n\tint ret = crop(fit, &area);' + r'''
     if (!ret && args->seq->is_drizzle) {
         fits weights = {0};
         gchar *input = get_sequence_cache_filename(args->seq, i, "drizztmp", "fit", NULL);
@@ -23,7 +23,13 @@ body = body.replace(needle, needle + r'''
         ret = !input || !output || readfits(input, &weights, NULL, FALSE);
         if (!ret && (weights.rx != args->seq->rx || weights.ry != args->seq->ry ||
                 weights.naxes[2] != args->seq->nb_layers)) ret = 1;
-        if (!ret) ret = crop(&weights, &(c_args->area));
+        // Count maps describe the output grid, never a raw Bayer mosaic.
+        // Upstream applyreg can leave the input CFA metadata on these maps.
+        if (!ret) {
+            clear_Bayer_information(&weights);
+            rectangle weight_area = area;
+            ret = crop(&weights, &weight_area);
+        }
         if (!ret) ret = savefits(output, &weights);
         clearfits(&weights);
         g_free(input); g_free(output);
