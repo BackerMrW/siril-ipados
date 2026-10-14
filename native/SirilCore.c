@@ -189,6 +189,9 @@ SirilImage *siril_sequence_frame(const char *directory, const char *name, int in
         }
     }
     if (!image && error && error_size) snprintf(error, error_size, "Cannot read sequence frame %d", index + 1);
+    /* FITSEQ attaches a borrowed HDU handle; the returned image owns pixels
+     * and metadata, while the sequence reader is closed below. */
+    if (image) image->fit.fptr = NULL;
     free_sequence(seq, TRUE);
 done:
     g_mutex_unlock(&engine_mutex);

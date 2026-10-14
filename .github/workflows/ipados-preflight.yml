@@ -349,6 +349,15 @@ jobs:
       with:
         path: ipados-stage
         key: ipados17-arm64${{ env.CACHE_SUFFIX }}-${{ steps.apple.outputs.sdk }}-${{ steps.apple.outputs.xcode }}-extra-v1-${{ github.run_id }}
+    - name: Upload color and keyword workspace screenshots
+      if: always() && env.SIRIL_SDK == 'iphonesimulator'
+      uses: actions/upload-artifact@v4
+      with:
+        name: siril-ipados-color-keyword-ui
+        path: |
+          diagnostics/native-tools-icc*-simulator.png
+          diagnostics/native-keyword-editor-simulator.png
+        if-no-files-found: warn
     - name: Upload diagnostic files
       if: always()
       uses: actions/upload-artifact@v4
