@@ -86,7 +86,11 @@ static int keyword_reference_checks(SirilImage *original, const char *directory)
     status = 0; file = NULL; fits_open_file(&file, output, READONLY, &status);
     fits_read_key(file, TDOUBLE, "ONEONLY", &one_only, NULL, &status); CHECK(status == KEY_NO_EXIST);
     status = 0; fits_close_file(file, &status); CHECK(!status);
-    puts("PASS: original selected-frame sequence keyword worker kept .fts filenames, exact pixels, excluded frames and reference; independent CFITSIO verified all operations and failed edits returned failure");
+    CHECK(!chmod(sequence_dir, 0500));
+    int write_ok = siril_sequence_edit_keyword(sequence_dir, "k_.seq", 0, "WRITECHK", "1", NULL, 0, error, sizeof error);
+    CHECK(!chmod(sequence_dir, 0700));
+    CHECK(!write_ok);
+    puts("PASS: original selected-frame sequence keyword worker kept .fts filenames, exact pixels, excluded frames and reference; independent CFITSIO verified all operations; partial edits and failed writes returned failure");
     puts("PASS: original FITS keyword set/rename/delete/comment preserved exact source pixels/header; independent CFITSIO verified quoted text, numeric values and known metadata; protected/invalid edits rejected");
     return 0;
 }

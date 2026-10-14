@@ -180,6 +180,19 @@ extension SirilEngine {
         try measureSequence(source, options: options, layer: 0)
         try require(try inspectSequence(source).selection == selection, "two-pass analysis overrode explicit reference")
         let measuredBytes = try Data(contentsOf: process.appendingPathComponent(source.name))
+        let measuredSnapshot = try inspectSequence(source)
+        var registrationKeyword = FITSKeywordEdit(); registrationKeyword.key = "OBJECT"; registrationKeyword.value = "Registered sequence"
+        let keywordSequence = try editSequenceFITSKeywords(source, edit: registrationKeyword)
+        let keywordJob = try sequenceFolder(keywordSequence).deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: keywordJob) }
+        let retained = try inspectSequence(keywordSequence)
+        try require(retained.selection == selection && retained.frames.count == measuredSnapshot.frames.count, "keyword editor changed registered sequence selection")
+        for (before, after) in zip(measuredSnapshot.frames, retained.frames) {
+            try require(before.native.file_number == after.native.file_number && before.native.has_registration == after.native.has_registration &&
+                before.native.fwhm == after.native.fwhm && before.native.translation_x == after.native.translation_x && before.native.translation_y == after.native.translation_y,
+                "keyword editor lost native registration measurements")
+        }
+        try require(try Data(contentsOf: process.appendingPathComponent(source.name)) == measuredBytes, "keyword editor changed source registration file")
         let first = try applySequenceRegistration(source, options: options, layer: 0)
         let metadata = try inspectSequence(first)
         try require(metadata.info.count == 3 && metadata.info.width == 512 && metadata.info.height == 512 && metadata.info.reference == 1, "output dimensions/count/reference mapping: \(metadata.info.width)x\(metadata.info.height), count \(metadata.info.count), reference \(metadata.info.reference)")
