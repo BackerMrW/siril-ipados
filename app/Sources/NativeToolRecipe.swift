@@ -286,7 +286,12 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
             let size = [n("scale"), "-width=" + n("size"), "-height=" + n("size"), "-maxdim=" + n("size"), "-width=" + n("width") + " -height=" + n("height")][Int(number("mode"))]
             command = "resample \(size) -interp=\(interp)\(on("clamp") ? "" : " -noclamp")"
         }
-        let masks = try maskCommands(file: file)
+        var masks = try maskCommands(file: file)
+        if tool == .colorManagement && file.hasMask == true {
+            // ICC operations affect the whole image; retain its independent mask
+            // without enabling partial color-space conversion through that mask.
+            masks = ["mask_from_channel -channel=0 -filename=mask-source.fits -bitdepth=32"]
+        }
         if !masks.isEmpty && tool.acceptsMask && tool != .deconvolution { command += " -mask" }
         let repeats = tool == .median ? Int(number("iterations")) : 1
         return (["set32bits", "load input.fits"] + masks + Array(repeating: command.trimmingCharacters(in: .whitespaces), count: repeats)).joined(separator: "\n") + "\n"

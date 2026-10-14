@@ -437,6 +437,31 @@ extension SirilEngine {
         try await savedSession.compute(inherited, library: records)
         let restoredMask = try await savedSession.pixel(view: 2, x: x, y: y)[0]
         let beforeMask = try await session.pixel(view: 2, x: x, y: y)[0]
+        let maskedICC = NativeToolRecipe(tool: .colorManagement, file: saved)
+        try require(maskedICC.mask.number("mode") == 0, "ICC operation incorrectly enabled partial mask blending")
+        try await savedSession.compute(maskedICC, library: records)
+        let maskedICCResult = try await savedSession.pixel(view: 1, x: x, y: y)
+        let retainedICCMask = try await savedSession.pixel(view: 2, x: x, y: y)[0]
+        try require(maskedICCResult == maskedPixel && retainedICCMask == beforeMask, "ICC assignment lost saved mask or changed pixels")
+        let maskedICCJob = try prepareNativeToolJob(file: saved, recipe: maskedICC, library: records); jobs.append(maskedICCJob)
+        let maskedICCOutput = try await savedSession.export(maskedICC, to: maskedICCJob)
+        try require(fm.fileExists(atPath: maskedICCOutput.appendingPathExtension("mask.fits").path), "ICC export dropped mask companion")
+        let maskedICCRecord = try importFile(maskedICCOutput, role: .results); records.append(maskedICCRecord)
+        let maskedICCSession = NativeToolSession(); try await maskedICCSession.open(maskedICCRecord)
+        var convertMaskedICC = NativeToolRecipe(tool: .colorManagement, file: maskedICCRecord)
+        convertMaskedICC.values["action"] = 1; convertMaskedICC.values["profile"] = 1
+        try await maskedICCSession.compute(convertMaskedICC, library: records)
+        let convertedMaskedPixel = try await maskedICCSession.pixel(view: 1, x: x, y: y)
+        for c in 0..<3 {
+            let linear = Double(maskedPixel[c])
+            let expected = linear <= 0.0031308 ? linear * 12.92 : 1.055 * pow(linear, 1 / 2.4) - 0.055
+            try require(abs(Double(convertedMaskedPixel[c]) - expected) < 0.00015, "ICC conversion was partially blended with saved mask")
+        }
+        let convertedMask = try await maskedICCSession.pixel(view: 2, x: x, y: y)[0]
+        try require(convertedMask == beforeMask, "ICC conversion altered saved mask weights")
+        await maskedICCSession.close()
+        try fm.removeItem(at: maskedICCRecord.url); try fm.removeItem(at: maskedICCRecord.url.appendingPathExtension("mask.fits"))
+        try await savedSession.compute(inherited, library: records)
         let restoredPixel = try await savedSession.pixel(view: 1, x: x, y: y)
         try require(restoredMask == beforeMask && restoredPixel == maskedPixel, "saved mask or identity geometry pixels changed")
         inherited.values["mode"] = 1; inherited.values["size"] = 48
