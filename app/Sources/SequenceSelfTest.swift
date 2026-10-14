@@ -105,6 +105,36 @@ extension SirilEngine {
         let raw = job.folder.appendingPathComponent("process/light_00003.fit")
         let rawPixels = try await pixels(raw)
         for i in 0..<4 { try require(abs(rawPixels[i] - baseline[i] - 0.4) < 2e-5, "exclusion altered original frame") }
+        let keywordSourcePaths = try sequenceFilePaths(location)
+        let keywordSourceBytes = try keywordSourcePaths.map { try Data(contentsOf: sequenceTrashPath($0, under: job.folder)) }
+        var keywordEdit = FITSKeywordEdit(); keywordEdit.key = "OBJECT"; keywordEdit.value = "O'Brien sequence"
+        let keywordOutput = try editSequenceFITSKeywords(location, edit: keywordEdit)
+        let keywordJob = try sequenceFolder(keywordOutput).deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: keywordJob) }
+        try require(try inspectSequence(keywordOutput).selection == branch, "keyword output lost selection/reference")
+        let keywordRecipe = try JSONDecoder().decode(FITSKeywordEdit.self, from: Data(contentsOf: keywordJob.appendingPathComponent("keywords.json")))
+        try require(keywordRecipe == keywordEdit, "keyword sequence recipe not saved")
+        let keywordPaths = try sequenceFilePaths(keywordOutput)
+        for i in 0..<3 {
+            let url = try sequenceTrashPath(keywordPaths[i + 1], under: keywordJob)
+            let metadata = try await reader.open(url)
+            try require(branch.included[i] ? metadata.object == keywordEdit.value : metadata.object != keywordEdit.value, "keyword edit ignored frame selection")
+            let originalURL = try sequenceTrashPath(keywordSourcePaths[i + 1], under: job.folder)
+            let outputPixels = try await pixels(url), inputPixels = try await pixels(originalURL)
+            try require(outputPixels == inputPixels, "keyword sequence changed pixels")
+        }
+        for (i, path) in keywordSourcePaths.enumerated() {
+            try require(try Data(contentsOf: sequenceTrashPath(path, under: job.folder)) == keywordSourceBytes[i], "keyword sequence changed source file bytes")
+        }
+        keywordEdit.action = .delete; keywordEdit.key = "NOEXIST"
+        var keywordFailed = false
+        do { _ = try editSequenceFITSKeywords(location, edit: keywordEdit) } catch { keywordFailed = true }
+        try require(keywordFailed, "failed original keyword worker reported success")
+        let keywordFailures = jobHistory().filter { $0.info.state == "编辑失败或取消" }
+        for failed in keywordFailures {
+            let root = documents.appendingPathComponent("Jobs").appendingPathComponent(failed.id)
+            try require(try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("process").path).isEmpty, "failed keyword job retained partial sequence")
+        }
         guard let task = jobHistory().first(where: { $0.id == location.job }) else { throw EngineError.failed("Sequence task history missing") }
         try require(task.results.contains(all) && task.results.contains(subset), "restacks absent from task results")
         try trashJob(task)

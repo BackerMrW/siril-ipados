@@ -41,6 +41,11 @@ int siril_sequence_files(const char *directory, const char *name, char *output,
  * owns transactional backup/undo; this never deletes or changes FITS pixels. */
 int siril_sequence_select(const char *directory, const char *name, const uint8_t *included,
     size_t count, int reference, char *error, size_t error_size);
+/* Original selected-frame keyword worker. Mutates files in directory; callers
+ * must provide a private copy and discard all results after failure. */
+int siril_sequence_edit_keyword(const char *directory, const char *name, int action,
+    const char *key, const char *value, const char *comment, int string_value,
+    char *error, size_t error_size);
 typedef struct {
     double x, y, median[3]; /* displayed coordinates, origin at top left */
     uint32_t size;

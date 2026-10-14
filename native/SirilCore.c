@@ -784,31 +784,38 @@ static int embedded_fits_text_valid(const char *value) {
     for (const unsigned char *p = (const unsigned char *)value; *p; p++) if (*p < 32 || *p > 126) return 0;
     return 1;
 }
-SirilImage *siril_image_edit_keyword(SirilImage *image, int action, const char *key,
-    const char *value, const char *comment, int string_value, char *error, size_t error_size) {
-    if (error && error_size) *error = 0;
-    if (!image || action < 0 || action > 3) return NULL;
-    g_mutex_lock(&engine_mutex);
-    SirilImage *result = NULL;
-    if ((action != 3 && !embedded_keyword_valid(key, &image->fit)) ||
-        (action == 2 && !embedded_keyword_valid(value, &image->fit))) goto done;
+static int embedded_keyword_format(fits *fit, int action, const char *key,
+    const char *value, const char *comment, int string_value, char formatted[FLEN_VALUE]) {
+    if (action < 0 || action > 3 ||
+        (action != 3 && !embedded_keyword_valid(key, fit)) ||
+        (action == 2 && !embedded_keyword_valid(value, fit))) return 0;
     if (!embedded_fits_text_valid(value) || !embedded_fits_text_valid(comment) ||
         (value && strlen(value) > 68) || (comment && strlen(comment) > 70) ||
-        (action == 0 && !value) || (action == 3 && (!comment || !*comment))) goto done;
-    char formatted[FLEN_VALUE] = {0};
+        (action == 0 && !value) || (action == 3 && (!comment || !*comment))) return 0;
+    memset(formatted, 0, FLEN_VALUE);
     if (action == 0) {
         if (string_value) {
             size_t escaped = strlen(value);
             for (const char *p = value; *p; p++) if (*p == '\'') escaped++;
-            if (escaped > 68) goto done;
+            if (escaped > 68) return 0;
         }
         process_keyword_string_value(value, formatted, string_value != 0);
-        if (strlen(formatted) + (comment ? strlen(comment) + 3 : 0) + 11 > 80) goto done;
+        if (strlen(formatted) + (comment ? strlen(comment) + 3 : 0) + 11 > 80) return 0;
         char template[FLEN_CARD], card[FLEN_CARD]; int kind = 0, status = 0;
         snprintf(template, sizeof template, "%s = %s%s%s", key, formatted, comment ? " / " : "", comment ? comment : "");
         fits_parse_template(template, card, &kind, &status);
-        if (status || kind != 0) goto done;
+        if (status || kind != 0) return 0;
     }
+    return 1;
+}
+SirilImage *siril_image_edit_keyword(SirilImage *image, int action, const char *key,
+    const char *value, const char *comment, int string_value, char *error, size_t error_size) {
+    if (error && error_size) *error = 0;
+    if (!image) return NULL;
+    g_mutex_lock(&engine_mutex);
+    SirilImage *result = NULL;
+    char formatted[FLEN_VALUE];
+    if (!embedded_keyword_format(&image->fit, action, key, value, comment, string_value, formatted)) goto done;
     result = g_try_new0(SirilImage, 1);
     if (!result) goto done;
     if (copyfits(&image->fit, &result->fit, CP_ALLOC | CP_DEEPCOPY, 0) ||
@@ -819,6 +826,46 @@ SirilImage *siril_image_edit_keyword(SirilImage *image, int action, const char *
 done:
     if (!result && error && error_size) snprintf(error, error_size, "Keyword edit failed: invalid/protected key, invalid value or original FITS error");
     g_mutex_unlock(&engine_mutex); return result;
+}
+extern int siril_ipados_sequence_keywords(sequence *, struct keywords_data *);
+int siril_sequence_edit_keyword(const char *directory, const char *name, int action,
+    const char *key, const char *value, const char *comment, int string_value,
+    char *error, size_t error_size) {
+    g_mutex_lock(&engine_mutex);
+    initialize();
+    g_atomic_int_set(&cancel_requested, 0);
+    g_mutex_lock(&log_mutex);
+    if (processing_log) g_string_truncate(processing_log, 0);
+    g_mutex_unlock(&log_mutex);
+    int ok = 0;
+    sequence *seq = embedded_sequence(directory, name, error, error_size);
+    if (!seq) goto done;
+    /* The original worker edits its inputs. The App supplies a private job
+     * copy; regular workers retain selection and registration. */
+    if (seq->type != SEQ_REGULAR || seq->selnum < 1) goto free_seq;
+    fits validation = {0};
+    int first = 0;
+    while (first < seq->number && !seq->imgparam[first].incl) first++;
+    char formatted[FLEN_VALUE];
+    int valid = first < seq->number && !seq_read_frame(seq, first, &validation, TRUE, -1) &&
+        embedded_keyword_format(&validation, action, key, value, comment, string_value, formatted);
+    clearfits(&validation);
+    if (!valid) goto free_seq;
+    struct keywords_data *args = g_try_new0(struct keywords_data, 1);
+    if (!args) goto free_seq;
+    args->FITS_key = action == 3 ? NULL : g_strdup(key);
+    args->newkey = action == 2 ? g_strdup(value) : NULL;
+    args->value = action == 0 ? g_strdup(formatted) : NULL;
+    args->comment = action == 0 || action == 3 ? g_strdup(comment) : NULL;
+    /* Original hooks own args and seq, even when a worker cannot start. */
+    ok = siril_ipados_sequence_keywords(seq, args) && !g_atomic_int_get(&cancel_requested);
+    goto done;
+free_seq:
+    free_sequence(seq, TRUE);
+done:
+    if (!ok && error && error_size && !error[0]) snprintf(error, error_size, "Original sequence keyword edit failed: invalid/protected key, write error or cancellation");
+    g_mutex_unlock(&engine_mutex);
+    return ok;
 }
 static int preview_locked(fits *fit, uint32_t max_dimension, int selected_channel, int automatic, SirilPreview *preview) {
     if (!fit || !preview || !max_dimension || max_dimension > 2048 || selected_channel < -1 || selected_channel >= fit->naxes[2]) return 0;

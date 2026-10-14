@@ -186,6 +186,9 @@ struct SequenceWorkspace: View {
                     }
                 }
                 Section("任务存储") {
+                    NavigationLink("编辑参与帧 FITS 关键字") {
+                        FITSKeywordEditorView(files: [], engine: engine, onOutput: onPreview, sequence: currentLocation)
+                    }
                     NavigationLink("输出删除与恢复") { SequenceOutputManagementView(job: currentLocation.job, engine: engine, onPreview: onPreview) }
                     Button("删除本任务及全部序列", role: .destructive) { showDelete = true }
                     Text("移入最近删除后可以恢复。任务的输入副本、所有配准输出和 Drizzle 权重会一并移动；图库原图独立保留。永久删除后释放空间。")

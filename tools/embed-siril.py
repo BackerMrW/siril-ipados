@@ -6,6 +6,52 @@ import re
 
 root = Path.cwd()
 source = root / "siril-src"
+# Keep the original sequence keyword hooks and surface failed updates/writes.
+# The typed bridge bypasses shell quoting and stops on the first failed frame.
+keywords = source / "src/io/fits_keywords.c"
+text = keywords.read_text()
+needle = '\t\t\tsavefits(root, fit);'
+assert text.count(needle) == 1
+text = text.replace(needle, '\t\t\tretval = savefits(root, fit);')
+start = text.index('static int keywords_image_hook(')
+end = text.index('static int keywords_finalize_hook(', start)
+body = text[start:end]
+assert body.count('\treturn 0;') == 1
+needle = 'fit_sequence_get_image_filename(arg->seq, i, root, FALSE)'
+assert body.count(needle) == 1
+body = body.replace(needle, 'fit_sequence_get_image_filename_checkext(arg->seq, i, root)')
+text = text[:start] + body.replace('\treturn 0;', '\treturn retval;') + text[end:]
+needle = '\tif (!arg->retval)\n\t\twriteseqfile(arg->seq);'
+assert text.count(needle) == 1
+text = text.replace(needle, '\tif (!arg->retval)\n\t\tretval = writeseqfile(arg->seq);')
+text += r'''
+
+#include "core/processing_thread.h"
+int siril_ipados_sequence_keywords(sequence *seq, struct keywords_data *data) {
+    struct generic_seq_args *args = create_default_seqargs(seq);
+    args->filtering_criterion = seq_filter_included;
+    args->nb_filtered_images = seq->selnum;
+    args->stop_on_error = TRUE;
+    args->parallel = FALSE;
+    args->prepare_hook = keywords_prepare_hook;
+    args->image_hook = keywords_image_hook;
+    args->finalize_hook = keywords_finalize_hook;
+    args->idle_function = end_keywords_sequence;
+    args->has_output = FALSE;
+    args->output_type = get_data_type(seq->bitpix);
+    args->description = "keywords update";
+    args->user = data;
+    waiting_for_thread();
+    if (!start_in_new_thread(generic_sequence_worker, args)) {
+        free(data->FITS_key); free(data->newkey);
+        free(data->value); free(data->comment); free(data);
+        free_generic_seq_args(args, TRUE);
+        return 0;
+    }
+    return GPOINTER_TO_INT(waiting_for_thread()) == 0;
+}
+'''
+keywords.write_text(text)
 directories = source / "src/core/siril_app_dirs.c"
 text = directories.read_text()
 needle = 'static void search_for_spcc_repo_dir() {\n'
