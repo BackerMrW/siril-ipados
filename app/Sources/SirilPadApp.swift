@@ -401,6 +401,12 @@ struct ContentView: View {
                             files += imported; try await engine.saveLibrary(files)
                             if let amplitude = imported.last { await loadPreview(amplitude); nativeTool = .fftInverse }
                         } catch { errors = error.localizedDescription }
+                    } else if ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_SECTION"] == "icc-plot" {
+                        do {
+                            let rgb = try await engine.makeICCPlotFixture()
+                            files.append(rgb); try await engine.saveLibrary(files)
+                            await loadPreview(rgb); nativeTool = .colorManagement
+                        } catch { errors = error.localizedDescription }
                     } else { await loadPreview(file); nativeTool = .ghs }
                 }
                 if ProcessInfo.processInfo.environment["SIRIL_BATCH_VIEW_CHECK"] == "1" { showProcessing = true }

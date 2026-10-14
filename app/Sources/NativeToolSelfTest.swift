@@ -3,6 +3,27 @@ import Foundation
 import SirilCore
 
 extension SirilEngine {
+    func makeICCPlotFixture() throws -> FITSRecord {
+        let width = 48, height = 48
+        let cards = ["SIMPLE  =                    T", "BITPIX  =                  -32", "NAXIS   =                    3",
+                     "NAXIS1  =                   48", "NAXIS2  =                   48", "NAXIS3  =                    3", "END"]
+        let header = cards.map { $0.padding(toLength: 80, withPad: " ", startingAt: 0) }.joined().padding(toLength: 2880, withPad: " ", startingAt: 0)
+        var bytes = Data(header.utf8)
+        for channel in 0..<3 { for row in 0..<height { for x in 0..<width {
+            let y = height - 1 - row
+            let value = channel == 0 ? 0.1 + 0.65 * Double(x) / Double(width - 1) :
+                channel == 1 ? 0.15 + 0.55 * Double(y) / Double(height - 1) : 0.3
+            var encoded = Float(value).bitPattern.bigEndian
+            withUnsafeBytes(of: &encoded) { bytes.append(contentsOf: $0) }
+        } } }
+        bytes.append(contentsOf: repeatElement(UInt8(0), count: (2880 - bytes.count % 2880) % 2880))
+        let url = documents.appendingPathComponent(UUID().uuidString + "-icc-rgb.fits")
+        try bytes.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let file = try importFile(url)
+        guard file.channels == 3 else { throw EngineError.failed("ICC plot fixture is not RGB") }
+        return file
+    }
     func nativeToolSelfTest() async throws {
         func require(_ ok: Bool, _ text: String) throws { if !ok { throw EngineError.failed("Native tools: " + text) } }
         let fm = FileManager.default
@@ -552,8 +573,9 @@ extension SirilEngine {
         try require(try Data(contentsOf: file.url) == sourceBytes, "Keyword edits changed original source")
         checkpoint("PASS: native batch FITS keyword editing preserved exact pixels/source, persisted its recipe and rolled back every output on a partial failure")
         keywordEdit.action = .set; keywordEdit.key = "MASKID"; keywordEdit.value = "Masked keyword result"; keywordEdit.stringValue = true
-        let maskSourceBytes = try Data(contentsOf: saved.url.appendingPathExtension("mask.fits"))
-        let maskedKeywordOutputs = try editFITSKeywords([saved], edit: keywordEdit)
+        let keywordSource = maskedICCRecord
+        let maskSourceBytes = try Data(contentsOf: keywordSource.url.appendingPathExtension("mask.fits"))
+        let maskedKeywordOutputs = try editFITSKeywords([keywordSource], edit: keywordEdit)
         let maskedKeywordJob = maskedKeywordOutputs[0].deletingLastPathComponent().deletingLastPathComponent()
         try require(try Data(contentsOf: maskedKeywordOutputs[0].appendingPathExtension("mask.fits")) == maskSourceBytes &&
             Data(contentsOf: maskedKeywordJob.appendingPathComponent("input-mask_00001.fits")) == maskSourceBytes, "keyword editing lost output or source mask bytes")
@@ -570,7 +592,7 @@ extension SirilEngine {
         do { _ = try editFITSKeywords([maskedKeywordRecord, file], edit: keywordEdit) } catch { rejected = true }
         let failedMaskedTasks = jobHistory().filter { !priorMaskedTasks.contains($0.id) }
         try require(rejected && failedMaskedTasks.count == 1 && (try resultFiles(in: failedMaskedTasks[0].folder)).isEmpty, "failed masked keyword edit retained a partial image or mask")
-        try require(try Data(contentsOf: saved.url.appendingPathExtension("mask.fits")) == maskSourceBytes, "keyword edit changed source mask bytes")
+        try require(try Data(contentsOf: keywordSource.url.appendingPathExtension("mask.fits")) == maskSourceBytes, "keyword edit changed source mask bytes")
         checkpoint("PASS: FITS keyword editing retained exact saved mask companions/input snapshots and reopened unchanged mask weights/pixels; failed batches removed image and mask outputs")
         for job in jobs {
             guard let task = jobHistory().first(where: { $0.id == job.folder.lastPathComponent }) else { throw EngineError.failed("Tool task missing") }

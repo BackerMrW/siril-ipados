@@ -67,6 +67,11 @@ static void capture_log(const char *message, const char *color) {
 static void embedded_quit(void) {
     capture_log("Desktop exit is unavailable inside an iPad App.\n", NULL);
 }
+static void embedded_delete_selection(void) {
+    /* Worker callbacks run inside the embedding's serialized processing.
+     * The headless GUI stub otherwise leaves boxselect -clear ineffective. */
+    memset(&com.selection, 0, sizeof com.selection);
+}
 
 static void initialize(void) {
     if (g_once_init_enter(&initialized)) {
@@ -91,6 +96,7 @@ static void initialize(void) {
         g_free(initialize_converters());
         gui_iface.log_message = capture_log;
         gui_iface.quit_application = embedded_quit;
+        gui_iface.delete_selection = embedded_delete_selection;
         initialize_profiles_and_transforms();
         g_once_init_leave(&initialized, 1);
     }

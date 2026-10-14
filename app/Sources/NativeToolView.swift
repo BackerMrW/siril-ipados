@@ -348,7 +348,11 @@ struct NativeToolView: View {
                     maskImage = try await session.preview(view: 4, channel: -1, automatic: false).uiImage
                 }
                 view = section == "deconv-psf" ? 4 : section == "fft-phase" ? 3 : section == "masks" ? 2 : section == "geometry" ? 0 : 1; validPreview = true
-                if section == "icc-plot" { iccDiagram = try ICCChromaticity(data: await session.iccProfile(view: 1)) }
+                if section == "icc-plot" {
+                    let diagram = try ICCChromaticity(data: await session.iccProfile(view: 1))
+                    guard file.channels == 3, diagram.channels == 3 else { throw EngineError.failed("RGB ICC diagram fixture missing") }
+                    iccDiagram = diagram
+                }
                 if section == "geometry" { region = ImageSelection(x: 16, y: 24, width: 96, height: 80); selecting = true }
                 guard originalImage != nil, resultImage != nil, section != "masks" || maskImage != nil else { throw EngineError.failed("Native tool preview image missing") }
                 try? await Task.sleep(for: .milliseconds(500))

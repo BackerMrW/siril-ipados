@@ -648,6 +648,16 @@ int main(int argc, char **argv) {
     CHECK(jxl_reference_checks(argv[1]) == 0);
     CHECK(heif_reference_checks(argv[1]) == 0);
     CHECK(keyword_reference_checks(image, argv[1]) == 0);
+    SirilImage *cleared_roi = siril_tool_compute(argv[1],
+        "load light.fits\nboxselect 0 0 1 1\nboxselect -clear\ncrop 0 0 2 2\n", error, sizeof error);
+    CHECK(cleared_roi);
+    SirilImageInfo roi_info; CHECK(siril_image_info(cleared_roi, &roi_info));
+    CHECK(roi_info.width == 2 && roi_info.height == 2);
+    for (int y = 0; y < 2; y++) for (int x = 0; x < 2; x++) {
+        float a[3], b[3]; CHECK(siril_image_pixel(image, x, y, a) == 1 && siril_image_pixel(cleared_roi, x, y, b) == 1 && a[0] == b[0]);
+    }
+    siril_image_free(cleared_roi);
+    puts("PASS: original boxselect clear removed the selected ROI before explicit full-frame crop, preserving every source pixel");
     CHECK(display_reference_checks(image) == 0);
     CHECK(display_rgb_reference(argv[1]) == 0);
     CHECK(icc_reference_checks(argv[1]) == 0);
