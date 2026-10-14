@@ -48,6 +48,10 @@ extension SirilEngine {
             try measurePatternRegistration(source, recipe: recipe)
             let measured = try inspectSequence(source)
             try require(measured.selection == selection && measured.frames[0].native.has_registration != 0 && measured.frames[1].native.has_registration == 0 && measured.frames[2].native.has_registration != 0, "\(method) selection/reference and excluded-frame matrices")
+            for frame in measured.frames.filter(\.included) {
+                try require(frame.value(.quality) == frame.native.quality && (0...1).contains(frame.native.quality), "\(method) normalized quality endpoint omitted from graph")
+            }
+            try require(measured.frames[1].value(.quality) == nil, "excluded unmeasured frame has a plotted quality")
             // H maps the displaced frame into the reference in displayed
             // coordinates: input (-4,+5) needs correction (+4,-5).
             try require(abs(measured.frames[2].native.translation_x - 4) < 0.35 && abs(measured.frames[2].native.translation_y + 5) < 0.35, "\(method) independent known integer shift: \(measured.frames[2].native.translation_x),\(measured.frames[2].native.translation_y)")
