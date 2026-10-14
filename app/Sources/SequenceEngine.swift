@@ -26,8 +26,11 @@ struct SequenceFrame: Identifiable, Sendable {
         case .round: value = reg && native.roundness > 0 ? native.roundness : nil
         case .background: value = reg ? native.background : nil
         case .stars: value = reg && native.stars > 0 ? Double(native.stars) : nil
-        // Original DFT/KOMBAT normalization includes zero as its worst score.
-        case .quality: value = reg && native.quality >= 0 ? native.quality : nil
+        // Image-pattern methods normalize to [0,1]; stellar alignment records
+        // FWHM/stars but does not calculate the image-pattern quality field.
+        case .quality:
+            let pattern = native.fwhm == 0 && native.stars == 0
+            value = reg && native.quality >= 0 && (native.quality != 0 || pattern) ? native.quality : nil
         case .xShift: value = reg ? native.translation_x : nil
         case .yShift: value = reg ? native.translation_y : nil
         case .mean: value = stats ? native.mean : nil

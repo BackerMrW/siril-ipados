@@ -288,6 +288,9 @@ extension SirilEngine {
         try require(try inspectSequence(source).selection == selection, "two-pass analysis overrode explicit reference")
         let measuredBytes = try Data(contentsOf: process.appendingPathComponent(source.name))
         let measuredSnapshot = try inspectSequence(source)
+        for frame in measuredSnapshot.frames where frame.native.has_registration != 0 && frame.native.quality == 0 {
+            try require(frame.value(.quality) == nil, "stellar registration plotted an unmeasured zero quality")
+        }
         var registrationKeyword = FITSKeywordEdit(); registrationKeyword.key = "OBJECT"; registrationKeyword.value = "Registered sequence"
         let keywordSequence = try editSequenceFITSKeywords(source, edit: registrationKeyword)
         let keywordJob = try sequenceFolder(keywordSequence).deletingLastPathComponent()

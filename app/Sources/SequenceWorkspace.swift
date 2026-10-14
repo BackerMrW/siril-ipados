@@ -279,7 +279,8 @@ struct SequenceWorkspace: View {
                     selectingCrop = true
                     try? await Task.sleep(for: .milliseconds(400)); proxy.scrollTo("sequence-crop", anchor: .center)
                 }
-                if section == "pattern", let snapshot {
+                if ["pattern", "pattern-kombat"].contains(section), let snapshot {
+                    patternMethod = section == "pattern-kombat" ? .kombat : .dft
                     let side = max(8, min(Int(snapshot.info.width), Int(snapshot.info.height)) / 2)
                     patternRegion = ImageSelection(x: (Int(snapshot.info.width) - side) / 2,
                         y: (Int(snapshot.info.height) - side) / 2, width: side, height: side)

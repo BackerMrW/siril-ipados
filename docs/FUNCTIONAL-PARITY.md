@@ -31,7 +31,7 @@
 | win.pickstar | Pick a Star | 待移植或待逐项验证 |
 | win.crop | Crop | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.rotation-processing | Rotate & Crop | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
-| win.seq-crop | Crop Sequence... | 普通/FITSEQ 原版参与帧裁剪、矩形选区、参考帧映射、撤销/回滚已在两个 SDK 整轮验证；Drizzle 权重补充待执行，真机未验收 |
+| win.seq-crop | Crop Sequence... | 普通/FITSEQ/Drizzle 参与帧裁剪、矩形选区、参考帧、权重/加权叠加及撤销/回滚已随1e36552两个 SDK 整轮通过；真机未验收 |
 | win.mask_from_image | Mask from current image | 待移植或待逐项验证 |
 | win.mask_from_color | Mask from color | 待移植或待逐项验证 |
 | win.mask_from_stars | Mask from stars | 待移植或待逐项验证 |
@@ -42,9 +42,9 @@
 | win.set_roi | Set ROI to selection | 待移植或待逐项验证 |
 | win.clear_roi | Clear ROI | 待移植或待逐项验证 |
 | win.align-global | 2-pass global star alignment (deep-sky) | 原版两遍全局星点配准、Drizzle / Bayer Drizzle 与实际应用已接入（畸变与外部参考仍待接入） |
-| win.align-kombat | KOMBAT alignment (planetary/deep-sky) | 原版参考帧图案匹配、矩形选区、5–100%移动范围、参与帧矩阵/质量与失败元数据恢复已接入；已知平移/实际应用补充待 Apple 执行 |
+| win.align-kombat | KOMBAT alignment (planetary/deep-sky) | 原版矩形图案、5–100%移动范围、矩阵/参考帧、实际应用像素与失败元数据恢复已随1e36552整轮通过；真机未验收 |
 | win.align-psf | One star registration (deep-sky) | 待移植或待逐项验证 |
-| win.align-dft | Image pattern alignment (planetary/deep-sky) | 原版 DFT、正方形选区、参考/排除帧、矩阵/质量与失败元数据恢复已接入；已知平移/实际应用补充待 Apple 执行 |
+| win.align-dft | Image pattern alignment (planetary/deep-sky) | 原版 DFT、正方形选区、参考/排除帧、独立矩阵及实际应用像素与失败元数据恢复已随1e36552整轮通过；真机未验收 |
 | win.autostretch_mask | Autostretch Mask | 待移植或待逐项验证 |
 | win.threshold_mask | Apply Thresholds to Mask | 待移植或待逐项验证 |
 | win.blur_mask | Blur Mask | 待移植或待逐项验证 |
@@ -56,7 +56,7 @@
 | win.remove-green-processing | Remove Green Noise... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.negative-processing | Negative Transformation | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.background-extr-processing | Background Extraction... | 交互界面与序列应用已接入（真机大图验证待完成） |
-| win.linearmatch-processing | Linear Match... | 原版逐通道拟合、参考图/上下限、私有结果/输入快照与历史已接入；独立全像素与失败拒绝补充待 Apple 执行，真机未验收 |
+| win.linearmatch-processing | Linear Match... | 原版参考图/上下限、单色/RGB全像素拟合、私有结果/重放、历史与失败拒绝已随1e36552整轮通过；真机未验收 |
 | win.pixel-math | Pixel Math... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.asinh-processing | Asinh Transformation... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.curves-processing | Curves Transformation... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
@@ -83,7 +83,7 @@
 | win.fft-processing | Fourier Transform... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.medianfilter-processing | Median Filter... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.denoise-processing | Noise Reduction... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
-| win.rgradient-processing | Rotational Gradient... | 原版极坐标差分、中心/径向/旋转参数、选区 Gaussian 中心拟合、蒙版及私有结果/历史已接入；独立全像素和原生页待 Apple 执行，真机未验收 |
+| win.rgradient-processing | Rotational Gradient... | 原版极坐标差分、中心/径向/旋转参数、Gaussian中心拟合、全RGB像素/三深度蒙版/历史与原生页已随1e36552整轮通过；真机未验收 |
 | win.unpurple-processing | Unpurple Filter... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.rotation90-processing | Rotate 90 degrees, clockwise | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.rotation270-processing | Rotate 90 degrees, counter-clockwise | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
@@ -100,7 +100,7 @@
 | win.astrometry | Image Plate Solver... | 原版解算工作区/参数/历史已接入，独立 TAN 星表、中心/比例及 WCS FITS 往返通过；远程星表/真机待验收 |
 | win.annotate-dialog | Annotate... | 待移植或待逐项验证 |
 | win.statistics | Statistics... | 原版单张/选区/CFA 和序列统计已接入（测光等仍待接入） |
-| win.evaluate-noise | Noise Estimation | 原版稳健背景噪声已接入统计、选区/CFA及复制报告；独立 Gaussian RGB/8/16位幅度、渐变与源像素补充待 Apple 执行，真机未验收 |
+| win.evaluate-noise | Noise Estimation | 原版统计/选区/CFA和复制报告、独立Gaussian RGB/8/16位噪声幅度、渐变与源像素检查已随1e36552整轮通过；真机未验收 |
 | win.ccd-inspector | Aberration Inspector | 待移植或待逐项验证 |
 | win.show-tilt | Show Tilt | 待移植或待逐项验证 |
 | win.show-disto | Show Distortions | 待移植或待逐项验证 |
