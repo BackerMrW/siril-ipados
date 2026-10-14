@@ -1,4 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+static int keyword_comment_present(fitsfile *file, const char *text) {
+    int status = 0, count = 0;
+    char card[FLEN_CARD];
+    fits_get_hdrspace(file, &count, NULL, &status);
+    for (int i = 1; !status && i <= count; i++) {
+        fits_read_record(file, i, card, &status);
+        if (!status && !strncmp(card, "COMMENT ", 8) && strstr(card, text)) return 1;
+    }
+    return 0;
+}
 static int keyword_reference_checks(SirilImage *original, const char *directory) {
     char error[512], output[4096];
     size_t length = siril_image_copy_header(original, NULL, 0);
@@ -69,6 +79,7 @@ static int keyword_reference_checks(SirilImage *original, const char *directory)
         fits_read_key(file, TDOUBLE, "TARGID", &number, NULL, &status);
         if (i == 2) { CHECK(status == KEY_NO_EXIST); status = 0; }
         else { CHECK(!status && number == 42.5); fits_read_key(file, TSTRING, "OBJECT", text, NULL, &status); CHECK(!status && !strcmp(text, "O'Brien sequence")); }
+        CHECK(keyword_comment_present(file, "Sequence keyword check") == (i != 2));
         fits_close_file(file, &status); CHECK(!status);
         SirilImage *frame = siril_sequence_frame(sequence_dir, "k_.seq", i - 1, error, sizeof error); CHECK(frame);
         for (int y = 0; y < 2; y++) for (int x = 0; x < 2; x++) {
@@ -125,9 +136,17 @@ static int keyword_reference_checks(SirilImage *original, const char *directory)
         fits_read_key(file, TDOUBLE, "SEQNEW", &number, NULL, &status);
         if (i == 1) { CHECK(status == KEY_NO_EXIST); status = 0; }
         else { CHECK(!status && number == 42.5); fits_read_key(file, TSTRING, "OBJECT", text, NULL, &status); CHECK(!status && !strcmp(text, "O'Brien FITSEQ")); }
+        CHECK(keyword_comment_present(file, "FITSEQ comment") == (i != 1));
     }
     fits_close_file(file, &status); CHECK(!status);
     CHECK(siril_sequence_edit_keyword(sequence_dir, "multi.seq", 1, "SEQNEW", NULL, NULL, 0, error, sizeof error));
+    status = 0; file = NULL; fits_open_file(&file, output, READONLY, &status);
+    for (int i = 0; i < 3; i++) {
+        double number = 0; fits_movabs_hdu(file, i + 1, NULL, &status);
+        fits_read_key(file, TDOUBLE, "SEQNEW", &number, NULL, &status); CHECK(status == KEY_NO_EXIST);
+        status = 0;
+    }
+    fits_close_file(file, &status); CHECK(!status);
     CHECK(!siril_sequence_edit_keyword(sequence_dir, "multi.seq", 0, "NAXIS1", "7", NULL, 0, error, sizeof error));
     CHECK(!siril_sequence_edit_keyword(sequence_dir, "multi.seq", 1, "NOEXIST", NULL, NULL, 0, error, sizeof error));
     CHECK(siril_sequence_inspect(sequence_dir, "multi.seq", 0, &sequence_info, frames, 3, error, sizeof error) == 3);
