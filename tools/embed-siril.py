@@ -59,6 +59,26 @@ int siril_ipados_sequence_keywords(sequence *seq, struct keywords_data *data) {
 }
 '''
 keywords.write_text(text)
+# CFITSIO can offer reader handles even when Siril has no OpenMP. The
+# upstream metadata reader rejected this valid single-thread configuration.
+sequence_io = source / "src/io/sequence.c"
+text = sequence_io.read_text()
+start = text.index('int seq_read_frame_metadata(')
+end = text.index('int seq_read_frame_date(', start)
+body = text[start:end]
+needle = '''#ifdef _OPENMP
+\t\t\t\tint thread_id = omp_get_thread_num();'''
+assert body.count(needle) == 1
+body = body.replace(needle, '''\t\t\t\tint thread_id = 0;
+#ifdef _OPENMP
+\t\t\t\tthread_id = omp_get_thread_num();
+#endif''')
+needle = '''#else
+\t\t\t\treturn 1;
+#endif'''
+assert body.count(needle) == 1
+body = body.replace(needle, '')
+sequence_io.write_text(text[:start] + body + text[end:])
 directories = source / "src/core/siril_app_dirs.c"
 text = directories.read_text()
 needle = 'static void search_for_spcc_repo_dir() {\n'
