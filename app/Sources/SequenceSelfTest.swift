@@ -420,6 +420,12 @@ extension SirilEngine {
         try require(try Data(contentsOf: process.appendingPathComponent(drizzled.name)) == drizzleSequenceBytes, "Drizzle crop changed source sequence")
         for (i, url) in weightURLs.enumerated() { try require(try Data(contentsOf: url) == preservedCropWeightBytes[i], "Drizzle crop changed source weights") }
         for (i, url) in outputURLs.enumerated() { try require(try Data(contentsOf: url) == preservedDrizzleBytes[i], "Drizzle crop changed source image") }
+        var parentCropRejected = false
+        do { _ = try trashSequenceOutput(drizzled) } catch { parentCropRejected = true }
+        try require(parentCropRejected, "cropped Drizzle result did not protect its input sequence")
+        let cropTrash = try trashSequenceOutput(croppedDrizzle)
+        try permanentlyDeleteTrash([cropTrash])
+        try require(!sequenceLocations(job: source.job).contains(croppedDrizzle), "cropped Drizzle fixture retained after permanent cleanup")
         let stacked = try stackSequence(drizzled, options: options, layer: 1)
         let actual = try floats(stacked)
         for channel in 0..<3 {
