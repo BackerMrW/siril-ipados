@@ -66,6 +66,10 @@ struct SequenceWorkspace: View {
     @State private var showOutputs = false
     @State private var selectingCrop = false
     @State private var cropRegion: ImageSelection?
+    @State private var patternMethod: SequencePatternMethod = .dft
+    @State private var patternMoved = 25.0
+    @State private var selectingPattern = false
+    @State private var patternRegion: ImageSelection?
     @State private var resultStatus: SequenceResultStatus?
     @State private var backgroundSource: SequenceLocation?
     private var currentLocation: SequenceLocation { resultStatus?.history.current ?? location }
@@ -150,6 +154,33 @@ struct SequenceWorkspace: View {
                     }.buttonStyle(.borderless)
                 }
                 qualityPlot(snapshot).id("sequence-quality")
+                Section("图像图案配准") {
+                    BatchPicker(title: "方法", value: $patternMethod)
+                    Toggle("在参考帧拖动选择图案", isOn: $selectingPattern)
+                    if let patternRegion { Text(patternRegion.description).textSelection(.enabled) }
+                    Button("清除图案选区") { patternRegion = nil; selectingPattern = false }
+                    Button("使用居中正方形选区") {
+                        let side = max(8, min(Int(snapshot.info.width), Int(snapshot.info.height)) / 2)
+                        patternRegion = ImageSelection(x: (Int(snapshot.info.width) - side) / 2,
+                            y: (Int(snapshot.info.height) - side) / 2, width: side, height: side)
+                        selectingPattern = true
+                        index = snapshot.info.reference >= 0 ? Int(snapshot.info.reference) : snapshot.frames.first(where: \.included)?.id ?? 0
+                    }.disabled(min(snapshot.info.width, snapshot.info.height) < 8)
+                    if patternMethod == .kombat {
+                        Stepper("最大移动：\(Int(patternMoved))%", value: $patternMoved, in: 5...100, step: 1)
+                    }
+                    Button("测量参与帧图案配准") {
+                        guard let patternRegion else { return }
+                        perform {
+                            try await engine.measurePatternRegistration(currentLocation,
+                                recipe: SequencePatternRecipe(method: patternMethod, region: patternRegion, layer: layer, moved: patternMoved / 100))
+                            options.transform = .shift
+                            log = SirilEngine.processingLog(); await reload()
+                        }
+                    }.disabled(patternRegion == nil || snapshot.info.included < 2)
+                    Text("选区用于参考帧。DFT 需要正方形；KOMBAT 支持矩形。只测量平移矩阵与质量，原帧像素保留；完成后可在下方应用配准或叠加。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }.id("sequence-pattern")
                 Section("原版测量与处理") {
                     BatchPicker(title: "配准变换", value: $options.transform)
                     Stepper("最少匹配星对：\(options.minimumPairs)", value: $options.minimumPairs, in: 4...2000)
@@ -248,6 +279,13 @@ struct SequenceWorkspace: View {
                     selectingCrop = true
                     try? await Task.sleep(for: .milliseconds(400)); proxy.scrollTo("sequence-crop", anchor: .center)
                 }
+                if section == "pattern", let snapshot {
+                    let side = max(8, min(Int(snapshot.info.width), Int(snapshot.info.height)) / 2)
+                    patternRegion = ImageSelection(x: (Int(snapshot.info.width) - side) / 2,
+                        y: (Int(snapshot.info.height) - side) / 2, width: side, height: side)
+                    selectingPattern = true
+                    try? await Task.sleep(for: .milliseconds(400)); proxy.scrollTo("sequence-pattern", anchor: .center)
+                }
                 if section == "results" {
                     do {
                         let outputs = try await engine.sequenceOutputRecords(job: location.job)
@@ -288,6 +326,8 @@ struct SequenceWorkspace: View {
             }
         }
         .onChange(of: index) { _, _ in refreshPreview() }
+        .onChange(of: selectingCrop) { _, value in if value { selectingPattern = false; patternRegion = nil } }
+        .onChange(of: selectingPattern) { _, value in if value { selectingCrop = false; cropRegion = nil } }
         .onChange(of: channel) { _, _ in refreshPreview() }
         .onChange(of: displaySettings) { _, _ in refreshPreview() }
         .onChange(of: layer) { _, _ in Task { await reload() } }
@@ -339,7 +379,8 @@ struct SequenceWorkspace: View {
         Section("逐帧预览") {
             if let image {
                 ZoomableImageCanvas(image: image, samples: [], imageWidth: Double(snapshot.frames[index].native.width), imageHeight: Double(snapshot.frames[index].native.height),
-                    region: cropRegion, selecting: selectingCrop, onSelection: { cropRegion = $0 }, onTap: nil)
+                    region: patternRegion ?? cropRegion, selecting: selectingCrop || selectingPattern,
+                    onSelection: { if selectingPattern { patternRegion = $0 } else { cropRegion = $0 } }, onTap: nil)
                     .frame(height: 320).listRowInsets(EdgeInsets()).background(.black)
             } else { ProgressView("读取当前帧") }
             HStack {
@@ -389,6 +430,7 @@ struct SequenceWorkspace: View {
             index = 0; layer = 0; channel = -1; initializedLayer = false
             plotFrame = nil; from = 1; generated = nil; result = nil; export = nil
             cropRegion = nil; selectingCrop = false
+            patternRegion = nil; selectingPattern = false
         }
         resultStatus = status
         await reload(); to = snapshot?.frames.count ?? 1

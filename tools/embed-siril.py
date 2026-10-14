@@ -57,6 +57,12 @@ needle = '''\tstruct generic_img_args *ga = (struct generic_img_args *) p;
 \tstruct rgradient_data *args = (struct rgradient_data *) ga->user;'''
 assert text.count(needle) == 1
 rgradient.write_text(text.replace(needle, '\tstruct rgradient_data *args = (struct rgradient_data *) p;'))
+# A registration result is usable only if the original sequence writer succeeds.
+registration = source / "src/registration/registration.c"
+text = registration.read_text()
+needle = '\tif (!args->retval)\n\t\twriteseqfile(args->seq);'
+assert text.count(needle) == 1
+registration.write_text(text.replace(needle, '\tif (!args->retval)\n\t\targs->retval = writeseqfile(args->seq);'))
 # Keep the original sequence keyword hooks and surface failed updates/writes.
 # The typed bridge bypasses shell quoting and stops on the first failed frame.
 keywords = source / "src/io/fits_keywords.c"
@@ -336,7 +342,7 @@ body = body.replace(needle, '\t\tx1 = fit->rx;\n\t\ty1 = fit->ry;', 1)
 path.write_text(text[:start] + body)
 destination = source / "src/ipados"
 destination.mkdir(exist_ok=True)
-for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "SirilDisplay.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc", "heif-runtime-tests.inc", "keyword-runtime-tests.inc", "display-runtime-tests.inc", "icc-runtime-tests.inc", "display-icc-tests.inc", "display-overlay-tests.inc", "display-proof-tests.inc", "cmyk-proof-fixture.inc", "noise-runtime-tests.inc"):
+for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "SirilDisplay.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc", "heif-runtime-tests.inc", "keyword-runtime-tests.inc", "display-runtime-tests.inc", "icc-runtime-tests.inc", "display-icc-tests.inc", "display-overlay-tests.inc", "display-proof-tests.inc", "cmyk-proof-fixture.inc", "noise-runtime-tests.inc", "SirilPatternRegistration.inc"):
     shutil.copy2(root / "native" / name, destination / name)
 # Reuse the pinned desktop LUT arithmetic without GTK state or its UI cache.
 # The iPad bridge owns the image, level bounds, destination and STF parameters.

@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "registration/registration.h"
+int siril_sequence_pattern_register(const char *directory, const char *name,
+        int method, int layer, const SirilRegion *region, double moved,
+        char *error, size_t capacity) {
+    if (error && capacity) error[0] = 0;
+    g_mutex_lock(&engine_mutex); initialize();
+    g_atomic_int_set(&cancel_requested, 0);
+    g_mutex_lock(&log_mutex);
+    if (processing_log) g_string_truncate(processing_log, 0);
+    g_mutex_unlock(&log_mutex);
+    int ok = 0;
+    sequence *seq = embedded_sequence(directory, name, error, capacity);
+    if (!seq) goto done;
+    if (!region || method < 0 || method > 1 || layer < 0 || layer >= seq->nb_layers ||
+            seq->selnum < 2 || seq->is_variable || !isfinite(moved) || moved < 0 || moved > 1 ||
+            (method == 1 && moved < .05) ||
+            region->x < 0 || region->y < 0 || region->width < 8 || region->height < 8 ||
+            region->width > seq->rx || region->height > seq->ry ||
+            region->x > seq->rx - region->width || region->y > seq->ry - region->height ||
+            (method == 0 && region->width != region->height) ||
+            (double)seq->rx * seq->ry * 96 > (double)get_available_memory() * .8) {
+        if (error && capacity) snprintf(error, capacity, "Invalid pattern registration selection, layer or memory budget");
+        free_sequence(seq, TRUE); goto done;
+    }
+    if (seq->reference_image < 0) seq->reference_image = get_first_selected(seq);
+    if (seq->reference_image < 0 || seq->reference_image >= seq->number || !seq->imgparam[seq->reference_image].incl) {
+        if (error && capacity) snprintf(error, capacity, "Pattern registration reference is excluded");
+        free_sequence(seq, TRUE); goto done;
+    }
+    struct registration_args *args = calloc(1, sizeof *args);
+    if (!args) { free_sequence(seq, TRUE); goto done; }
+    args->seq = seq;
+    args->func = method == 0 ? register_shift_dft : register_kombat;
+    args->layer = layer; args->reference_image = seq->reference_image;
+    args->selection = (rectangle){region->x, region->y, region->width, region->height};
+    args->filters.filter_included = TRUE;
+    args->run_in_thread = TRUE; args->no_output = TRUE;
+    args->output_scale = 1; args->type = SHIFT_TRANSFORMATION;
+    args->percent_moved = moved;
+    waiting_for_thread();
+    if (!start_in_new_thread(register_thread_func, args)) {
+        free_sequence(seq, TRUE); free(args); goto done;
+    }
+    // Original register_thread_func owns and frees args and the loaded sequence.
+    ok = GPOINTER_TO_INT(waiting_for_thread()) == 0 && !g_atomic_int_get(&cancel_requested);
+done:
+    if (!ok && error && capacity && !*error) snprintf(error, capacity, "Pattern registration failed or cancelled; inspect processing log");
+    g_mutex_unlock(&engine_mutex);
+    return ok;
+}

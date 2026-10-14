@@ -516,6 +516,7 @@ struct ContentView: View {
             try await engine.batchSelfTest(files: batch)
             try await engine.drizzleSelfTest()
             try await engine.sequenceSelfTest()
+            try await engine.patternRegistrationSelfTest()
             try await engine.sequenceRegistrationSelfTest()
             try await engine.sequenceBackgroundSelfTest()
             try await engine.nativeToolSelfTest()

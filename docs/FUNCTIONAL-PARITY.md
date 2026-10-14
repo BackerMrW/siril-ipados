@@ -42,9 +42,9 @@
 | win.set_roi | Set ROI to selection | 待移植或待逐项验证 |
 | win.clear_roi | Clear ROI | 待移植或待逐项验证 |
 | win.align-global | 2-pass global star alignment (deep-sky) | 原版两遍全局星点配准、Drizzle / Bayer Drizzle 与实际应用已接入（畸变与外部参考仍待接入） |
-| win.align-kombat | KOMBAT alignment (planetary/deep-sky) | 待移植或待逐项验证 |
+| win.align-kombat | KOMBAT alignment (planetary/deep-sky) | 原版参考帧图案匹配、矩形选区、5–100%移动范围、参与帧矩阵/质量与失败元数据恢复已接入；已知平移/实际应用补充待 Apple 执行 |
 | win.align-psf | One star registration (deep-sky) | 待移植或待逐项验证 |
-| win.align-dft | Image pattern alignment (planetary/deep-sky) | 待移植或待逐项验证 |
+| win.align-dft | Image pattern alignment (planetary/deep-sky) | 原版 DFT、正方形选区、参考/排除帧、矩阵/质量与失败元数据恢复已接入；已知平移/实际应用补充待 Apple 执行 |
 | win.autostretch_mask | Autostretch Mask | 待移植或待逐项验证 |
 | win.threshold_mask | Apply Thresholds to Mask | 待移植或待逐项验证 |
 | win.blur_mask | Blur Mask | 待移植或待逐项验证 |

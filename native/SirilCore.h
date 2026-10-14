@@ -100,6 +100,11 @@ typedef struct {
 typedef struct {
     int32_t x, y, width, height; /* displayed top-left coordinates; NULL = full image */
 } SirilRegion;
+/* Original selected-frame pattern registration; modifies only sequence
+ * metadata. method 0 = DFT (square region), 1 = KOMBAT; moved is 0..1. */
+int siril_sequence_pattern_register(const char *directory, const char *name,
+    int method, int layer, const SirilRegion *region, double moved,
+    char *error, size_t capacity);
 typedef struct {
     uint64_t total, good;
     double mean, median, sigma, average_deviation, mad, sqrt_bwmv, minimum, maximum, norm;

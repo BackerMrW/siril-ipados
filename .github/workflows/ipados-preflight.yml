@@ -358,6 +358,7 @@ jobs:
           diagnostics/native-tools-icc*-simulator.png
           diagnostics/native-keyword-editor-simulator.png
           diagnostics/native-sequence-crop-simulator.png
+          diagnostics/native-sequence-pattern-simulator.png
           diagnostics/native-tools-linear-match-simulator.png
           diagnostics/native-tools-rotational-gradient-simulator.png
           diagnostics/native-analysis-simulator.png

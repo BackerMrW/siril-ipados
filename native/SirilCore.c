@@ -304,6 +304,7 @@ done:
     return ok;
 }
 
+#include "SirilPatternRegistration.inc"
 struct SirilBackground {
     SirilImage *original;
     fits corrected;
