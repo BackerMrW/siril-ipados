@@ -96,6 +96,43 @@ static int keyword_reference_checks(SirilImage *original, const char *directory)
     CHECK(!chmod(sequence_dir, 0700));
     CHECK(!write_ok);
     puts("PASS: original selected-frame sequence keyword worker kept .fts filenames, exact pixels, excluded frames and reference; independent CFITSIO verified all operations; partial edits and failed writes returned failure");
+    // An independent multi-HDU file exercises the original FITSEQ worker,
+    // without using Siril's sequence writer to construct the expectation.
+    snprintf(output, sizeof output, "%s/multi%s", sequence_dir, com.pref.ext);
+    status = 0; file = NULL; fits_create_file(&file, output, &status);
+    long axes[2] = {2, 2}; float fixture[3][4];
+    for (int i = 0; i < 3; i++) {
+        for (int p = 0; p < 4; p++) fixture[i][p] = .15f + .05f * i + .01f * p;
+        fits_create_img(file, FLOAT_IMG, 2, axes, &status);
+        fits_write_img(file, TFLOAT, 1, 4, fixture[i], &status);
+    }
+    fits_close_file(file, &status); CHECK(!status);
+    CHECK(siril_sequence_discover(sequence_dir, error, sizeof error));
+    CHECK(siril_sequence_select(sequence_dir, "multi.seq", flags, 3, 2, error, sizeof error));
+    char paths[8192];
+    CHECK(siril_sequence_files(sequence_dir, "multi.seq", paths, sizeof paths, error, sizeof error) > 0);
+    CHECK(strstr(paths, "multi.seq\nmulti"));
+    CHECK(siril_sequence_edit_keyword(sequence_dir, "multi.seq", 0, "SEQTEST", "42.5", NULL, 0, error, sizeof error));
+    CHECK(siril_sequence_edit_keyword(sequence_dir, "multi.seq", 2, "SEQTEST", "SEQNEW", NULL, 0, error, sizeof error));
+    CHECK(siril_sequence_edit_keyword(sequence_dir, "multi.seq", 0, "OBJECT", "O'Brien FITSEQ", NULL, 1, error, sizeof error));
+    CHECK(siril_sequence_edit_keyword(sequence_dir, "multi.seq", 3, NULL, NULL, "FITSEQ comment", 0, error, sizeof error));
+    status = 0; file = NULL; fits_open_file(&file, output, READONLY, &status);
+    for (int i = 0; i < 3; i++) {
+        int type = 0, any_null = 0; double number = 0; float actual[4];
+        fits_movabs_hdu(file, i + 1, &type, &status);
+        fits_read_img(file, TFLOAT, 1, 4, NULL, actual, &any_null, &status);
+        CHECK(!status && !memcmp(actual, fixture[i], sizeof actual));
+        fits_read_key(file, TDOUBLE, "SEQNEW", &number, NULL, &status);
+        if (i == 1) { CHECK(status == KEY_NO_EXIST); status = 0; }
+        else { CHECK(!status && number == 42.5); fits_read_key(file, TSTRING, "OBJECT", text, NULL, &status); CHECK(!status && !strcmp(text, "O'Brien FITSEQ")); }
+    }
+    fits_close_file(file, &status); CHECK(!status);
+    CHECK(siril_sequence_edit_keyword(sequence_dir, "multi.seq", 1, "SEQNEW", NULL, NULL, 0, error, sizeof error));
+    CHECK(!siril_sequence_edit_keyword(sequence_dir, "multi.seq", 0, "NAXIS1", "7", NULL, 0, error, sizeof error));
+    CHECK(!siril_sequence_edit_keyword(sequence_dir, "multi.seq", 1, "NOEXIST", NULL, NULL, 0, error, sizeof error));
+    CHECK(siril_sequence_inspect(sequence_dir, "multi.seq", 0, &sequence_info, frames, 3, error, sizeof error) == 3);
+    CHECK(sequence_info.included == 2 && sequence_info.reference == 2 && !frames[1].included);
+    puts("PASS: original FITSEQ keyword worker edited only selected HDUs, retained every independent float pixel, excluded header and reference; container ownership and failed edits verified");
     puts("PASS: original FITS keyword set/rename/delete/comment preserved exact source pixels/header; independent CFITSIO verified quoted text, numeric values and known metadata; protected/invalid edits rejected");
     return 0;
 }

@@ -20,6 +20,13 @@ assert body.count('\treturn 0;') == 1
 needle = 'fit_sequence_get_image_filename(arg->seq, i, root, FALSE)'
 assert body.count(needle) == 1
 body = body.replace(needle, 'fit_sequence_get_image_filename_checkext(arg->seq, i, root)')
+needle = '\t\tsave_fits_header(fit);'
+assert body.count(needle) == 1
+body = body.replace(needle, '''\t\tif (!retval) retval = save_fits_keywords(fit);
+\t\tif (!retval) retval = save_wcs_keywords(fit);
+\t\tif (!retval) retval = save_history_keywords(fit);
+\t\tif (!retval) retval = save_fits_unknown_keywords(fit);
+\t\tif (!retval) fits_flush_file(fit->fptr, &retval);''')
 text = text[:start] + body.replace('\treturn 0;', '\treturn retval;') + text[end:]
 needle = '\tif (!arg->retval)\n\t\twriteseqfile(arg->seq);'
 assert text.count(needle) == 1

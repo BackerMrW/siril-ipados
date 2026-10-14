@@ -13,6 +13,24 @@ struct FITSKeywordEdit: Codable, Equatable, Sendable {
     var stringValue = true
 }
 extension SirilEngine {
+    // convert creates frame links into this job's lights directory. Resolve
+    // those read-only inputs before copying; copying a link would let the
+    // original in-place worker write through to the source job.
+    func sequenceKeywordSource(_ relative: String, under root: URL) throws -> URL {
+        let parts = relative.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard (2...3).contains(parts.count), parts[0] == "process",
+              parts.count == 2 || ["cache", "drizztmp"].contains(parts[1]) else { throw EngineError.failed("无效的序列输入路径。") }
+        var parent = try owned(parts[0], under: root)
+        if parts.count == 3 { parent = try owned(parts[1], under: parent) }
+        let leaf = parts.last!
+        guard !leaf.isEmpty, leaf != ".", leaf != "..", !leaf.contains("\\") else { throw EngineError.failed("无效的序列输入文件名。") }
+        let source = parent.appendingPathComponent(leaf).resolvingSymlinksInPath()
+        guard source.path.hasPrefix(root.resolvingSymlinksInPath().path + "/"),
+              (try source.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile == true else {
+            throw EngineError.failed("序列输入必须是本任务内的普通文件或指向本任务输入副本的链接。")
+        }
+        return source
+    }
     func editSequenceFITSKeywords(_ location: SequenceLocation, edit: FITSKeywordEdit) throws -> SequenceLocation {
         let before = try inspectSequence(location)
         guard before.info.included > 0 else { throw EngineError.failed("请至少选择一张参与帧。") }
@@ -31,7 +49,7 @@ extension SirilEngine {
             try writeJobState(job.folder, state: "运行中", count: Int(before.info.included))
             for path in paths {
                 try Task.checkCancellation()
-                let input = try sequenceTrashPath(path, under: source)
+                let input = try sequenceKeywordSource(path, under: source)
                 let output = try sequenceTrashPath(path, under: job.folder)
                 try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try FileManager.default.copyItem(at: input, to: output)

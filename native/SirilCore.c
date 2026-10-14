@@ -27,6 +27,7 @@
 #include "algos/photometric_cc.h"
 #include "algos/spcc.h"
 #include "io/sequence.h"
+#include "io/fits_sequence.h"
 #include "io/single_image.h"
 #include "io/conversion.h"
 #include "io/fits_keywords.h"
@@ -200,22 +201,30 @@ int siril_sequence_files(const char *directory, const char *name, char *output,
     sequence *seq = embedded_sequence(directory, name, error, error_size);
     int result = -1;
     if (!seq) goto done;
-    if (seq->type != SEQ_REGULAR) {
-        if (error && error_size) snprintf(error, error_size, "Independent removal requires a regular FITS sequence");
+    if (seq->type != SEQ_REGULAR && seq->type != SEQ_FITSEQ) {
+        if (error && error_size) snprintf(error, error_size, "Independent file ownership requires a FITS sequence");
         goto free_seq;
     }
     GString *paths = g_string_new(name);
+    if (seq->type == SEQ_FITSEQ) {
+        gchar *filename = g_path_get_basename(seq->fitseq_file->filename);
+        if (strchr(filename, '\n') || strchr(filename, '\r')) {
+            g_free(filename); g_string_free(paths, TRUE); goto free_seq;
+        }
+        g_string_append_printf(paths, "\n%s", filename);
+        g_free(filename);
+    }
     const char *folders[] = {"cache", "cache", "drizztmp"};
     const char *extensions[] = {"lst", "msk", "fit"};
     for (int i = 0; i < seq->number; i++) {
         char filename[256];
-        if (!fit_sequence_get_image_filename_checkext(seq, i, filename) ||
-            strchr(filename, '/') || strchr(filename, '\\') || strchr(filename, '\n') || strchr(filename, '\r')) {
+        if (seq->type == SEQ_REGULAR && (!fit_sequence_get_image_filename_checkext(seq, i, filename) ||
+            strchr(filename, '/') || strchr(filename, '\\') || strchr(filename, '\n') || strchr(filename, '\r'))) {
             if (error && error_size) snprintf(error, error_size, "Invalid or missing sequence frame filename");
             g_string_free(paths, TRUE);
             goto free_seq;
         }
-        g_string_append_printf(paths, "\n%s", filename);
+        if (seq->type == SEQ_REGULAR) g_string_append_printf(paths, "\n%s", filename);
         for (int k = 0; k < 3; k++) {
             gchar *cache = get_sequence_cache_filename(seq, i, folders[k], extensions[k], NULL);
             if (cache && g_file_test(cache, G_FILE_TEST_EXISTS)) {
@@ -842,7 +851,7 @@ int siril_sequence_edit_keyword(const char *directory, const char *name, int act
     if (!seq) goto done;
     /* The original worker edits its inputs. The App supplies a private job
      * copy; regular workers retain selection and registration. */
-    if (seq->type != SEQ_REGULAR || seq->selnum < 1) goto free_seq;
+    if ((seq->type != SEQ_REGULAR && seq->type != SEQ_FITSEQ) || seq->selnum < 1) goto free_seq;
     fits validation = {0};
     int first = 0;
     while (first < seq->number && !seq->imgparam[first].incl) first++;

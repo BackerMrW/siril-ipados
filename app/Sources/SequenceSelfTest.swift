@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import Foundation
+import SirilCore
 
 extension SirilEngine {
     func sequenceSelfTest() async throws {
@@ -106,7 +107,13 @@ extension SirilEngine {
         let rawPixels = try await pixels(raw)
         for i in 0..<4 { try require(abs(rawPixels[i] - baseline[i] - 0.4) < 2e-5, "exclusion altered original frame") }
         let keywordSourcePaths = try sequenceFilePaths(location)
-        let keywordSourceBytes = try keywordSourcePaths.map { try Data(contentsOf: sequenceTrashPath($0, under: job.folder)) }
+        let keywordSourceBytes = try keywordSourcePaths.map { try Data(contentsOf: sequenceKeywordSource($0, under: job.folder)) }
+        let outsideFrame = job.folder.appendingPathComponent("process/keyword-outside.fit")
+        try FileManager.default.createSymbolicLink(at: outsideFrame, withDestinationURL: light.url)
+        var outsideRejected = false
+        do { _ = try sequenceKeywordSource("process/keyword-outside.fit", under: job.folder) } catch { outsideRejected = true }
+        try FileManager.default.removeItem(at: outsideFrame)
+        try require(outsideRejected, "keyword copy followed a frame link outside its source job")
         var keywordEdit = FITSKeywordEdit(); keywordEdit.key = "OBJECT"; keywordEdit.value = "O'Brien sequence"
         let keywordOutput = try editSequenceFITSKeywords(location, edit: keywordEdit)
         let keywordJob = try sequenceFolder(keywordOutput).deletingLastPathComponent()
@@ -119,12 +126,12 @@ extension SirilEngine {
             let url = try sequenceTrashPath(keywordPaths[i + 1], under: keywordJob)
             let metadata = try await reader.open(url)
             try require(branch.included[i] ? metadata.object == keywordEdit.value : metadata.object != keywordEdit.value, "keyword edit ignored frame selection")
-            let originalURL = try sequenceTrashPath(keywordSourcePaths[i + 1], under: job.folder)
+            let originalURL = try sequenceKeywordSource(keywordSourcePaths[i + 1], under: job.folder)
             let outputPixels = try await pixels(url), inputPixels = try await pixels(originalURL)
             try require(outputPixels == inputPixels, "keyword sequence changed pixels")
         }
         for (i, path) in keywordSourcePaths.enumerated() {
-            try require(try Data(contentsOf: sequenceTrashPath(path, under: job.folder)) == keywordSourceBytes[i], "keyword sequence changed source file bytes")
+            try require(try Data(contentsOf: sequenceKeywordSource(path, under: job.folder)) == keywordSourceBytes[i], "keyword sequence changed source file bytes")
         }
         keywordEdit.action = .delete; keywordEdit.key = "NOEXIST"
         var keywordFailed = false
@@ -134,6 +141,41 @@ extension SirilEngine {
         for failed in keywordFailures {
             let root = documents.appendingPathComponent("Jobs").appendingPathComponent(failed.id)
             try require(try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("process").path).isEmpty, "failed keyword job retained partial sequence")
+        }
+        let containerJob = try prepareJob(files: [], script: "# Independent FITSEQ App fixture\n")
+        defer { try? FileManager.default.removeItem(at: containerJob.folder) }
+        let sourceFITS = try Data(contentsOf: source)
+        try require(sourceFITS.count == 5760, "independent FITSEQ fixture expects one header and data block")
+        var container = sourceFITS
+        let cards = ["XTENSION= 'IMAGE   '", "BITPIX  =                  -32", "NAXIS   =                    2", "NAXIS1  =                    2",
+                     "NAXIS2  =                    2", "PCOUNT  =                    0", "GCOUNT  =                    1", "END"]
+        let header = cards.map { $0.padding(toLength: 80, withPad: " ", startingAt: 0) }.joined().padding(toLength: 2880, withPad: " ", startingAt: 0)
+        for _ in 0..<2 { container.append(Data(header.utf8)); container.append(sourceFITS[2880..<5760]) }
+        let containerProcess = containerJob.folder.appendingPathComponent("process")
+        try container.write(to: containerProcess.appendingPathComponent("keyword_multi.fit"))
+        var containerError = [CChar](repeating: 0, count: 512); let errorCapacity = containerError.count
+        try require(containerProcess.path.withCString { siril_sequence_discover($0, &containerError, errorCapacity) } != 0, "independent FITSEQ discovery")
+        let containerLocation = SequenceLocation(job: containerJob.folder.lastPathComponent, name: "keyword_multi.seq")
+        try editSequence(containerLocation, selection: selected)
+        keywordEdit.action = .set; keywordEdit.key = "OBJECT"; keywordEdit.value = "Private FITSEQ"
+        let editedContainer = try editSequenceFITSKeywords(containerLocation, edit: keywordEdit)
+        let editedContainerProcess = try sequenceFolder(editedContainer)
+        defer { try? FileManager.default.removeItem(at: editedContainerProcess.deletingLastPathComponent()) }
+        try require(try inspectSequence(editedContainer).selection == selected, "FITSEQ output lost reference or excluded HDU")
+        try require(try Data(contentsOf: containerProcess.appendingPathComponent("keyword_multi.fit")) == container, "FITSEQ editing changed source container bytes")
+        var frameError = [CChar](repeating: 0, count: 512)
+        for i in 0..<3 {
+            guard let frame = editedContainerProcess.path.withCString({ directory in editedContainer.name.withCString { siril_sequence_frame(directory, $0, Int32(i), &frameError, errorCapacity) } }) else {
+                throw EngineError.failed("Edited FITSEQ frame unavailable")
+            }
+            defer { siril_image_free(frame) }
+            var info = SirilImageInfo(); try require(siril_image_info(frame, &info) != 0, "FITSEQ metadata")
+            let object = withUnsafePointer(to: &info.object) { String(cString: UnsafeRawPointer($0).assumingMemoryBound(to: CChar.self)) }
+            try require(selected.included[i] ? object == keywordEdit.value : object != keywordEdit.value, "FITSEQ worker edited excluded HDU")
+            for y in 0..<2 { for x in 0..<2 {
+                var pixel: [Float] = [0, 0, 0]
+                try require(siril_image_pixel(frame, Int32(x), Int32(y), &pixel) == 1 && pixel[0] == baseline[y * 2 + x], "FITSEQ worker changed float pixels")
+            } }
         }
         guard let task = jobHistory().first(where: { $0.id == location.job }) else { throw EngineError.failed("Sequence task history missing") }
         try require(task.results.contains(all) && task.results.contains(subset), "restacks absent from task results")

@@ -32,7 +32,7 @@ int siril_sequence_discover(const char *directory, char *error, size_t error_siz
 int siril_sequence_inspect(const char *directory, const char *name, int layer,
     SirilSequenceInfo *info, SirilSequenceFrame *frames, size_t capacity, char *error, size_t error_size);
 SirilImage *siril_sequence_frame(const char *directory, const char *name, int index, char *error, size_t error_size);
-/* Exact regular-sequence filenames from upstream helpers, plus existing star,
+/* Exact regular-frame or FITSEQ-container filenames, plus existing star,
  * mask and Drizzle caches. Newline-separated relative paths; returns required
  * bytes including NUL, or -1. NULL output queries capacity. Never deletes. */
 int siril_sequence_files(const char *directory, const char *name, char *output,
