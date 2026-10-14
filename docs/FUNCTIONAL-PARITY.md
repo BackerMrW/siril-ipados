@@ -56,7 +56,7 @@
 | win.remove-green-processing | Remove Green Noise... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.negative-processing | Negative Transformation | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.background-extr-processing | Background Extraction... | 交互界面与序列应用已接入（真机大图验证待完成） |
-| win.linearmatch-processing | Linear Match... | 待移植或待逐项验证 |
+| win.linearmatch-processing | Linear Match... | 原版逐通道拟合、参考图/上下限、私有结果/输入快照与历史已接入；独立全像素与失败拒绝补充待 Apple 执行，真机未验收 |
 | win.pixel-math | Pixel Math... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.asinh-processing | Asinh Transformation... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.curves-processing | Curves Transformation... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |

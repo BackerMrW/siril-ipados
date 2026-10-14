@@ -209,6 +209,17 @@ struct NativeToolView: View {
                     }
                 }
             }
+            if recipe.tool == .linearMatch {
+                Section("线性匹配参考图") {
+                    Picker("参考图", selection: $recipe.guideID) {
+                        Text("请选择").tag(UUID?.none)
+                        ForEach(library.filter { $0.width == file.width && $0.height == file.height && $0.channels == file.channels }) { item in
+                            Text(item.displayName).tag(Optional(item.id))
+                        }
+                    }
+                    Text("使用上下限内的参考像素逐通道拟合增益与偏移，然后应用于原图全体像素。另存独立结果，保留两张输入。")
+                }
+            }
             if recipe.tool.acceptsMask {
                 Section("处理蒙版") {
                     ToolFieldControls(fields: visibleMaskFields, values: $recipe.mask.values)
@@ -305,6 +316,9 @@ struct NativeToolView: View {
             if ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_VIEW_CHECK"] == "1" {
                 let section = ProcessInfo.processInfo.environment["SIRIL_NATIVE_TOOL_SECTION"] ?? "ghs"
                 recipe = NativeToolRecipe(tool: section.hasPrefix("icc") ? .colorManagement : section == "platesolve" ? .plateSolve : section == "pcc" ? .pcc : section == "spcc" ? .spcc : section.hasPrefix("deconv") ? .deconvolution : section == "fft-inverse" ? .fftInverse : section.hasPrefix("fft") ? .fftDirect : section == "curves" ? .curves : section == "pixelmath" ? .pixelMath : section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)
+                if section == "linear-match" {
+                    recipe = NativeToolRecipe(tool: .linearMatch, file: file); recipe.guideID = file.id
+                }
                 if ["platesolve", "pcc", "spcc"].contains(section) {
                     if section == "spcc" {
                         var selected = recipe.spectralSettings

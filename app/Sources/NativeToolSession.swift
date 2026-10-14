@@ -71,6 +71,12 @@ extension SirilEngine {
         try JSONEncoder().encode(history).write(to: toolHistoryURL(file), options: .atomic)
     }
     func prepareNativeToolJob(file: FITSRecord, recipe: NativeToolRecipe, library: [FITSRecord]) throws -> ProcessingJob {
+        if recipe.tool == .linearMatch {
+            guard let id = recipe.guideID, let reference = library.first(where: { $0.id == id }),
+                reference.width == file.width, reference.height == file.height, reference.channels == file.channels else {
+                throw EngineError.failed("线性匹配参考图必须存在，且尺寸和通道与原图一致。")
+            }
+        }
         var inputs = [file]
         if recipe.tool == .pixelMath {
             for binding in recipe.mathSettings.bindings {
@@ -161,7 +167,12 @@ actor NativeToolSession {
             if FileManager.default.fileExists(atPath: target.path) { try FileManager.default.removeItem(at: target) }
             try FileManager.default.copyItem(at: saved, to: target)
         }
-        if let id = recipe.guideID, recipe.tool == .guided { try copyReference(id, name: "guide.fits", mask: false) }
+        if recipe.tool == .linearMatch {
+            guard let id = recipe.guideID, let reference = library.first(where: { $0.id == id }), reference.channels == source.channels else {
+                throw EngineError.failed("线性匹配参考图必须存在，且尺寸和通道与原图一致。")
+            }
+            try copyReference(id, name: "guide.fits", mask: false)
+        } else if let id = recipe.guideID, recipe.tool == .guided { try copyReference(id, name: "guide.fits", mask: false) }
         var paths: [UUID: String] = [:]
         if recipe.tool == .pixelMath {
             for (index, binding) in recipe.mathSettings.bindings.enumerated() {

@@ -358,6 +358,7 @@ jobs:
           diagnostics/native-tools-icc*-simulator.png
           diagnostics/native-keyword-editor-simulator.png
           diagnostics/native-sequence-crop-simulator.png
+          diagnostics/native-tools-linear-match-simulator.png
         if-no-files-found: warn
     - name: Upload diagnostic files
       if: always()

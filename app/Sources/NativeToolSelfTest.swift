@@ -206,12 +206,92 @@ extension SirilEngine {
         do { _ = try await cancelledImport.value } catch is CancellationError { cancelledSER = true }
         try require(cancelledSER && Set(try fm.contentsOfDirectory(atPath: fitsFolder.path)) == beforeSER, "Cancelled SER import left frames or reported success")
         checkpoint("PASS: native SER sequence import preserved three exact mono/CFA/RGB/BGR frames, byte orders, exposure and source; truncated input rolled back all partial frames")
+        let matchGains = [1.25, 0.75, 1.1], matchOffsets = [0.02, 0.04, -0.03]
+        var matchBytes = Data(header.utf8)
+        for channel in 0..<3 { for row in 0..<height { for column in 0..<width {
+            let y = height - 1 - row
+            let index = channel * width * height + y * width + column
+            // Reject a deliberate reference outlier using the original high
+            // limit; all target pixels still receive the fitted transform.
+            let pixel = y == 0 && column == 0 ? Float(1) : Float(Double(values[index]) * matchGains[channel] + matchOffsets[channel])
+            var encoded = pixel.bitPattern.bigEndian
+            withUnsafeBytes(of: &encoded) { matchBytes.append(contentsOf: $0) }
+        } } }
+        matchBytes.append(contentsOf: repeatElement(UInt8(0), count: (2880 - matchBytes.count % 2880) % 2880))
+        let matchFixture = folder.appendingPathComponent("linear-reference.fits"); try matchBytes.write(to: matchFixture)
+        let matchReference = try importFile(matchFixture); records.append(matchReference)
+        defer { try? fm.removeItem(at: matchReference.url) }
+        let referenceBytes = try Data(contentsOf: matchReference.url)
+        var match = NativeToolRecipe(tool: .linearMatch, file: file); match.guideID = matchReference.id
+        try await session.compute(match, library: records)
+        let matchJob = try prepareNativeToolJob(file: file, recipe: match, library: records); jobs.append(matchJob)
+        let matchResult = try await session.export(match, to: matchJob)
+        func verifyLinearResult(_ url: URL, channels: Int = 3) throws {
+            let data = try Data(contentsOf: url)
+            var end = 0
+            while end + 80 <= data.count && String(data: data[end..<(end + 8)], encoding: .ascii)?.trimmingCharacters(in: .whitespaces) != "END" { end += 80 }
+            let start = ((end + 80 + 2879) / 2880) * 2880
+            try require(start + width * height * channels * 4 <= data.count, "linear match output truncated")
+            for channel in 0..<channels { for row in 0..<height { for column in 0..<width {
+                let offset = start + (channel * width * height + row * width + column) * 4
+                let actual = Float(bitPattern: data[offset..<(offset + 4)].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) })
+                let expected = Double(values[channel * width * height + (height - 1 - row) * width + column]) * matchGains[channel] + matchOffsets[channel]
+                try require(abs(Double(actual) - expected) < 3e-6, "linear match independent full RGB gain/offset and rejected reference outlier")
+            } } }
+        }
+        try verifyLinearResult(matchResult)
+        let replayedMatch = try run(matchJob)
+        guard let replayed = replayedMatch.first(where: { $0.lastPathComponent == "result.fits" }) else { throw EngineError.failed("Linear match replay output missing") }
+        try verifyLinearResult(replayed)
+        try require(try JSONDecoder().decode(NativeToolRecipe.self, from: Data(contentsOf: matchJob.folder.appendingPathComponent("native-tool.json"))) == match, "linear match parameter/reference snapshot")
+        var invalidMatch = match; invalidMatch.guideID = nil
+        var matchRejected = false
+        do { try await session.compute(invalidMatch, library: records) } catch { matchRejected = true }
+        try require(matchRejected, "linear match accepted missing reference")
+        let wrongSizeReference = try makeICCPlotFixture(); records.append(wrongSizeReference)
+        defer { try? fm.removeItem(at: wrongSizeReference.url) }
+        var monoBytes = Data(header.replacingOccurrences(of: "NAXIS3  =                    3", with: "NAXIS3  =                    1").utf8)
+        monoBytes.append(bytes[2880..<(2880 + width * height * 4)])
+        monoBytes.append(contentsOf: repeatElement(UInt8(0), count: (2880 - monoBytes.count % 2880) % 2880))
+        let monoFixture = folder.appendingPathComponent("linear-mono-reference.fits"); try monoBytes.write(to: monoFixture)
+        let wrongChannelReference = try importFile(monoFixture); records.append(wrongChannelReference)
+        defer { try? fm.removeItem(at: wrongChannelReference.url) }
+        for invalidReference in [wrongSizeReference, wrongChannelReference] {
+            invalidMatch = match; invalidMatch.guideID = invalidReference.id; matchRejected = false
+            do { try await session.compute(invalidMatch, library: records) } catch { matchRejected = true }
+            try require(matchRejected, "linear match preview accepted incompatible reference")
+            matchRejected = false
+            do { _ = try prepareNativeToolJob(file: file, recipe: invalidMatch, library: records) } catch { matchRejected = true }
+            try require(matchRejected, "linear match job accepted incompatible reference")
+        }
+        var monoMatchBytes = Data(header.replacingOccurrences(of: "NAXIS3  =                    3", with: "NAXIS3  =                    1").utf8)
+        monoMatchBytes.append(matchBytes[2880..<(2880 + width * height * 4)])
+        monoMatchBytes.append(contentsOf: repeatElement(UInt8(0), count: (2880 - monoMatchBytes.count % 2880) % 2880))
+        let monoMatchFixture = folder.appendingPathComponent("linear-mono-match.fits"); try monoMatchBytes.write(to: monoMatchFixture)
+        let monoMatchReference = try importFile(monoMatchFixture); records.append(monoMatchReference)
+        defer { try? fm.removeItem(at: monoMatchReference.url) }
+        let monoSession = NativeToolSession(); try await monoSession.open(wrongChannelReference)
+        var monoMatch = NativeToolRecipe(tool: .linearMatch, file: wrongChannelReference); monoMatch.guideID = monoMatchReference.id
+        try await monoSession.compute(monoMatch, library: records)
+        let monoJob = try prepareNativeToolJob(file: wrongChannelReference, recipe: monoMatch, library: records); jobs.append(monoJob)
+        let monoResult = try await monoSession.export(monoMatch, to: monoJob)
+        try verifyLinearResult(monoResult, channels: 1)
+        await monoSession.close()
+        invalidMatch = match; invalidMatch.values["low"] = 0.8; invalidMatch.values["high"] = 0.1; matchRejected = false
+        do { try invalidMatch.validate(file: file) } catch { matchRejected = true }
+        try require(matchRejected, "linear match accepted reversed limits")
+        invalidMatch = match; invalidMatch.values["high"] = 0.001; matchRejected = false
+        do { try await session.compute(invalidMatch, library: records) } catch { matchRejected = true }
+        try require(matchRejected, "linear match accepted no usable reference pixels")
+        try require(try Data(contentsOf: file.url) == sourceBytes && Data(contentsOf: matchReference.url) == referenceBytes, "linear match changed either input")
+        checkpoint("PASS: original linear match full RGB gain/offset, high-limit outlier rejection, private replay, parameters and failed fit preserve both inputs")
         // Every actual native tool must execute, return finite full-resolution
         // pixels and preserve the original. No fake success from command text.
         for tool in NativeTool.allCases.filter({ ![.fftInverse, .plateSolve, .pcc, .spcc].contains($0) }) {
             do {
                 checkpoint("START: native tool \(tool.rawValue)")
                 var recipe = NativeToolRecipe(tool: tool, file: file)
+                if tool == .linearMatch { recipe.guideID = file.id }
                 if tool == .deconvolution { recipe.values["psfSource"] = 2; recipe.values["ks"] = 9; recipe.values["iterations"] = 2 }
                 if tool == .crop { recipe.values["x"] = 16; recipe.values["y"] = 13; recipe.values["width"] = 64; recipe.values["height"] = 48 }
                 if [.ghs, .inverseGHS, .modifiedAsinh, .inverseModifiedAsinh].contains(tool) { recipe.values["D"] = 0.8; recipe.values["SP"] = 0.1 }
