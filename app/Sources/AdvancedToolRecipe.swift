@@ -136,6 +136,9 @@ extension NativeToolRecipe {
     var curveSettings: CurveRecipe { get { curves ?? CurveRecipe() } set { curves = newValue } }
     var mathSettings: PixelMathRecipe { get { pixelMath ?? PixelMathRecipe() } set { pixelMath = newValue } }
     func advancedSettings(paths: [UUID: String] = [:]) throws -> String? {
+        if tool == .colorCalibration {
+            return String(data: try JSONSerialization.data(withJSONObject: ["kind": "colorCalibration", "values": values], options: .sortedKeys), encoding: .utf8)
+        }
         if tool == .deconvolution {
             var json: [String: Any] = ["kind": "deconvolution", "values": values, "maskAware": mask.number("mode") != 0]
             if number("psfSource") == 3 {

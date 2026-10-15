@@ -105,7 +105,7 @@ extension SirilEngine {
         if let json = try recipe.advancedSettings(paths: paths) {
             try json.replacingOccurrences(of: "input.fits", with: try copied(file.id)).write(to: job.folder.appendingPathComponent("advanced-tool.json"), atomically: true, encoding: .utf8)
         }
-        if recipe.mask.number("mode") == 6 || (recipe.tool == .colorManagement && file.hasMask == true) {
+        if recipe.mask.number("mode") == 6 || ([.colorManagement, .colorCalibration].contains(recipe.tool) && file.hasMask == true) {
             let saved = try owned(file.url.lastPathComponent + ".mask.fits", under: documents.appendingPathComponent("FITS"))
             try FileManager.default.copyItem(at: saved, to: job.folder.appendingPathComponent("mask-source.fits"))
         }
@@ -169,7 +169,7 @@ actor NativeToolSession {
             try FileManager.default.copyItem(at: file.url, to: target)
         }
         if recipe.mask.number("mode") == 3, let id = recipe.mask.sourceID { try copyReference(id, name: "mask-source.fits", mask: true) }
-        if recipe.mask.number("mode") == 6 || (recipe.tool == .colorManagement && source.hasMask == true) {
+        if recipe.mask.number("mode") == 6 || ([.colorManagement, .colorCalibration].contains(recipe.tool) && source.hasMask == true) {
             let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("FITS").standardizedFileURL.resolvingSymlinksInPath()
             let saved = source.url.appendingPathExtension("mask.fits").standardizedFileURL
             guard saved.deletingLastPathComponent().resolvingSymlinksInPath().path == root.path, saved.resolvingSymlinksInPath().path == saved.path else { throw EngineError.failed("保存的蒙版路径无效。") }

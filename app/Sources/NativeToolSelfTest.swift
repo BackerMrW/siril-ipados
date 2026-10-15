@@ -344,6 +344,7 @@ extension SirilEngine {
         do { try gradient.validate(file: file) } catch { gradientRejected = true }
         try require(gradientRejected && Data(contentsOf: file.url) == sourceBytes, "rotational gradient invalid centre/source preservation")
         checkpoint("PASS: original rotational gradient independent RGB polar interpolation, global minimum, zero shift, fitted centre, mask depths and original history")
+        jobs += try await colorCalibrationSelfTest(file: file, values: values, width: width, height: height)
         // Every actual native tool must execute, return finite full-resolution
         // pixels and preserve the original. No fake success from command text.
         for tool in NativeTool.allCases.filter({ ![.fftInverse, .plateSolve, .pcc, .spcc].contains($0) }) {
@@ -597,6 +598,16 @@ extension SirilEngine {
         try await savedSession.compute(inherited, library: records)
         let restoredMask = try await savedSession.pixel(view: 2, x: x, y: y)[0]
         let beforeMask = try await session.pixel(view: 2, x: x, y: y)[0]
+        var maskedColor = NativeToolRecipe(tool: .colorCalibration, file: saved)
+        maskedColor.values["red"] = 0.5
+        try require(maskedColor.mask.number("mode") == 0, "color calibration enabled partial mask")
+        try await savedSession.compute(maskedColor, library: records)
+        let maskedColorPixel = try await savedSession.pixel(view: 1, x: x, y: y)
+        let colorMask = try await savedSession.pixel(view: 2, x: x, y: y)[0]
+        try require(abs(maskedColorPixel[0] - maskedPixel[0] * 0.5) < 2e-6 && maskedColorPixel[1] == maskedPixel[1] && colorMask == beforeMask, "color calibration did not retain independent saved mask")
+        let maskedColorJob = try prepareNativeToolJob(file: saved, recipe: maskedColor, library: records); jobs.append(maskedColorJob)
+        let maskedColorOutput = try await savedSession.export(maskedColor, to: maskedColorJob)
+        try require(fm.fileExists(atPath: maskedColorOutput.appendingPathExtension("mask.fits").path), "color calibration lost mask companion")
         let maskedICC = NativeToolRecipe(tool: .colorManagement, file: saved)
         try require(maskedICC.mask.number("mode") == 0, "ICC operation incorrectly enabled partial mask blending")
         try await savedSession.compute(maskedICC, library: records)

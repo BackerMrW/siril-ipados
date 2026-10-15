@@ -137,6 +137,20 @@ struct NativeToolView: View {
             }.padding(.horizontal)
             NativeDisplayControls(settings: $displaySettings).padding(.horizontal)
             if recipe.tool == .crop { Toggle("在原图上拖出裁剪选区", isOn: $selecting).padding(.horizontal) }
+            if recipe.tool == .colorCalibration {
+                Toggle("在原图拖出参考选区", isOn: $selecting).padding(.horizontal)
+                HStack {
+                    ForEach(["background", "white"], id: \.self) { prefix in
+                        Button(prefix == "background" ? "设为背景参考" : "设为白参考") {
+                            guard let region else { return }
+                            recipe.values[prefix + "X"] = Double(region.x); recipe.values[prefix + "Y"] = Double(region.y)
+                            recipe.values[prefix + "Width"] = Double(region.width); recipe.values[prefix + "Height"] = Double(region.height)
+                        }.disabled(region == nil)
+                    }
+                }
+                Text("背景中和与白参考校准分别执行。白参考按上下限排除像素；手动系数直接缩放 RGB。原图和保存的蒙版保留。")
+                    .font(.caption).padding(.horizontal)
+            }
             if recipe.tool == .rotationalGradient {
                 Toggle("在原图选择中心星点", isOn: $selecting).padding(.horizontal)
                 Button("以选区内星点拟合中心") {
@@ -332,6 +346,10 @@ struct NativeToolView: View {
                 recipe = NativeToolRecipe(tool: section.hasPrefix("icc") ? .colorManagement : section == "platesolve" ? .plateSolve : section == "pcc" ? .pcc : section == "spcc" ? .spcc : section.hasPrefix("deconv") ? .deconvolution : section == "fft-inverse" ? .fftInverse : section.hasPrefix("fft") ? .fftDirect : section == "curves" ? .curves : section == "pixelmath" ? .pixelMath : section == "masks" ? .negative : section == "filters" ? .bilateral : section == "geometry" ? .crop : .ghs, file: file)
                 if section == "linear-match" {
                     recipe = NativeToolRecipe(tool: .linearMatch, file: file); recipe.guideID = file.id
+                }
+                if section == "color-calibration" {
+                    recipe = NativeToolRecipe(tool: .colorCalibration, file: file)
+                    recipe.values["red"] = 0.8; recipe.values["green"] = 0.6; recipe.values["blue"] = 0.4
                 }
                 if section == "rotational-gradient" {
                     recipe = NativeToolRecipe(tool: .rotationalGradient, file: file)

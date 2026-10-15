@@ -45,6 +45,61 @@ static gboolean advanced_number(yyjson_val *object, const char *name,
     return isfinite(*value) && *value >= low && *value <= high;
 }
 #include "SirilDeconvolution.inc"
+static int advanced_color_region(fits *fit, yyjson_val *values, const char *prefix, rectangle *area) {
+    double fields[4];
+    const char *suffix[] = { "X", "Y", "Width", "Height" };
+    for (int i = 0; i < 4; i++) {
+        char key[32]; snprintf(key, sizeof key, "%s%s", prefix, suffix[i]);
+        if (!advanced_number(values, key, 0, 100000, &fields[i]) || fields[i] != floor(fields[i])) return 0;
+    }
+    SirilRegion input = { (int32_t)fields[0], (int32_t)fields[1], (int32_t)fields[2], (int32_t)fields[3] };
+    return displayed_region(fit, &input, area);
+}
+static int advanced_apply_color(SirilImage *image, yyjson_val *root) {
+    fits *fit = &image->fit;
+    yyjson_val *values = yyjson_obj_get(root, "values");
+    double mode, low, high, kw[3] = {0}, bg[3] = { NAN, NAN, NAN };
+    rectangle black, white;
+    if (fit->naxes[2] != 3 || fit->type != DATA_FLOAT ||
+            !advanced_number(values, "operation", 0, 2, &mode) || mode != floor(mode)) return 0;
+    if (mode == 0) {
+        const char *keys[] = { "red", "green", "blue" };
+        for (int c = 0; c < 3; c++) {
+            if (!advanced_number(values, keys[c], 0, 1, &kw[c])) return 0;
+            bg[c] = 0;
+        }
+    } else {
+        if (!advanced_color_region(fit, values, "background", &black)) return 0;
+        for (int c = 0; c < 3; c++) {
+            imstats *stat = statistics(NULL, -1, fit, c, &black, STATS_BASIC, MULTI_THREADED);
+            int valid = stat && isfinite(stat->mean) && isfinite(stat->median);
+            if (stat) free_stats(stat);
+            if (!valid) return 0;
+        }
+        if (mode == 1) {
+            background_neutralize(fit, black);
+            return !g_atomic_int_get(&cancel_requested);
+        }
+        if (!advanced_color_region(fit, values, "white", &white) ||
+                !advanced_number(values, "low", 0, 1, &low) ||
+                !advanced_number(values, "high", 0, 1, &high) || low >= high) return 0;
+        // The original void API does not report an empty rejected selection.
+        // Check it before calling the original coefficient computation.
+        for (int c = 0; c < 3; c++) {
+            size_t valid = 0;
+            for (int y = 0; y < white.h; y++) {
+                float *row = fit->fpdata[c] + (size_t)(fit->ry - white.y - white.h + y) * fit->rx + white.x;
+                for (int x = 0; x < white.w; x++) if (row[x] > low && row[x] < high) valid++;
+            }
+            if (!valid) return 0;
+        }
+        get_coeff_for_wb(fit, white, black, kw, bg, get_normalized_value(fit), low, high);
+        for (int c = 0; c < 3; c++) if (!isfinite(kw[c]) || kw[c] <= 0 || !isfinite(bg[c])) return 0;
+    }
+    for (int c = 0; c < 3; c++) if (calibrate(fit, c, kw[c], bg[c], get_normalized_value(fit))) return 0;
+    invalidate_stats_from_fit(fit);
+    return !g_atomic_int_get(&cancel_requested);
+}
 static struct curve_params *advanced_curve(yyjson_val *stage) {
     double algorithm;
     yyjson_val *channels = yyjson_obj_get(stage, "channels");
@@ -287,7 +342,8 @@ int siril_image_advanced(SirilImage *image, const char *json, int preview,
     int ok = kind && (!strcmp(kind, "curves") ? advanced_apply_curves(image, root, preview, clipped) :
         !strcmp(kind, "deconvolution") && !preview ? advanced_apply_deconv(image, root) :
         !strcmp(kind, "fft") && !preview ? advanced_apply_fft(image, root) :
-        !strcmp(kind, "pixelMath") && !preview ? advanced_apply_pm(image, root) : 0);
+        !strcmp(kind, "pixelMath") && !preview ? advanced_apply_pm(image, root) :
+        !strcmp(kind, "colorCalibration") && !preview ? advanced_apply_color(image, root) : 0);
     if (ok) {
         size_t count = (size_t)image->fit.rx * image->fit.ry * image->fit.naxes[2];
         for (size_t i = 0; i < count; i++) if (!isfinite(image->fit.fdata[i])) { ok = 0; break; }
@@ -327,7 +383,8 @@ static int run_advanced_locked(const char *path, char *error, size_t capacity) {
     ok = kind && (!strcmp(kind, "curves") ? advanced_apply_curves(&image, root, 0, clip) :
         !strcmp(kind, "deconvolution") ? advanced_apply_deconv(&image, root) :
         !strcmp(kind, "fft") ? advanced_apply_fft(&image, root) :
-        !strcmp(kind, "pixelMath") ? advanced_apply_pm(&image, root) : 0);
+        !strcmp(kind, "pixelMath") ? advanced_apply_pm(&image, root) :
+        !strcmp(kind, "colorCalibration") ? advanced_apply_color(&image, root) : 0);
     if (ok) {
         size_t n = (size_t)image.fit.rx * image.fit.ry * image.fit.naxes[2];
         for (size_t i = 0; i < n; i++) if (!isfinite(image.fit.fdata[i])) { ok = 0; break; }

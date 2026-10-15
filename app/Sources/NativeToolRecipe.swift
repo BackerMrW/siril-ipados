@@ -20,7 +20,7 @@ struct ICCProfileResource: Codable, Equatable, Sendable {
 
 enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
     case mtf, inverseMTF, asinh, ghs, inverseGHS, modifiedAsinh, inverseModifiedAsinh, linearStretch, automatic, automaticGHS
-    case saturation, greenNoise, negative, unpurple, ccm, colorManagement, linearMatch
+    case saturation, greenNoise, negative, unpurple, ccm, colorManagement, linearMatch, colorCalibration
     case median, gaussian, unsharp, clahe, banding, bilateral, guided, denoise, wavelets, rotationalGradient
     case crop, rotate, rotate90, rotate270, rotate180, mirrorHorizontal, mirrorVertical, binning, resample
     case curves, pixelMath, fftDirect, fftInverse, deconvolution
@@ -28,6 +28,7 @@ enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
     var id: String { rawValue }
     var title: String { switch self {
     case .rotationalGradient: return "旋转梯度 · Rotational Gradient"
+    case .colorCalibration: return "颜色校准 · Color Calibration"
     case .linearMatch: return "线性匹配 · Linear Match"
     case .colorManagement: return "颜色管理 · ICC"
     case .plateSolve: return "天文解算 · Plate Solve"
@@ -52,12 +53,12 @@ enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
     case .fftDirect, .fftInverse: return "频谱"
     case .curves, .pixelMath: return "曲线与表达式"
     case .mtf, .inverseMTF, .asinh, .ghs, .inverseGHS, .modifiedAsinh, .inverseModifiedAsinh, .linearStretch, .automatic, .automaticGHS: return "拉伸"
-    case .saturation, .greenNoise, .negative, .unpurple, .ccm, .colorManagement, .linearMatch: return "颜色"
+    case .saturation, .greenNoise, .negative, .unpurple, .ccm, .colorManagement, .linearMatch, .colorCalibration: return "颜色"
     case .median, .gaussian, .unsharp, .clahe, .banding, .bilateral, .guided, .denoise, .wavelets, .rotationalGradient: return "滤镜"
     default: return "几何"
     } }
-    var rgbOnly: Bool { [.pcc, .spcc, .saturation, .greenNoise, .unpurple, .ccm].contains(self) }
-    var acceptsMask: Bool { ![.linearMatch, .colorManagement, .pcc, .spcc, .plateSolve, .fftDirect, .fftInverse, .curves, .pixelMath, .inverseMTF, .ccm, .banding, .wavelets].contains(self) && group != "几何" }
+    var rgbOnly: Bool { [.colorCalibration, .pcc, .spcc, .saturation, .greenNoise, .unpurple, .ccm].contains(self) }
+    var acceptsMask: Bool { ![.colorCalibration, .linearMatch, .colorManagement, .pcc, .spcc, .plateSolve, .fftDirect, .fftInverse, .curves, .pixelMath, .inverseMTF, .ccm, .banding, .wavelets].contains(self) && group != "几何" }
     static let actions: [String: Self] = ["win.pcc-processing": .pcc, "win.spcc-processing": .spcc, "win.astrometry": .plateSolve, "win.histo-processing": .mtf, "win.asinh-processing": .asinh, "win.payne-processing": .ghs,
         "win.saturation-processing": .saturation, "win.remove-green-processing": .greenNoise, "win.negative-processing": .negative,
         "win.unpurple-processing": .unpurple, "win.ccm-processing": .ccm, "win.medianfilter-processing": .median,
@@ -65,7 +66,7 @@ enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
         "win.denoise-processing": .denoise, "win.wavelets-processing": .wavelets, "win.crop": .crop,
         "win.rotation-processing": .rotate, "win.rotation90-processing": .rotate90, "win.rotation270-processing": .rotate270,
         "win.mirrorx-processing": .mirrorHorizontal, "win.mirrory-processing": .mirrorVertical, "win.binning-processing": .binning, "win.resample-processing": .resample,
-        "win.deconvolution-processing": .deconvolution, "win.fft-processing": .fftDirect, "win.curves-processing": .curves, "win.pixel-math": .pixelMath, "win.icc-tool": .colorManagement, "win.linearmatch-processing": .linearMatch, "win.rgradient-processing": .rotationalGradient]
+        "win.deconvolution-processing": .deconvolution, "win.fft-processing": .fftDirect, "win.curves-processing": .curves, "win.pixel-math": .pixelMath, "win.icc-tool": .colorManagement, "win.color-calib-processing": .colorCalibration, "win.linearmatch-processing": .linearMatch, "win.rgradient-processing": .rotationalGradient]
 }
 
 struct ToolField: Identifiable, Sendable {
@@ -92,6 +93,13 @@ extension NativeTool {
         switch self {
         case .rotationalGradient: return [n("xc", "中心 X（像素）", 0, 0, 100000, false), n("yc", "中心 Y（像素）", 0, 0, 100000, false),
             n("radial", "径向位移（像素）", 0, 0, 100, false), n("angle", "旋转位移（度）", 0, 0, 90, false)]
+        case .colorCalibration: return [c("operation", "操作", ["手动 RGB 系数", "背景中和", "白参考校准"], 0),
+            n("red", "红色系数", 1, 0, 1, false), n("green", "绿色系数", 1, 0, 1, false), n("blue", "蓝色系数", 1, 0, 1, false),
+            n("low", "白参考下限", 0, 0, 1, false), n("high", "白参考上限", 0.9, 0, 1, false)] + ["background", "white"].flatMap { prefix in
+                let label = prefix == "background" ? "背景" : "白参考"
+                return [n(prefix + "X", label + " X", 0, 0, 100000, true), n(prefix + "Y", label + " Y", 0, 0, 100000, true),
+                    n(prefix + "Width", label + "宽", 1, 1, 100000, true), n(prefix + "Height", label + "高", 1, 1, 100000, true)]
+            }
         case .linearMatch: return [n("low", "参考像素下限", 0, 0, 1, false), n("high", "参考像素上限", 0.92, 0, 1, false)]
         case .colorManagement: return [c("action", "操作", ["分配配置文件（保留像素）", "转换颜色空间", "移除配置文件"], 0),
             c("profile", "目标配置文件", ["线性 sRGB", "sRGB", "线性 Rec.2020", "Rec.2020", "工作空间", "自定义 ICC 文件"], 0),
@@ -168,7 +176,10 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
     var iccProfile: ICCProfileResource?
     init(tool: NativeTool, file: FITSRecord) {
         self.tool = tool; values = Dictionary(uniqueKeysWithValues: tool.fields.map { ($0.id, $0.value) })
-        if file.hasMask == true && ![.colorManagement, .pixelMath, .fftDirect, .fftInverse].contains(tool) { mask.values["mode"] = 6 }
+        if file.hasMask == true && ![.colorCalibration, .colorManagement, .pixelMath, .fftDirect, .fftInverse].contains(tool) { mask.values["mode"] = 6 }
+        if tool == .colorCalibration {
+            for prefix in ["background", "white"] { values[prefix + "Width"] = Double(file.width); values[prefix + "Height"] = Double(file.height) }
+        }
         if tool == .curves { curves = CurveRecipe() }
         if tool == .pixelMath { pixelMath = PixelMathRecipe() }
         if tool == .crop { values["width"] = Double(file.width); values["height"] = Double(file.height) }
@@ -189,6 +200,16 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
             try iccProfile.validate(channels: file.channels)
         }
         if tool == .colorManagement && mask.number("mode") != 0 { throw EngineError.failed("ICC 操作作用于整张图像，请关闭处理蒙版。") }
+        if tool == .colorCalibration {
+            guard mask.number("mode") == 0 else { throw EngineError.failed("颜色校准作用于整张图像，请关闭处理蒙版。") }
+            if number("operation") != 0 {
+                for prefix in number("operation") == 1 ? ["background"] : ["background", "white"] {
+                    guard number(prefix + "X") + number(prefix + "Width") <= Double(file.width),
+                          number(prefix + "Y") + number(prefix + "Height") <= Double(file.height) else { throw EngineError.failed("颜色参考选区超出原图。") }
+                }
+            }
+            if number("operation") == 2 && number("low") >= number("high") { throw EngineError.failed("白参考下限必须小于上限。") }
+        }
         if tool == .spcc { try spectralSettings.validate(mono: number("mono") == 1, dslr: true) }
         if [.pcc, .spcc].contains(tool), number("magnitudeMode") == 2 && number("magnitude") < 0 { throw EngineError.failed("绝对极限星等必须非负。") }
         if tool == .plateSolve {
@@ -257,7 +278,7 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
             if !on("flip") { command += " -noflip" }
             if on("force") { command += " -force" }
             if on("distortion") { command += " -disto=process/distortion.fits" }
-        case .deconvolution, .fftDirect, .fftInverse, .curves, .pixelMath: command = "native_advanced advanced-tool.json"
+        case .colorCalibration, .deconvolution, .fftDirect, .fftInverse, .curves, .pixelMath: command = "native_advanced advanced-tool.json"
         case .mtf, .inverseMTF: command = "\(tool == .mtf ? "mtf" : "invmtf") \(n("low")) \(n("mid")) \(n("high")) \(channel)"
         case .asinh: command = "asinh \(on("human") ? "-human " : "")\(n("stretch")) \(n("offset")) -clipmode=\(clip)"
         case .ghs, .inverseGHS, .modifiedAsinh, .inverseModifiedAsinh:
@@ -301,7 +322,7 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
             command = "resample \(size) -interp=\(interp)\(on("clamp") ? "" : " -noclamp")"
         }
         var masks = try maskCommands(file: file)
-        if tool == .colorManagement && file.hasMask == true {
+        if [.colorManagement, .colorCalibration].contains(tool) && file.hasMask == true {
             // ICC operations affect the whole image; retain its independent mask
             // without enabling partial color-space conversion through that mask.
             masks = ["mask_from_channel -channel=0 -filename=mask-source.fits -bitdepth=32"]

@@ -8,6 +8,8 @@ struct UpstreamFeature: Decodable, Identifiable {
     let status: String
     var currentStatus: String {
         switch id {
+        case "win.color-calib-processing":
+            return "原版背景中和、白参考及手动 RGB 系数已接入；真机未验收。"
         case "win.linearmatch-processing", "win.rgradient-processing":
             return "原版计算、参数与独立结果已接入；真机未验收。"
         case "win.evaluate-noise":
