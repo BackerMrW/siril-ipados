@@ -154,9 +154,9 @@ struct SequenceWorkspace: View {
                     }.buttonStyle(.borderless)
                 }
                 qualityPlot(snapshot).id("sequence-quality")
-                Section("图像图案配准") {
+                Section("图案与单星配准") {
                     BatchPicker(title: "方法", value: $patternMethod)
-                    Toggle("在参考帧拖动选择图案", isOn: $selectingPattern)
+                    Toggle("在参考帧拖动选择图案或星点", isOn: $selectingPattern)
                     if let patternRegion { Text(patternRegion.description).textSelection(.enabled) }
                     Button("清除图案选区") { patternRegion = nil; selectingPattern = false }
                     Button("使用居中正方形选区") {
@@ -169,7 +169,7 @@ struct SequenceWorkspace: View {
                     if patternMethod == .kombat {
                         Stepper("最大移动：\(Int(patternMoved))%", value: $patternMoved, in: 5...100, step: 1)
                     }
-                    Button("测量参与帧图案配准") {
+                    Button("测量参与帧配准") {
                         guard let patternRegion else { return }
                         perform {
                             try await engine.measurePatternRegistration(currentLocation,
@@ -178,7 +178,7 @@ struct SequenceWorkspace: View {
                             log = SirilEngine.processingLog(); await reload()
                         }
                     }.disabled(patternRegion == nil || snapshot.info.included < 2)
-                    Text("选区用于参考帧。DFT 需要正方形；KOMBAT 支持矩形。只测量平移矩阵与质量，原帧像素保留；完成后可在下方应用配准或叠加。")
+                    Text("选区用于参考帧。DFT 需要正方形；KOMBAT 支持矩形。单星 PSF 需圈住同一颗星，跟随模式按上一张拟合位置移动选区并顺序处理。只测量矩阵与质量，原帧像素保留；完成后可在下方应用配准或叠加。")
                         .font(.caption).foregroundStyle(.secondary)
                 }.id("sequence-pattern")
                 Section("原版测量与处理") {
@@ -279,8 +279,8 @@ struct SequenceWorkspace: View {
                     selectingCrop = true
                     try? await Task.sleep(for: .milliseconds(400)); proxy.scrollTo("sequence-crop", anchor: .center)
                 }
-                if ["pattern", "pattern-kombat"].contains(section), let snapshot {
-                    patternMethod = section == "pattern-kombat" ? .kombat : .dft
+                if ["pattern", "pattern-kombat", "pattern-single-star"].contains(section), let snapshot {
+                    patternMethod = section == "pattern-kombat" ? .kombat : section == "pattern-single-star" ? .followStar : .dft
                     let side = max(8, min(Int(snapshot.info.width), Int(snapshot.info.height)) / 2)
                     patternRegion = ImageSelection(x: (Int(snapshot.info.width) - side) / 2,
                         y: (Int(snapshot.info.height) - side) / 2, width: side, height: side)

@@ -3,9 +3,16 @@ import Foundation
 import SirilCore
 
 enum SequencePatternMethod: String, BatchChoice {
-    case dft, kombat
-    var title: String { self == .dft ? "DFT 图像图案" : "KOMBAT 图像图案" }
-    var native: Int32 { self == .dft ? 0 : 1 }
+    case dft, kombat, singleStar, followStar
+    var title: String { switch self {
+        case .dft: return "DFT 图像图案"
+        case .kombat: return "KOMBAT 图像图案"
+        case .singleStar: return "单星 PSF · 固定选区"
+        case .followStar: return "单星 PSF · 跟随星点"
+    } }
+    var native: Int32 { switch self {
+        case .dft: return 0; case .kombat: return 1; case .singleStar: return 2; case .followStar: return 3
+    } }
 }
 struct SequencePatternRecipe: Codable, Sendable {
     let method: SequencePatternMethod

@@ -1,5 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "registration/registration.h"
+static int displayed_region(fits *fit, const SirilRegion *input, rectangle *area);
+static int embedded_register_single_star(struct registration_args *args) {
+    rectangle previous = com.selection;
+    com.selection = args->selection;
+    int result = register_shift_fwhm(args);
+    com.selection = previous;
+    if (!result) {
+        regdata *data = args->seq->regparam[args->layer];
+        for (int i = 0; i < args->seq->number; i++) {
+            if (args->seq->imgparam[i].incl && (!data || !data[i].fwhm_data || !isfinite(data[i].fwhm) || data[i].fwhm <= 0)) return 1;
+        }
+    }
+    return result;
+}
 int siril_sequence_pattern_register(const char *directory, const char *name,
         int method, int layer, const SirilRegion *region, double moved,
         char *error, size_t capacity) {
@@ -12,7 +26,7 @@ int siril_sequence_pattern_register(const char *directory, const char *name,
     int ok = 0;
     sequence *seq = embedded_sequence(directory, name, error, capacity);
     if (!seq) goto done;
-    if (!region || method < 0 || method > 1 || layer < 0 || layer >= seq->nb_layers ||
+    if (!region || method < 0 || method > 3 || layer < 0 || layer >= seq->nb_layers ||
             seq->selnum < 2 || seq->is_variable || !isfinite(moved) || moved < 0 || moved > 1 ||
             (method == 1 && moved < .05) ||
             region->x < 0 || region->y < 0 || region->width < 8 || region->height < 8 ||
@@ -31,9 +45,18 @@ int siril_sequence_pattern_register(const char *directory, const char *name,
     struct registration_args *args = calloc(1, sizeof *args);
     if (!args) { free_sequence(seq, TRUE); goto done; }
     args->seq = seq;
-    args->func = method == 0 ? register_shift_dft : register_kombat;
+    args->func = method == 0 ? register_shift_dft : method == 1 ? register_kombat : embedded_register_single_star;
     args->layer = layer; args->reference_image = seq->reference_image;
     args->selection = (rectangle){region->x, region->y, region->width, region->height};
+    if (method >= 2) {
+        fits reference = {0};
+        int valid = !seq_read_frame(seq, seq->reference_image, &reference, TRUE, -1) &&
+            displayed_region(&reference, region, &args->selection);
+        clearfits(&reference);
+        if (!valid) { free_sequence(seq, TRUE); free(args); goto done; }
+        seq->current = seq->reference_image;
+        args->follow_star = method == 3;
+    }
     args->filters.filter_included = TRUE;
     args->run_in_thread = TRUE; args->no_output = TRUE;
     args->output_scale = 1; args->type = SHIFT_TRANSFORMATION;

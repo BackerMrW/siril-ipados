@@ -17,6 +17,32 @@ needle = '\tfit->naxes[2] = nblayer;\n\tfit->naxis = 3;'
 assert text.count(needle) == 1
 text = text.replace(needle, '\tfit->naxes[2] = nblayer;\n\tfit->naxis = nblayer == 1 ? 2 : 3;')
 fits_io.write_text(text)
+# Synchronous single-star registration transfers PSFs to regdata and never
+# runs the GUI idle. Release only its list containers and argument wrapper.
+sequence_io = source / "src/io/sequence.c"
+text = sequence_io.read_text()
+start = text.index('int seqpsf_finalize_hook(')
+end = text.index('gboolean end_seqpsf(', start)
+body = text[start:end]
+needle = '\tif (args->retval)\n\t\treturn 0;'
+assert body.count(needle) == 1
+body = body.replace(needle, '\tif (args->retval) {\n'
+    '\t\tif (args->already_in_a_thread && !spsfargs->for_photometry) {\n'
+    '\t\t\tfor (GSList *it = spsfargs->list; it; it = it->next) {\n'
+    '\t\t\t\tstruct seqpsf_data *data = it->data;\n'
+    '\t\t\t\tif (data->psf) free_psf(data->psf);\n'
+    '\t\t\t}\n\t\t\tg_slist_free_full(spsfargs->list, free);\n'
+    '\t\t\tfree(spsfargs); args->user = NULL;\n'
+    '\t\t}\n\t\treturn 0;\n\t}')
+text = text[:start] + body + text[end:]
+needle = '\t\t\twrite_regdata(seq, args->layer_for_partial, spsfargs->list, FALSE);\n\t\t}\n\t\treturn 0;'
+assert text.count(needle) == 1
+text = text.replace(needle, '\t\t\twrite_regdata(seq, args->layer_for_partial, spsfargs->list, FALSE);\n\t\t}\n'
+    '\t\tif (args->already_in_a_thread) {\n'
+    '\t\t\tg_slist_free_full(spsfargs->list, free);\n'
+    '\t\t\tfree(spsfargs); args->user = NULL;\n'
+    '\t\t}\n\t\treturn 0;')
+sequence_io.write_text(text)
 # Crop Drizzle weights with the same original geometry operation as pixels.
 # The native caller validates every output weight before enabling Drizzle.
 geometry = source / "src/algos/geometry.c"

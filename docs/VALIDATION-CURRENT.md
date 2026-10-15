@@ -4,6 +4,8 @@
 
 ## 已有直接执行证据
 
+- 单星配准补充待 Apple 执行：固定/跟随选区调用原版 `register_shift_fwhm` 与 `seqpsf`，要求所有参与帧获得有效 PSF。新增非居中 Gaussian 星点、两种 ROWORDER、已知位移/FWHM/实际应用像素、排除帧、原文件保留及无星帧元数据回滚检查；同步 worker 的成功/失败参数释放已补齐。固定上游全新解包与嵌入通过。
+
 - 2026-10-15 核对 `10ac4e2f2a22fdbc1fdcad18360fe3523b63ac6b` 的[质量与 KOMBAT 补充回归](https://github.com/BackerMrW/siril-ipados/actions/runs/38588610767)：两个 SDK、完整 C/Swift 和原生页面回归均成功。DFT/KOMBAT 的有效零分保留，尚未测得质量的星点配准零值仍为空；KOMBAT 专页检查成功，图片尚待下载目检。
 
 - 2026-10-15 新增颜色校准：原版 `background_neutralize`、`get_coeff_for_wb` 和 `calibrate` 已接入原生参数、双参考选区、独立任务、参数重放及已有蒙版保留。新增独立 RGB 全像素检查与空白参考/越界/阈值/部分蒙版拒绝检查；固定上游全新解包、补丁嵌入和 Python 语法通过，Apple 构建及模拟器结果待确认。完整移植仍未完成。
