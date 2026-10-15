@@ -21,12 +21,22 @@ int siril_image_curve_histograms(SirilImage *image, uint64_t *counts, size_t bin
     if (!image || !counts || bins < 2 || bins > 65536) return 0;
     g_mutex_lock(&engine_mutex);
     fits *fit = &image->fit;
-    int ok = fit->type == DATA_FLOAT && fit->fdata;
+    int ok = (fit->type == DATA_FLOAT && fit->fdata) || (fit->type == DATA_USHORT && fit->data);
     if (ok) {
         memset(counts, 0, CHAN_COUNT * bins * sizeof(uint64_t));
         size_t n = (size_t)fit->rx * fit->ry;
+        float norm = get_normalized_value(fit);
         for (size_t i = 0; i < n; i++) {
-            float r = fit->fpdata[0][i], g = fit->fpdata[1][i], b = fit->fpdata[2][i];
+            float r, g, b;
+            if (fit->type == DATA_USHORT) {
+                r = fit->pdata[0][i] / norm;
+                g = fit->naxes[2] > 1 ? fit->pdata[1][i] / norm : r;
+                b = fit->naxes[2] > 2 ? fit->pdata[2][i] / norm : r;
+            } else {
+                r = fit->fpdata[0][i];
+                g = fit->naxes[2] > 1 ? fit->fpdata[1][i] : r;
+                b = fit->naxes[2] > 2 ? fit->fpdata[2][i] : r;
+            }
             for (int c = 0; c < CHAN_COUNT; c++) {
                 float v = siril_curve_tone(c, r, g, b);
                 if (isfinite(v)) {

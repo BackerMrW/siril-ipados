@@ -58,8 +58,8 @@ enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
     default: return "几何"
     } }
     var rgbOnly: Bool { [.colorCalibration, .pcc, .spcc, .saturation, .greenNoise, .unpurple, .ccm].contains(self) }
-    var supportsPreviewRegion: Bool { [.mtf, .inverseMTF, .asinh, .saturation, .greenNoise, .unpurple, .median, .bilateral, .denoise, .wavelets].contains(self) }
-    var acceptsMask: Bool { ![.colorCalibration, .linearMatch, .colorManagement, .pcc, .spcc, .plateSolve, .fftDirect, .fftInverse, .curves, .pixelMath, .inverseMTF, .ccm, .banding, .wavelets].contains(self) && group != "几何" }
+    var supportsPreviewRegion: Bool { [.mtf, .inverseMTF, .asinh, .saturation, .greenNoise, .unpurple, .median, .bilateral, .denoise, .wavelets, .curves].contains(self) }
+    var acceptsMask: Bool { ![.colorCalibration, .linearMatch, .colorManagement, .pcc, .spcc, .plateSolve, .fftDirect, .fftInverse, .curves, .pixelMath, .ccm, .banding, .wavelets].contains(self) && group != "几何" }
     static let actions: [String: Self] = ["win.pcc-processing": .pcc, "win.spcc-processing": .spcc, "win.astrometry": .plateSolve, "win.histo-processing": .mtf, "win.asinh-processing": .asinh, "win.payne-processing": .ghs,
         "win.saturation-processing": .saturation, "win.remove-green-processing": .greenNoise, "win.negative-processing": .negative,
         "win.unpurple-processing": .unpurple, "win.ccm-processing": .ccm, "win.medianfilter-processing": .median,

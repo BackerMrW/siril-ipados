@@ -572,6 +572,15 @@ extension SirilEngine {
             let after = try await session.pixel(view: 1, x: x, y: y), mask = try await session.pixel(view: 2, x: x, y: y)[0]
             try require(abs(mask - expected[0]) < (depth == 0 ? 0.004 : 0.00002), "original channel mask precision")
             for c in 0..<3 { try require(abs(after[c] - (expected[c] * (1 - mask) + (1 - expected[c]) * mask)) < 2e-5, "mask was not applied to original pixels") }
+            var inverse = NativeToolRecipe(tool: .inverseMTF, file: file)
+            inverse.values["mid"] = 0.25; inverse.mask = masked.mask
+            try await session.compute(inverse, library: records)
+            let inversePixel = try await session.pixel(view: 1, x: x, y: y)
+            for c in 0..<3 {
+                let value = Double(expected[c]), weight = Double(mask)
+                let transformed = (-0.25 * value) / (0.5 * value - 0.75)
+                try require(abs(Double(inversePixel[c]) - (value * (1 - weight) + transformed * weight)) < 3e-6, "inverse MTF independent analytic mask blend, depth \(depth)")
+            }
             masked.mask.values["invert"] = 1
             try await session.compute(masked, library: records)
             let inverted = try await session.pixel(view: 2, x: x, y: y)[0]

@@ -410,10 +410,15 @@ struct NativeToolView: View {
                 if section == "ghs" { recipe.values["D"] = 1.2; recipe.values["SP"] = 0.1 }
                 if section == "masks" { recipe.mask.values["mode"] = 1; recipe.mask.values["invert"] = 1 }
                 if section == "geometry" { recipe.values["x"] = 16; recipe.values["y"] = 24; recipe.values["width"] = 96; recipe.values["height"] = 80 }
-                if section == "curves" {
+                if section == "curves-roi" { recipe = NativeToolRecipe(tool: .curves, file: file) }
+                if section.hasPrefix("curves") {
                     recipe.curveSettings.current.channels[0].points.insert(CurveKnot(x: 0.5, y: 0.8), at: 1)
                     recipe.curveSettings.current.channels[0].rangeEnabled = true
                     recipe.curveSettings.current.channels[0].low = 0.05
+                    if section == "curves-roi" {
+                        recipe.previewRegion = ImageSelection(x: file.width / 4, y: file.height / 4, width: max(1, file.width / 2), height: max(1, file.height / 2))
+                        region = recipe.previewRegion
+                    }
                 }
                 if section == "pixelmath" {
                     recipe.mathSettings.expressions[0] = "$T * gain"
@@ -424,7 +429,7 @@ struct NativeToolView: View {
                 let info = try await session.info(view: 1); resultWidth = Int(info.width); resultHeight = Int(info.height)
                 if recipe.tool == .curves { resultCurveHistograms = try await session.curveHistograms(view: 1) }
                 resultImage = try await session.preview(view: 1, channel: -1, settings: displaySettings).uiImage
-                if recipe.mask.number("mode") != 0 || section == "curves" { maskImage = try await session.preview(view: 2, channel: -1, automatic: false).uiImage }
+                if recipe.mask.number("mode") != 0 || section.hasPrefix("curves") { maskImage = try await session.preview(view: 2, channel: -1, automatic: false).uiImage }
                 if recipe.tool == .deconvolution {
                     let kernel = try await session.info(view: 4); kernelWidth = Int(kernel.width); kernelHeight = Int(kernel.height)
                     maskImage = try await session.preview(view: 4, channel: -1, automatic: false).uiImage

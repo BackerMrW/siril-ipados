@@ -154,7 +154,10 @@ struct StarAnalysisView: View {
         .onChange(of: edit.magnitudeReference) { _, value in
             if let value { referenceMagnitude = value.magnitude }
             if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1", value != nil {
-                proxy.scrollTo("standard-magnitude", anchor: .center)
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(400))
+                    proxy.scrollTo("standard-magnitude", anchor: .top)
+                }
             }
         }
         }

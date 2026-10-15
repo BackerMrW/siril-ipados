@@ -235,7 +235,9 @@ actor NativeToolSession {
         }
         var range: OpaquePointer?
         if recipe.tool == .curves, recipe.curveSettings.current.channels[recipe.curveSettings.selectedChannel].rangeEnabled, let advanced {
-            let base = "set32bits\nload input.fits\n"
+            // The range display must use the same raster and normalized float
+            // workspace as the processed preview, including retained stages.
+            let base = "set32bits\nload input.fits\nfmul 1\n" + (recipe.previewRegion != nil ? "native_advanced preview-region.json\n" : "")
             range = folder.path.withCString { directory in base.withCString { siril_tool_compute(directory, $0, &error, size) } }
             var clip = [Int64](repeating: 0, count: 2)
             guard let range, advanced.withCString({ siril_image_advanced(range, $0, 1, &clip, &error, size) }) != 0 else {
@@ -298,7 +300,7 @@ actor NativeToolSession {
             guard let folder else { throw EngineError.failed("曲线会话已关闭。") }
             var input = recipe; input.current = CurveStage()
             let json = String(data: try JSONEncoder().encode(input), encoding: .utf8)!
-            let base = "set32bits\nload input.fits\n"
+            let base = "set32bits\nload input.fits\nfmul 1\n"
             var error = [CChar](repeating: 0, count: 1024); let size = error.count
             guard let image = folder.path.withCString({ directory in base.withCString { siril_tool_compute(directory, $0, &error, size) } }) else { throw EngineError.failed(String(cString: error)) }
             defer { siril_image_free(image) }
