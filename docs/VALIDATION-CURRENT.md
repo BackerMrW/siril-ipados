@@ -4,9 +4,11 @@
 
 ## 已有直接执行证据
 
+- 2026-10-15 本地发现真实 ASI2600MC Air 素材（摄影目录共617份 FITS），只读核对一张6248×4176、BITPIX16/BZERO32768/RGGB原始帧（52,194,240字节）与同尺寸32位三通道叠加图（313,110,720字节）。独立 NumPy 全像素有限性、均值/标准差/极值与本机 Windows Siril `1.5.0-62e5b4a` 的统计按显示精度一致，CLI成功，两份源 SHA-256 未变。本地报告为未跟踪的`diagnostics/real-fits-local/report.json`；这是桌面数据基线，并非固定移植版本或 iPad 验收。原照片/私人头信息未上传。补充同尺寸、同FITS布局的合成 C 回归，覆盖原生读取、方向、预览、独立选区统计、原版标量运算与保存重读，Apple 执行待确认。
+
 - 单星配准补充待 Apple 执行：固定/跟随选区调用原版 `register_shift_fwhm` 与 `seqpsf`，要求所有参与帧获得有效 PSF。新增非居中 Gaussian 星点、两种 ROWORDER、已知位移/FWHM/实际应用像素、排除帧、原文件保留及无星帧元数据回滚检查；同步 worker 的成功/失败参数释放已补齐。固定上游全新解包与嵌入通过。
 
-- 2026-10-15 核对 `10ac4e2f2a22fdbc1fdcad18360fe3523b63ac6b` 的[质量与 KOMBAT 补充回归](https://github.com/BackerMrW/siril-ipados/actions/runs/38588610767)：两个 SDK、完整 C/Swift 和原生页面回归均成功。DFT/KOMBAT 的有效零分保留，尚未测得质量的星点配准零值仍为空；KOMBAT 专页检查成功，图片尚待下载目检。
+- 2026-10-15 核对 `10ac4e2f2a22fdbc1fdcad18360fe3523b63ac6b` 的[质量与 KOMBAT 补充回归](https://github.com/BackerMrW/siril-ipados/actions/runs/38588610767)：两个 SDK、完整 C/Swift 和原生页面回归均成功。DFT/KOMBAT 的有效零分保留，尚未测得质量的星点配准零值仍为空；KOMBAT 专页检查成功，小包已完整下载并核对 SHA-256（75638e5a059067f766e1d5fe97ec1d4f75eeb71ef6bdd58b1100a72fae5365d2），实际目检选区、25%移动范围、测量按钮及未测星点质量显示无遮挡。
 
 - 2026-10-15 新增颜色校准：原版 `background_neutralize`、`get_coeff_for_wb` 和 `calibrate` 已接入原生参数、双参考选区、独立任务、参数重放及已有蒙版保留。新增独立 RGB 全像素检查与空白参考/越界/阈值/部分蒙版拒绝检查；固定上游全新解包、补丁嵌入和 Python 语法通过，Apple 构建及模拟器结果待确认。完整移植仍未完成。
 
