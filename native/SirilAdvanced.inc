@@ -2,6 +2,8 @@
 /* Mobile input/ownership adapters. Interpolation, color transforms and
  * expression evaluation remain in the pinned upstream implementations. */
 #include "filters/curve_transform.h"
+#include "algos/geometry.h"
+#include "io/fits_keywords.h"
 #include "pixelMath/pixel_math_runner.h"
 #include "yyjson.h"
 float siril_curve_tone(int channel, float r, float g, float b) {
@@ -45,7 +47,7 @@ static gboolean advanced_number(yyjson_val *object, const char *name,
     return isfinite(*value) && *value >= low && *value <= high;
 }
 #include "SirilDeconvolution.inc"
-static int advanced_color_region(fits *fit, yyjson_val *values, const char *prefix, rectangle *area) {
+static int advanced_region(fits *fit, yyjson_val *values, const char *prefix, rectangle *area) {
     double fields[4];
     const char *suffix[] = { "X", "Y", "Width", "Height" };
     for (int i = 0; i < 4; i++) {
@@ -54,6 +56,14 @@ static int advanced_color_region(fits *fit, yyjson_val *values, const char *pref
     }
     SirilRegion input = { (int32_t)fields[0], (int32_t)fields[1], (int32_t)fields[2], (int32_t)fields[3] };
     return displayed_region(fit, &input, area);
+}
+static int advanced_apply_preview_region(SirilImage *image, yyjson_val *root) {
+    rectangle area;
+    if (!advanced_region(&image->fit, yyjson_obj_get(root, "values"), "preview", &area)) return 0;
+    // GUI populate_roi copies exactly the selected raster, including odd CFA
+    // coordinates. Geometry crop's Bayer alignment is not a preview operation.
+    clear_Bayer_information(&image->fit);
+    return crop(&image->fit, &area) == 0;
 }
 static int advanced_apply_color(SirilImage *image, yyjson_val *root) {
     fits *fit = &image->fit;
@@ -69,7 +79,7 @@ static int advanced_apply_color(SirilImage *image, yyjson_val *root) {
             bg[c] = 0;
         }
     } else {
-        if (!advanced_color_region(fit, values, "background", &black)) return 0;
+        if (!advanced_region(fit, values, "background", &black)) return 0;
         for (int c = 0; c < 3; c++) {
             imstats *stat = statistics(NULL, -1, fit, c, &black, STATS_BASIC, MULTI_THREADED);
             int valid = stat && isfinite(stat->mean) && isfinite(stat->median);
@@ -80,7 +90,7 @@ static int advanced_apply_color(SirilImage *image, yyjson_val *root) {
             background_neutralize(fit, black);
             return !g_atomic_int_get(&cancel_requested);
         }
-        if (!advanced_color_region(fit, values, "white", &white) ||
+        if (!advanced_region(fit, values, "white", &white) ||
                 !advanced_number(values, "low", 0, 1, &low) ||
                 !advanced_number(values, "high", 0, 1, &high) || low >= high) return 0;
         // The original void API does not report an empty rejected selection.
@@ -343,7 +353,8 @@ int siril_image_advanced(SirilImage *image, const char *json, int preview,
         !strcmp(kind, "deconvolution") && !preview ? advanced_apply_deconv(image, root) :
         !strcmp(kind, "fft") && !preview ? advanced_apply_fft(image, root) :
         !strcmp(kind, "pixelMath") && !preview ? advanced_apply_pm(image, root) :
-        !strcmp(kind, "colorCalibration") && !preview ? advanced_apply_color(image, root) : 0);
+        !strcmp(kind, "colorCalibration") && !preview ? advanced_apply_color(image, root) :
+        !strcmp(kind, "previewRegion") && !preview ? advanced_apply_preview_region(image, root) : 0);
     if (ok) {
         size_t count = (size_t)image->fit.rx * image->fit.ry * image->fit.naxes[2];
         for (size_t i = 0; i < count; i++) if (!isfinite(image->fit.fdata[i])) { ok = 0; break; }
@@ -384,7 +395,8 @@ static int run_advanced_locked(const char *path, char *error, size_t capacity) {
         !strcmp(kind, "deconvolution") ? advanced_apply_deconv(&image, root) :
         !strcmp(kind, "fft") ? advanced_apply_fft(&image, root) :
         !strcmp(kind, "pixelMath") ? advanced_apply_pm(&image, root) :
-        !strcmp(kind, "colorCalibration") ? advanced_apply_color(&image, root) : 0);
+        !strcmp(kind, "colorCalibration") ? advanced_apply_color(&image, root) :
+        !strcmp(kind, "previewRegion") ? advanced_apply_preview_region(&image, root) : 0);
     if (ok) {
         size_t n = (size_t)image.fit.rx * image.fit.ry * image.fit.naxes[2];
         for (size_t i = 0; i < n; i++) if (!isfinite(image.fit.fdata[i])) { ok = 0; break; }

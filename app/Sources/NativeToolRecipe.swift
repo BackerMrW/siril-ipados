@@ -58,6 +58,7 @@ enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
     default: return "几何"
     } }
     var rgbOnly: Bool { [.colorCalibration, .pcc, .spcc, .saturation, .greenNoise, .unpurple, .ccm].contains(self) }
+    var supportsPreviewRegion: Bool { [.mtf, .inverseMTF, .asinh, .saturation, .greenNoise, .unpurple, .median, .bilateral, .denoise, .wavelets].contains(self) }
     var acceptsMask: Bool { ![.colorCalibration, .linearMatch, .colorManagement, .pcc, .spcc, .plateSolve, .fftDirect, .fftInverse, .curves, .pixelMath, .inverseMTF, .ccm, .banding, .wavelets].contains(self) && group != "几何" }
     static let actions: [String: Self] = ["win.pcc-processing": .pcc, "win.spcc-processing": .spcc, "win.astrometry": .plateSolve, "win.histo-processing": .mtf, "win.asinh-processing": .asinh, "win.payne-processing": .ghs,
         "win.saturation-processing": .saturation, "win.remove-green-processing": .greenNoise, "win.negative-processing": .negative,
@@ -174,6 +175,7 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
     var pixelMath: PixelMathRecipe?
     var spectral: SpectralSettings?
     var iccProfile: ICCProfileResource?
+    var previewRegion: ImageSelection?
     init(tool: NativeTool, file: FITSRecord) {
         self.tool = tool; values = Dictionary(uniqueKeysWithValues: tool.fields.map { ($0.id, $0.value) })
         if file.hasMask == true && ![.colorCalibration, .colorManagement, .pixelMath, .fftDirect, .fftInverse].contains(tool) { mask.values["mode"] = 6 }
@@ -184,7 +186,20 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
         if tool == .wavelets { values["layers"] = Double(max(2, min(6, Int(log2(Double(min(file.width, file.height)))) - 2))) }
     }
     func number(_ key: String) -> Double { values[key] ?? 0 }
+    func validatePreviewRegion(file: FITSRecord) throws {
+        if let area = previewRegion {
+            guard tool.supportsPreviewRegion, area.x >= 0, area.y >= 0, area.width > 0, area.height > 0,
+                  area.width <= file.width, area.height <= file.height,
+                  area.x <= file.width - area.width, area.y <= file.height - area.height else {
+                throw EngineError.failed("预览 ROI 超出原图或当前工具尚不支持。")
+            }
+            if tool == .wavelets, number("layers") > log2(Double(min(area.width, area.height))) - 2 {
+                throw EngineError.failed("预览 ROI 太小，请降低小波层数。")
+            }
+        }
+    }
     func validate(file: FITSRecord) throws {
+        try validatePreviewRegion(file: file)
         if tool == .rotationalGradient, number("xc") >= Double(file.width) || number("yc") >= Double(file.height) {
             throw EngineError.failed("旋转梯度中心必须位于原图内。")
         }
@@ -243,7 +258,7 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
             guard mask.number("low") <= mask.number("high"), mask.number("lumLow") <= mask.number("lumHigh") else { throw EngineError.failed("蒙版上下限顺序无效。") }
         }
     }
-    func commands(file: FITSRecord, topDown: Bool) throws -> String {
+    func commands(file: FITSRecord, topDown: Bool, preview: Bool = false) throws -> String {
         try validate(file: file)
         func n(_ key: String) -> String { Self.format(number(key)) }
         func on(_ key: String) -> Bool { number(key) == 1 }
@@ -327,7 +342,10 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
         }
         if !masks.isEmpty && tool.acceptsMask && tool != .deconvolution { command += " -mask" }
         let repeats = tool == .median ? Int(number("iterations")) : 1
-        return (["set32bits", "load input.fits"] + masks + Array(repeating: command.trimmingCharacters(in: .whitespaces), count: repeats)).joined(separator: "\n") + "\n"
+        let region = preview && previewRegion != nil ? ["native_advanced preview-region.json"] : []
+        // set32bits selects output precision; the original fmul worker also
+        // promotes loaded 8/16-bit rasters into this workspace's float ABI.
+        return (["set32bits", "load input.fits", "fmul 1"] + masks + region + Array(repeating: command.trimmingCharacters(in: .whitespaces), count: repeats)).joined(separator: "\n") + "\n"
     }
     private func maskCommands(file: FITSRecord) throws -> [String] {
         let m = mask

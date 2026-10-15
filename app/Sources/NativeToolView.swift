@@ -96,7 +96,11 @@ struct NativeToolView: View {
                 } catch { message = error.localizedDescription }
             }
             .onChange(of: recipe) { _, value in edited(value) }
+            .onChange(of: recipe.previewRegion) { _, value in
+                if recipe.tool.supportsPreviewRegion { region = value }
+            }
             .onChange(of: recipe.tool) { _, tool in
+                region = recipe.previewRegion; selecting = false
                 if tool == .curves && originalCurveHistograms.isEmpty {
                     Task {
                         do { originalCurveHistograms = try await session.curveHistograms(view: 0) }
@@ -129,6 +133,7 @@ struct NativeToolView: View {
                             recipe.values["x"] = Double(selection.x); recipe.values["y"] = Double(selection.y)
                             recipe.values["width"] = Double(selection.width); recipe.values["height"] = Double(selection.height)
                         }
+                        if recipe.tool.supportsPreviewRegion { recipe.previewRegion = selection }
                     }, onTap: recipe.tool == .curves && curvePipette && view == 0 ? { x, y in pickCurveTone(x: x, y: y) } : nil)
                     .background(.black)
             } else { ContentUnavailableView(view == 2 ? "当前没有蒙版预览" : "请计算预览", systemImage: "photo") }
@@ -137,6 +142,14 @@ struct NativeToolView: View {
             }.padding(.horizontal)
             NativeDisplayControls(settings: $displaySettings).padding(.horizontal)
             if recipe.tool == .crop { Toggle("在原图上拖出裁剪选区", isOn: $selecting).padding(.horizontal) }
+            if recipe.tool.supportsPreviewRegion {
+                Toggle("在原图拖动选择预览 ROI", isOn: Binding(get: { selecting }, set: { selecting = $0; if $0 { view = 0 } })).padding(.horizontal)
+                if recipe.previewRegion != nil {
+                    Button("清除预览 ROI") { recipe.previewRegion = nil; region = nil; selecting = false }
+                }
+                Text("ROI 用于选区预览；应用并另存时从输入快照重新计算整张图，输出保留原图尺寸。")
+                    .font(.caption).padding(.horizontal)
+            }
             if recipe.tool == .colorCalibration && recipe.number("operation") != 0 {
                 Toggle("在原图拖出参考选区", isOn: $selecting).padding(.horizontal)
                 HStack {
@@ -365,6 +378,10 @@ struct NativeToolView: View {
                     recipe = NativeToolRecipe(tool: .colorCalibration, file: file)
                     recipe.values["red"] = 0.8; recipe.values["green"] = 0.6; recipe.values["blue"] = 0.4
                 }
+                if section == "roi" {
+                    recipe = NativeToolRecipe(tool: .mtf, file: file); recipe.values["mid"] = 0.25
+                    recipe.previewRegion = ImageSelection(x: file.width / 4, y: file.height / 4, width: max(1, file.width / 2), height: max(1, file.height / 2))
+                }
                 if section == "rotational-gradient" {
                     recipe = NativeToolRecipe(tool: .rotationalGradient, file: file)
                     recipe.values["xc"] = Double(file.width) / 2; recipe.values["yc"] = Double(file.height) / 2
@@ -511,8 +528,9 @@ struct NativeToolView: View {
     }
     @MainActor private func apply() {
         guard !busy, validPreview else { return }; busy = true
+        UIApplication.shared.isIdleTimerDisabled = true
         Task {
-            defer { busy = false }
+            defer { busy = false; UIApplication.shared.isIdleTimerDisabled = false }
             do {
                 await persistTask?.value
                 let job = try await engine.prepareNativeToolJob(file: file, recipe: recipe, library: library)

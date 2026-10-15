@@ -61,6 +61,7 @@ extension SirilEngine {
         for recipe in history.past + [history.current] + history.future {
             guard Set(recipe.values.keys) == Set(recipe.tool.fields.map(\.id)), recipe.values.values.allSatisfy(\.isFinite), Set(recipe.mask.values.keys) == Set(ToolMask.fields.map(\.id)), recipe.mask.values.values.allSatisfy(\.isFinite) else { throw EngineError.failed("工具历史中的参数无效。") }
             try recipe.validateAdvancedStorage()
+            try recipe.validatePreviewRegion(file: file)
             if let profile = recipe.iccProfile { try profile.validate(channels: file.channels) }
         }
         if history.current.tool != tool { history.record(NativeToolRecipe(tool: tool, file: file)) }
@@ -121,6 +122,8 @@ actor NativeToolSession {
     private var source: FITSRecord?
     private var original: OpaquePointer?, result: OpaquePointer?, maskImage: OpaquePointer?, rangeImage: OpaquePointer?, phaseImage: OpaquePointer?, kernelImage: OpaquePointer?
     private var computed: NativeToolRecipe?
+    private var fullScript: String?
+    private var regionPreview = false
     deinit {
         for pointer in [original, result, maskImage, rangeImage, phaseImage, kernelImage].compactMap({ $0 }) { siril_image_free(pointer) }
         if let folder { try? FileManager.default.removeItem(at: folder) }
@@ -141,6 +144,7 @@ actor NativeToolSession {
     func close() {
         for pointer in [original, result, maskImage, rangeImage, phaseImage, kernelImage].compactMap({ $0 }) { siril_image_free(pointer) }
         original = nil; result = nil; maskImage = nil; rangeImage = nil; phaseImage = nil; kernelImage = nil; computed = nil; source = nil
+        fullScript = nil; regionPreview = false
         if let folder { try? FileManager.default.removeItem(at: folder) }; folder = nil
     }
     func fitGradientCenter(_ region: ImageSelection) throws -> StarMeasurement {
@@ -156,9 +160,16 @@ actor NativeToolSession {
     func compute(_ recipe: NativeToolRecipe, library: [FITSRecord]) throws {
         guard let folder, let source else { throw EngineError.failed("工具会话已关闭。") }
         computed = nil
+        fullScript = nil; regionPreview = false
         guard let original else { throw EngineError.failed("原图已关闭。") }
         var sourceInfo = SirilImageInfo(); _ = siril_image_info(original, &sourceInfo)
-        let script = try recipe.commands(file: source, topDown: sourceInfo.top_down != 0)
+        let completeScript = try recipe.commands(file: source, topDown: sourceInfo.top_down != 0)
+        let script = try recipe.commands(file: source, topDown: sourceInfo.top_down != 0, preview: true)
+        if let area = recipe.previewRegion {
+            let values = ["previewX": area.x, "previewY": area.y, "previewWidth": area.width, "previewHeight": area.height]
+            let json = try JSONSerialization.data(withJSONObject: ["kind": "previewRegion", "values": values])
+            try json.write(to: folder.appendingPathComponent("preview-region.json"), options: .atomic)
+        }
         if recipe.tool == .colorManagement, recipe.number("action") != 2, recipe.number("profile") == 5, let profile = recipe.iccProfile {
             try profile.data.write(to: folder.appendingPathComponent("target-profile.icc"), options: .atomic)
         }
@@ -206,6 +217,12 @@ actor NativeToolSession {
         if let advanced { try advanced.write(to: folder.appendingPathComponent("advanced-tool.json"), atomically: true, encoding: .utf8) }
         var error = [CChar](repeating: 0, count: 4096); let size = error.count
         guard let output = folder.path.withCString({ directory in script.withCString { siril_tool_compute(directory, $0, &error, size) } }) else { throw EngineError.failed(String(cString: error)) }
+        if let area = recipe.previewRegion {
+            var info = SirilImageInfo()
+            guard siril_image_info(output, &info) != 0, Int(info.width) == area.width, Int(info.height) == area.height, Int(info.channels) == source.channels else {
+                siril_image_free(output); throw EngineError.failed("原版 ROI 预览的尺寸或通道不符。")
+            }
+        }
         var phase: OpaquePointer?
         if recipe.tool == .fftDirect {
             phase = folder.appendingPathComponent("process/fft-phase.fits").path.withCString { siril_image_read($0, &error, size) }
@@ -231,6 +248,7 @@ actor NativeToolSession {
         if let kernelImage { siril_image_free(kernelImage) }; kernelImage = kernel
         rangeImage = range
         result = output; maskImage = siril_image_mask_copy(output); computed = recipe
+        fullScript = completeScript; regionPreview = recipe.previewRegion != nil
     }
     func preview(view: Int, channel: Int, automatic: Bool) throws -> PreviewBytes {
         let pointer = view == 0 ? original : view == 4 ? kernelImage : view == 3 ? phaseImage : view == 2 ? (rangeImage ?? maskImage) : result
@@ -302,6 +320,24 @@ actor NativeToolSession {
         guard count > 0 else { throw EngineError.failed("像素坐标无效。") }; return Array(values.prefix(Int(count)))
     }
     func export(_ recipe: NativeToolRecipe, to job: ProcessingJob) throws -> URL {
+        guard computed == recipe else { throw EngineError.failed("参数已改变或计算失败，请重新计算预览再应用。") }
+        if regionPreview {
+            guard let folder, let fullScript, let source else { throw EngineError.failed("ROI 预览的全图快照已关闭。") }
+            computed = nil
+            var error = [CChar](repeating: 0, count: 4096); let capacity = error.count
+            guard let complete = folder.path.withCString({ directory in fullScript.withCString { siril_tool_compute(directory, $0, &error, capacity) } }) else {
+                throw EngineError.failed(String(cString: error))
+            }
+            var info = SirilImageInfo()
+            let completeMask = siril_image_mask_copy(complete)
+            guard siril_image_info(complete, &info) != 0, Int(info.width) == source.width, Int(info.height) == source.height,
+                  Int(info.channels) == source.channels, recipe.mask.number("mode") == 0 || completeMask != nil else {
+                siril_image_free(complete); if let completeMask { siril_image_free(completeMask) }
+                throw EngineError.failed("ROI 应用必须得到完整尺寸的图像和蒙版。")
+            }
+            if let result { siril_image_free(result) }; if let maskImage { siril_image_free(maskImage) }
+            result = complete; maskImage = completeMask; computed = recipe; regionPreview = false
+        }
         guard let result, computed == recipe else { throw EngineError.failed("参数已改变或计算失败，请重新计算预览再应用。") }
         if recipe.tool == .deconvolution {
             let psf = job.folder.appendingPathComponent("process/native-psf.fits")
