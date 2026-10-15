@@ -164,7 +164,7 @@ actor NativeToolSession {
         guard let original else { throw EngineError.failed("原图已关闭。") }
         var sourceInfo = SirilImageInfo(); _ = siril_image_info(original, &sourceInfo)
         let completeScript = try recipe.commands(file: source, topDown: sourceInfo.top_down != 0)
-        let script = try recipe.commands(file: source, topDown: sourceInfo.top_down != 0, preview: true)
+        var script = try recipe.commands(file: source, topDown: sourceInfo.top_down != 0, preview: true)
         if let area = recipe.previewRegion {
             let values = ["previewX": area.x, "previewY": area.y, "previewWidth": area.width, "previewHeight": area.height]
             let json = try JSONSerialization.data(withJSONObject: ["kind": "previewRegion", "values": values,
@@ -217,6 +217,21 @@ actor NativeToolSession {
         let advanced = try recipe.advancedSettings(paths: paths)
         if let advanced { try advanced.write(to: folder.appendingPathComponent("advanced-tool.json"), atomically: true, encoding: .utf8) }
         var error = [CChar](repeating: 0, count: 4096); let size = error.count
+        if recipe.tool == .deconvolution, recipe.previewRegion != nil {
+            // Original GUI estimates the PSF on gfit, then applies that kernel
+            // to the ROI. A small starless ROI must not change PSF estimation.
+            var estimate = recipe; estimate.previewRegion = nil; estimate.values["estimateOnly"] = 1; estimate.mask = ToolMask()
+            guard let settings = try estimate.advancedSettings(paths: paths) else { throw EngineError.failed("PSF 估计参数缺失。") }
+            try settings.write(to: folder.appendingPathComponent("estimate-psf.json"), atomically: true, encoding: .utf8)
+            let estimateScript = try estimate.commands(file: source, topDown: sourceInfo.top_down != 0).replacingOccurrences(of: "advanced-tool.json", with: "estimate-psf.json")
+            guard let estimated = folder.path.withCString({ directory in estimateScript.withCString { siril_tool_compute(directory, $0, &error, size) } }) else { throw EngineError.failed(String(cString: error)) }
+            siril_image_free(estimated)
+            var previewValues = recipe.values; previewValues["psfSource"] = 3
+            let previewSettings: [String: Any] = ["kind": "deconvolution", "values": previewValues,
+                "maskAware": recipe.mask.number("mode") != 0, "psfPath": "process/native-psf.fits"]
+            try JSONSerialization.data(withJSONObject: previewSettings).write(to: folder.appendingPathComponent("preview-deconvolution.json"), options: .atomic)
+            script = script.replacingOccurrences(of: "advanced-tool.json", with: "preview-deconvolution.json")
+        }
         guard let output = folder.path.withCString({ directory in script.withCString { siril_tool_compute(directory, $0, &error, size) } }) else { throw EngineError.failed(String(cString: error)) }
         if let area = recipe.previewRegion {
             var info = SirilImageInfo()
@@ -338,7 +353,16 @@ actor NativeToolSession {
                 siril_image_free(complete); if let completeMask { siril_image_free(completeMask) }
                 throw EngineError.failed("ROI 应用必须得到完整尺寸的图像和蒙版。")
             }
+            var completeKernel: OpaquePointer?
+            if recipe.tool == .deconvolution {
+                completeKernel = folder.appendingPathComponent("process/native-psf.fits").path.withCString { siril_image_read($0, &error, capacity) }
+                guard completeKernel != nil else {
+                    siril_image_free(complete); if let completeMask { siril_image_free(completeMask) }
+                    throw EngineError.failed("全图重新计算的 PSF 读取失败，输出尚未完成。")
+                }
+            }
             if let result { siril_image_free(result) }; if let maskImage { siril_image_free(maskImage) }
+            if recipe.tool == .deconvolution { if let kernelImage { siril_image_free(kernelImage) }; kernelImage = completeKernel }
             result = complete; maskImage = completeMask; computed = recipe; regionPreview = false
         }
         guard let result, computed == recipe else { throw EngineError.failed("参数已改变或计算失败，请重新计算预览再应用。") }

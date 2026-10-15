@@ -99,6 +99,47 @@ extension SirilEngine {
         let blended = try await session.pixel(view: 1, x: x, y: y)
         let mask = try await session.pixel(view: 2, x: x, y: y)[0]
         for c in 0..<3 { try require(abs(blended[c] - (expected[c] * (1 - mask) + wiener[c] * mask)) < 0.00002, "original deconvolution mask blend") }
+        let area = ImageSelection(x: 7, y: 9, width: 37, height: 29)
+        let roiReader = ImageAnalysisEngine()
+        for (method, masked) in [(1, false), (2, false), (2, true)] {
+            var roi = NativeToolRecipe(tool: .deconvolution, file: file)
+            roi.psfID = rgbKernel.id; roi.values["psfSource"] = 3; roi.values["method"] = Double(method)
+            roi.values["alpha"] = 500; roi.values["iterations"] = 1; roi.values["rlMethod"] = 0; roi.values["regularization"] = 2
+            roi.previewRegion = area
+            if masked { roi.mask.values["mode"] = 2; roi.mask.values["channel"] = 0 }
+            func predicted(_ source: [Float]) -> [Float] {
+                source.map { value in
+                    let weight = masked ? source[0] : 1, gain: Float = method == 2 ? 1 / 1.002 : 1
+                    return value * (1 - weight) + value * gain * weight
+                }
+            }
+            try await session.compute(roi, library: records)
+            let info = try await session.info(view: 1)
+            try require(Int(info.width) == area.width && Int(info.height) == area.height, "deconvolution ROI dimensions")
+            for py in 0..<area.height { for px in 0..<area.width {
+                let before = try await session.pixel(view: 0, x: area.x + px, y: area.y + py)
+                let after = try await session.pixel(view: 1, x: px, y: py)
+                try require(zip(after, predicted(before)).allSatisfy { abs($0.0 - $0.1) < 4e-5 }, "independent ROI RL/Wiener delta PSF and mask pixels")
+            } }
+            let job = try prepareNativeToolJob(file: file, recipe: roi, library: records); jobs.append(job)
+            try require(!job.script.contains("preview-region") && !job.script.contains("preview-deconvolution"), "preview-only PSF/ROI leaked into saved task")
+            let result = try await session.export(roi, to: job)
+            func verifyFull(_ url: URL) async throws {
+                let info = try await roiReader.open(url)
+                try require(info.width == file.width && info.height == file.height, "deconvolution full apply/replay dimensions")
+                for py in 0..<file.height { for px in 0..<file.width {
+                    let before = try await session.pixel(view: 0, x: px, y: py)
+                    let after = try await roiReader.pixel(x: px, y: py).values
+                    try require(zip(after, predicted(before)).allSatisfy { abs($0.0 - $0.1) < 4e-5 }, "independent full RL/Wiener delta PSF and mask pixels")
+                } }
+            }
+            try await verifyFull(result)
+            let replay = try run(job)
+            guard let replayResult = replay.first(where: { $0.lastPathComponent == "result.fits" }) else { throw EngineError.failed("Deconvolution ROI replay missing") }
+            try await verifyFull(replayResult)
+            _ = try await roiReader.open(job.folder.appendingPathComponent("process/native-psf.fits"))
+            try require(try await roiReader.pixel(x: 1, y: 1).values == [1, 1, 1], "ROI apply lost the applied RGB kernel")
+        }
         let flatSession = NativeToolSession(); try await flatSession.open(constant)
         for method in [0, 1, 2] {
             var flat = NativeToolRecipe(tool: .deconvolution, file: constant)
@@ -123,6 +164,15 @@ extension SirilEngine {
         try await session.compute(generated, library: records)
         let measured = try await session.pixel(view: 4, x: 5, y: 4)[0]
         try require(abs(measured - exp(-0.125)) < 0.035, "star PSF did not use measured known Gaussian width")
+        var starROI = generated; starROI.previewRegion = ImageSelection(x: 0, y: 0, width: 16, height: 16)
+        try await session.compute(starROI, library: records)
+        let roiKernel = try await session.pixel(view: 4, x: 5, y: 4)[0]
+        try require(abs(roiKernel - measured) < 3e-5, "starless ROI changed PSF estimation instead of using full source")
+        let starROIJob = try prepareNativeToolJob(file: file, recipe: starROI, library: records); jobs.append(starROIJob)
+        let starROIOutput = try await session.export(starROI, to: starROIJob)
+        _ = try await roiReader.open(starROIOutput)
+        let savedROIKernel = try await roiReader.pixel(x: 5, y: 4).values[0]
+        try require(abs(savedROIKernel - measured) < 3e-5 && !fm.fileExists(atPath: starROIJob.folder.appendingPathComponent("process/result.fits").path), "PSF-only ROI export lost full-source kernel or saved science duplicate")
         var opticalBytes = sourceBytes
         for (index, card) in ["FOCALLEN=               1000.0", "APERTURE=                150.0", "XPIXSZ  =                 3.76", "YPIXSZ  =                 3.76", "END"].enumerated() {
             let text = card.padding(toLength: 80, withPad: " ", startingAt: 0)

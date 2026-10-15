@@ -362,6 +362,7 @@ jobs:
           diagnostics/native-tools-roi-simulator.png
           diagnostics/native-tools-curves-roi-simulator.png
           diagnostics/native-tools-guided-roi-simulator.png
+          diagnostics/native-tools-deconv-roi-simulator.png
           diagnostics/native-tools-color-calibration-simulator.png
           diagnostics/native-tools-linear-match-simulator.png
           diagnostics/native-tools-rotational-gradient-simulator.png

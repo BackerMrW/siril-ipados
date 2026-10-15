@@ -411,6 +411,10 @@ struct NativeToolView: View {
                     recipe.values["profile"] = section == "deconv-psf" ? 1 : 0
                     recipe.values["estimateOnly"] = section == "deconv-psf" ? 1 : 0
                     recipe.values["method"] = 1; recipe.values["iterations"] = 2
+                    if section == "deconv-roi" {
+                        recipe.previewRegion = ImageSelection(x: file.width / 4, y: file.height / 4, width: max(1, file.width / 2), height: max(1, file.height / 2))
+                        region = recipe.previewRegion
+                    }
                 }
                 if section == "fft-inverse" { recipe.phaseID = library.last(where: { $0.url.lastPathComponent.hasSuffix("fft-phase.fits") })?.id }
                 if section == "ghs" { recipe.values["D"] = 1.2; recipe.values["SP"] = 0.1 }
