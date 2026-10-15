@@ -382,6 +382,12 @@ struct NativeToolView: View {
                     recipe = NativeToolRecipe(tool: .mtf, file: file); recipe.values["mid"] = 0.25
                     recipe.previewRegion = ImageSelection(x: file.width / 4, y: file.height / 4, width: max(1, file.width / 2), height: max(1, file.height / 2))
                 }
+                if section == "guided-roi" {
+                    recipe = NativeToolRecipe(tool: .guided, file: file); recipe.guideID = file.id
+                    recipe.values["diameter"] = 3; recipe.values["amount"] = 0.7
+                    recipe.previewRegion = ImageSelection(x: file.width / 4, y: file.height / 4, width: max(1, file.width / 2), height: max(1, file.height / 2))
+                    region = recipe.previewRegion
+                }
                 if section == "rotational-gradient" {
                     recipe = NativeToolRecipe(tool: .rotationalGradient, file: file)
                     recipe.values["xc"] = Double(file.width) / 2; recipe.values["yc"] = Double(file.height) / 2

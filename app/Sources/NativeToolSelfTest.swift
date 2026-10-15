@@ -347,7 +347,9 @@ extension SirilEngine {
         jobs += try await colorCalibrationSelfTest(file: file, values: values, width: width, height: height)
         checkpoint("PASS: original color calibration manual coefficients, background mean/median offsets, white-reference gains, independent full RGB pixels, private job replay and invalid/empty selection guards")
         jobs += try await previewRegionSelfTest(file: file, values: values, width: width, height: height)
-        checkpoint("PASS: original ROI-only previews with independent full RGB MTF pixels and 8/16/32-bit masks; apply and saved replay processed the full image, source preserved and ROI history restored")
+        checkpoint("PASS: original ROI-only MTF/mask and staged/ranged curves previews; independent full RGB apply/replay, uint16 CFA histogram/range/pipette, source preservation and ROI history")
+        jobs += try await guidedPreviewSelfTest()
+        checkpoint("PASS: original guided ROI with independent mono replicated-border box/covariance filter, constant/float/integer external guides, original guide scale, self guide, full apply/replay and unchanged sources")
         // Every actual native tool must execute, return finite full-resolution
         // pixels and preserve the original. No fake success from command text.
         for tool in NativeTool.allCases.filter({ ![.fftInverse, .plateSolve, .pcc, .spcc].contains($0) }) {

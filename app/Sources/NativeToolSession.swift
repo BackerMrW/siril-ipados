@@ -167,7 +167,8 @@ actor NativeToolSession {
         let script = try recipe.commands(file: source, topDown: sourceInfo.top_down != 0, preview: true)
         if let area = recipe.previewRegion {
             let values = ["previewX": area.x, "previewY": area.y, "previewWidth": area.width, "previewHeight": area.height]
-            let json = try JSONSerialization.data(withJSONObject: ["kind": "previewRegion", "values": values])
+            let json = try JSONSerialization.data(withJSONObject: ["kind": "previewRegion", "values": values,
+                "externalGuide": recipe.tool == .guided && recipe.guideID != nil])
             try json.write(to: folder.appendingPathComponent("preview-region.json"), options: .atomic)
         }
         if recipe.tool == .colorManagement, recipe.number("action") != 2, recipe.number("profile") == 5, let profile = recipe.iccProfile {

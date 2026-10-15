@@ -58,7 +58,7 @@ enum NativeTool: String, CaseIterable, Codable, Identifiable, Sendable {
     default: return "几何"
     } }
     var rgbOnly: Bool { [.colorCalibration, .pcc, .spcc, .saturation, .greenNoise, .unpurple, .ccm].contains(self) }
-    var supportsPreviewRegion: Bool { [.mtf, .inverseMTF, .asinh, .saturation, .greenNoise, .unpurple, .median, .bilateral, .denoise, .wavelets, .curves].contains(self) }
+    var supportsPreviewRegion: Bool { [.mtf, .inverseMTF, .asinh, .saturation, .greenNoise, .unpurple, .median, .bilateral, .guided, .denoise, .wavelets, .curves].contains(self) }
     var acceptsMask: Bool { ![.colorCalibration, .linearMatch, .colorManagement, .pcc, .spcc, .plateSolve, .fftDirect, .fftInverse, .curves, .pixelMath, .ccm, .banding, .wavelets].contains(self) && group != "几何" }
     static let actions: [String: Self] = ["win.pcc-processing": .pcc, "win.spcc-processing": .spcc, "win.astrometry": .plateSolve, "win.histo-processing": .mtf, "win.asinh-processing": .asinh, "win.payne-processing": .ghs,
         "win.saturation-processing": .saturation, "win.remove-green-processing": .greenNoise, "win.negative-processing": .negative,
@@ -311,7 +311,9 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
         case .unsharp: command = "unsharp \(n("sigma")) \(n("amount"))"
         case .clahe: command = "clahe \(n("cliplimit")) \(n("tiles"))"
         case .banding: command = "fixbanding \(n("amount")) \(on("protect") ? n("sigma") : "0")\(on("vertical") ? " -vertical" : "")"
-        case .bilateral, .guided: command = "epf \(tool == .guided ? "-guided " : "")-d=\(n("diameter")) -si=\(n("intensity")) -ss=\(n("spatial")) -mod=\(n("amount"))\(guideID != nil && tool == .guided ? " -guideimage=guide.fits" : "")"
+        case .bilateral, .guided:
+            let guide = preview && previewRegion != nil ? "preview-guide.fits" : "guide.fits"
+            command = "epf \(tool == .guided ? "-guided " : "")-d=\(n("diameter")) -si=\(n("intensity")) -ss=\(n("spatial")) -mod=\(n("amount"))\(guideID != nil && tool == .guided ? " -guideimage=\(guide)" : "")"
         case .denoise: command = "denoise -mod=\(n("amount"))\(on("cosmetic") ? "" : " -nocosmetic")\(on("independent") ? " -indep" : "")\(on("vst") ? " -vst" : "")"
             if number("secondary") == 1 { command += " -da3d" }; if number("secondary") == 2 { command += " -sos=\(n("iterations")) -rho=\(n("rho"))" }
         case .wavelets:

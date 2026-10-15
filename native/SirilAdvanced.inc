@@ -70,6 +70,20 @@ static int advanced_region(fits *fit, yyjson_val *values, const char *prefix, re
 static int advanced_apply_preview_region(SirilImage *image, yyjson_val *root) {
     rectangle area;
     if (!advanced_region(&image->fit, yyjson_obj_get(root, "values"), "preview", &area)) return 0;
+    if (yyjson_get_bool(yyjson_obj_get(root, "externalGuide"))) {
+        // Keep the guide's original bit depth: guided-filter epsilon depends
+        // on its numeric scale. Only the detached science image is promoted.
+        fits guide = {0}; rectangle guide_area;
+        int ok = !readfits("guide.fits", &guide, NULL, FALSE) &&
+            guide.rx == image->fit.rx && guide.ry == image->fit.ry &&
+            advanced_region(&guide, yyjson_obj_get(root, "values"), "preview", &guide_area);
+        if (ok) {
+            clear_Bayer_information(&guide);
+            ok = !crop(&guide, &guide_area) && !savefits("preview-guide.fits", &guide);
+        }
+        clearfits(&guide);
+        if (!ok) return 0;
+    }
     // GUI populate_roi copies exactly the selected raster, including odd CFA
     // coordinates. Geometry crop's Bayer alignment is not a preview operation.
     clear_Bayer_information(&image->fit);
