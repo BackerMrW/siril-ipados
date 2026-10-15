@@ -45,11 +45,20 @@ extension SirilEngine {
             let mp = box(p, w: w, h: h), mi = box(i, w: w, h: h)
             let mii = box(i.map { $0 * $0 }, w: w, h: h)
             let mip = box(zip(i, p).map { $0.0 * $0.1 }, w: w, h: h)
-            let eps = pow(11.0 / 100 / 25 / 10 / 5 * 2, 2)
-            let a = p.indices.map { (mip[$0] - mi[$0] * mp[$0]) / (mii[$0] - mi[$0] * mi[$0] + eps) }
-            let b = p.indices.map { mp[$0] - a[$0] * mi[$0] }
+            let sigma: Double = 11.0 / 100.0 / 25.0 / 10.0 / 5.0 * 2.0
+            let eps = sigma * sigma
+            var a = [Double](repeating: 0, count: p.count), b = a
+            for index in p.indices {
+                let covariance = mip[index] - mi[index] * mp[index]
+                let variance = mii[index] - mi[index] * mi[index]
+                a[index] = covariance / (variance + eps)
+                b[index] = mp[index] - a[index] * mi[index]
+            }
             let ma = box(a, w: w, h: h), mb = box(b, w: w, h: h)
-            return p.indices.map { (ma[$0] * i[$0] + mb[$0]) * 0.7 + p[$0] * 0.3 }
+            return p.indices.map { index -> Double in
+                let filtered = ma[index] * i[index] + mb[index]
+                return filtered * 0.7 + p[index] * 0.3
+            }
         }
         let file = try fixture(w: width, h: height, value: target)
         let sourceBytes = try Data(contentsOf: file.url)
