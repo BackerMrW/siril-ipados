@@ -57,9 +57,33 @@ struct StarMeasurement: Codable, Equatable, Sendable, Identifiable {
     var roundness: Double { fwhmY / fwhmX }
     var fields: [Double] { [Double(channel), background, amplitude, x, y, ra, dec, fwhmX, fwhmY, magnitude, beta, roundness, angle, rmse] }
 }
+struct StarMagnitudeReference: Codable, Equatable, Sendable {
+    let starID: UUID
+    let magnitude: Double
+}
 struct StarEdit: Codable, Equatable, Sendable {
     var settings = StarSettings()
     var stars: [StarMeasurement] = []
+    var magnitudeReference: StarMagnitudeReference?
+    mutating func setMagnitudeReference(starID: UUID, magnitude: Double) throws {
+        guard magnitude.isFinite, (-100...100).contains(magnitude),
+              let star = stars.first(where: { $0.id == starID }), star.photometryValid, !star.saturated else {
+            throw EngineError.failed("请选择一颗未饱和且孔径测光有效的标准星，输入有限的已知星等。")
+        }
+        magnitudeReference = StarMagnitudeReference(starID: starID, magnitude: magnitude)
+    }
+    var magnitudeOffset: Double? {
+        guard let reference = magnitudeReference, reference.magnitude.isFinite,
+              let star = stars.first(where: { $0.id == reference.starID }), star.photometryValid, !star.saturated else { return nil }
+        // Original setmag: com.magOffset = mag_reference - measured magnitude.
+        return reference.magnitude - star.magnitude
+    }
+    func calibratedMagnitude(_ star: StarMeasurement) -> Double? {
+        guard let offset = magnitudeOffset, let reference = magnitudeReference,
+              let standard = stars.first(where: { $0.id == reference.starID }),
+              star.channel == standard.channel, star.photometryValid, !star.saturated else { return nil }
+        return star.magnitude + offset
+    }
 }
 extension NativeToolRecipe {
     // Mirrors calculate_parameters in the original Dynamic PSF workflow.
@@ -120,7 +144,9 @@ struct StarHistory: Codable, Equatable, Sendable {
         guard FileManager.default.fileExists(atPath: url.path) else { return Self(file: file) }
         let h = try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
         guard h.sourceID == file.id, h.width == file.width, h.height == file.height, h.past.count <= 30, h.future.count <= 30,
-              ([h.current] + h.past + h.future).allSatisfy({ $0.stars.count <= 10000 }) else {
+              ([h.current] + h.past + h.future).allSatisfy({ edit in
+                  edit.stars.count <= 10000 && (edit.magnitudeReference.map { $0.magnitude.isFinite && (-100...100).contains($0.magnitude) } ?? true)
+              }) else {
             throw EngineError.failed("星点分析记录与原图不匹配")
         }
         return h

@@ -22,6 +22,7 @@ struct StarAnalysisView: View {
     @State private var exports: [URL] = []
     @State private var summary = ""
     @State private var showDeconvolution = false
+    @State private var referenceMagnitude = 10.0
     private let columns = ["Channel", "B", "A", "x0", "y0", "RA", "Dec", "FWHMx px", "FWHMy px", "Mag", "Beta", "r", "Angle °", "RMSE"]
     private var sorted: [StarMeasurement] {
         edit.stars.sorted { a, b in
@@ -77,6 +78,7 @@ struct StarAnalysisView: View {
         }
     }
     private var controls: some View {
+        ScrollViewReader { proxy in
         Form {
             StarSettingsControls(settings: $edit.settings, channels: file.channels).disabled(busy)
             Section("计算") {
@@ -84,6 +86,24 @@ struct StarAnalysisView: View {
                 Button(edit.settings.photometry ? "拟合选区并进行测光" : "拟合选区星点") { Task { await calculate(find: false) } }.disabled(selection == nil)
                 Button("恢复原版默认参数") { edit.settings = StarSettings() }
             }.disabled(busy)
+            Section("标准星零点校准") {
+                TextField("标准星已知星等", value: $referenceMagnitude, format: .number).keyboardType(.numbersAndPunctuation)
+                Button("将所选星点设为标准星") {
+                    guard selected.count == 1, let id = selected.first else { return }
+                    do {
+                        var next = edit
+                        try next.setMagnitudeReference(starID: id, magnitude: referenceMagnitude)
+                        commit(next)
+                    } catch { message = error.localizedDescription }
+                }.disabled(selected.count != 1 || busy)
+                if let offset = edit.magnitudeOffset, let reference = edit.magnitudeReference {
+                    Text(String(format: "已知星等：%.6f · 零点：%+.6f", reference.magnitude, offset)).textSelection(.enabled)
+                }
+                Button("清除星等校准") { var next = edit; next.magnitudeReference = nil; commit(next) }
+                    .disabled(edit.magnitudeReference == nil || busy)
+                Text("沿用原版 setmag 的零点规则：已知星等减去测得星等。用于本图同通道的有效孔径测光；原表 Mag 保留相对测量，校准值显示在详情和 CSV 中。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }.id("standard-magnitude")
             Section("星表 · \(edit.stars.count) 颗") {
                 HStack { Button("全选") { selected = Set(edit.stars.map(\.id)) }; Button("取消选择") { selected = [] } }
                 HStack {
@@ -130,25 +150,34 @@ struct StarAnalysisView: View {
             if busy { Section { ProgressView("原版 Siril 正在计算") } }
             if !message.isEmpty { Section { Text(message).foregroundStyle(.red).textSelection(.enabled) } }
         }
+        .onChange(of: edit.magnitudeReference) { _, value in
+            if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1", value != nil {
+                proxy.scrollTo("standard-magnitude", anchor: .center)
+            }
+        }
+        }
     }
     private func starDetails(_ star: StarMeasurement) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text("FWHM：\(String(format: "%.5f × %.5f px", star.fwhmX, star.fwhmY))")
             if star.angularX > 0 && star.angularY > 0 { Text(String(format: "角半高宽：%.5f × %.5f arcsec", star.angularX, star.angularY)) }
             Text(star.photometryValid ? String(format: "有效孔径测光：m=%.6f ± %.6f，SNR=%.4f dB", star.magnitude, star.magnitudeError, star.snr) : "无有效孔径测光；表中 Mag 为拟合/像素估算星等。")
+            if let magnitude = edit.calibratedMagnitude(star) { Text(String(format: "标准星校准：m=%.6f", magnitude)) }
             if star.photometryError != 0 { Text("原版测光状态：" + String(cString: siril_psf_error_message(Int32(star.photometryError)))) }
             if star.saturated { Text("饱和星：平均 PSF 时排除。") }
         }.font(.caption).textSelection(.enabled)
     }
     private var csv: String {
         var lines = ["# source=\(file.displayName.replacingOccurrences(of: "\n", with: " ")) id=\(file.id)"]
-        lines.append(columns.joined(separator: ",") + ",angular_x_arcsec,angular_y_arcsec,saturated,photometry_valid,magnitude_error,snr_dB,photometry_error")
+        lines.append(columns.joined(separator: ",") + ",angular_x_arcsec,angular_y_arcsec,saturated,photometry_valid,magnitude_error,snr_dB,photometry_error,calibrated_magnitude,magnitude_zero_point")
         for star in sorted {
             let extra: [Double] = [star.angularX, star.angularY, star.saturated ? 1.0 : 0.0,
                 star.photometryValid ? 1.0 : 0.0, star.magnitudeError, star.snr, Double(star.photometryError)]
             let values: [Double] = star.fields + extra
             let row = values.map { String(format: "%.12g", locale: Locale(identifier: "en_US_POSIX"), $0) }.joined(separator: ",")
-            lines.append(row)
+            let calibrated = edit.calibratedMagnitude(star).map { String(format: "%.12g", locale: Locale(identifier: "en_US_POSIX"), $0) } ?? ""
+            let zero = edit.magnitudeOffset.map { String(format: "%.12g", locale: Locale(identifier: "en_US_POSIX"), $0) } ?? ""
+            lines.append(row + "," + calibrated + "," + zero)
         }
         return lines.joined(separator: "\n") + "\n"
     }
@@ -164,7 +193,12 @@ struct StarAnalysisView: View {
         do { try h.save(for: file); history = h; edit = h.current; selected = []; summary = ""; Task { await preview() } }
         catch { message = error.localizedDescription }
     }
-    @MainActor private func removeSelected() { var value = edit; value.stars.removeAll { selected.contains($0.id) }; commit(value); selected = [] }
+    @MainActor private func removeSelected() {
+        var value = edit
+        value.stars.removeAll { selected.contains($0.id) }
+        if let reference = value.magnitudeReference, selected.contains(reference.starID) { value.magnitudeReference = nil }
+        commit(value); selected = []
+    }
     @MainActor private func averageSelected() {
         let rows = edit.stars.filter { selected.contains($0.id) }, valid = rows.filter { !$0.saturated }
         guard let first = valid.first else { message = "所选星点均已饱和或没有选择"; return }
@@ -194,7 +228,10 @@ struct StarAnalysisView: View {
             image = try await engine.preview(channel: edit.settings.channel, settings: displaySettings).uiImage
             if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1" {
                 guard let region = selection else { throw EngineError.failed("Missing star selection") }
-                var value = edit; value.stars = [try await engine.fitStar(region: region, settings: edit.settings)]
+                var value = edit; value.settings.photometry = true
+                value.stars = [try await engine.fitStar(region: region, settings: value.settings)]
+                guard let reference = value.stars.first else { throw EngineError.failed("Standard star view fixture missing") }
+                try value.setMagnitudeReference(starID: reference.id, magnitude: 12.345)
                 commit(value); selected = Set(value.stars.map(\.id))
                 guard image != nil else { throw EngineError.failed("PSF view missing source image") }
                 let marker = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-analysis-ready.txt")
@@ -213,7 +250,7 @@ struct StarAnalysisView: View {
         defer { busy = false; UIApplication.shared.isIdleTimerDisabled = false }
         do {
             var value = edit
-            if find { value.stars = try await engine.findStars(region: selection, settings: edit.settings) }
+            if find { value.stars = try await engine.findStars(region: selection, settings: edit.settings); value.magnitudeReference = nil }
             else if let region = selection { value.stars.append(try await engine.fitStar(region: region, settings: edit.settings)) }
             commit(value); selected = value.stars.last.map { [$0.id] } ?? []
         } catch { message = error.localizedDescription }

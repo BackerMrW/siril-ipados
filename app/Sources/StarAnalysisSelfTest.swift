@@ -43,6 +43,35 @@ extension SirilEngine {
         let expectedMagnitude = -2.5 * log10(flux), poisson = sqrt(flux * 2.3 * 65535)
         try require(measured.photometryValid && abs(measured.magnitude - expectedMagnitude) < 0.001, "independent wide-aperture integrated Gaussian magnitude \(measured.magnitude) != \(expectedMagnitude)")
         try require(abs(measured.magnitudeError - 1.0857 / poisson) < 0.00002 && abs(measured.snr - 10 * log10(poisson)) < 0.02, "independent Poisson uncertainty/SNR")
+        let faintFile = try fixture("standard-star-half-flux") { x, y, _ in Float(gaussian(x, y, amplitude: 0.225)) }
+        let faintAnalysis = ImageAnalysisEngine(); _ = try await faintAnalysis.open(faintFile.url)
+        let faint = try await faintAnalysis.fitStar(region: area, settings: settings)
+        var magnitudeEdit = StarEdit(settings: settings, stars: [measured, faint, star])
+        try magnitudeEdit.setMagnitudeReference(starID: measured.id, magnitude: 12.345)
+        try require(abs((magnitudeEdit.calibratedMagnitude(measured) ?? .infinity) - 12.345) < 1e-12 &&
+            abs((magnitudeEdit.calibratedMagnitude(faint) ?? .infinity) - (12.345 + 2.5 * log10(2.0))) < 0.002,
+            "standard-star zero point and independent half-flux calibrated magnitude")
+        try require(magnitudeEdit.calibratedMagnitude(star) == nil, "uncalibrated PSF estimate reported as absolute photometry")
+        for invalid in [Double.nan, Double.infinity] {
+            var accepted = false
+            do { try magnitudeEdit.setMagnitudeReference(starID: measured.id, magnitude: invalid); accepted = true } catch {}
+            try require(!accepted, "nonfinite standard magnitude accepted")
+        }
+        var acceptedReference = false
+        do { try magnitudeEdit.setMagnitudeReference(starID: star.id, magnitude: 10); acceptedReference = true } catch {}
+        try require(!acceptedReference, "reference without valid aperture photometry accepted")
+        var magnitudeHistory = StarHistory(file: gaussianFile); magnitudeHistory.record(magnitudeEdit)
+        try magnitudeHistory.save(for: gaussianFile)
+        try require(try StarHistory.load(for: gaussianFile).current == magnitudeEdit, "standard-star reference persistence")
+        var removedReference = magnitudeEdit; removedReference.stars.removeAll { $0.id == measured.id }
+        try require(removedReference.magnitudeOffset == nil && removedReference.calibratedMagnitude(faint) == nil, "removed reference remained active")
+        magnitudeHistory.record(removedReference); magnitudeHistory.undo()
+        try require(magnitudeHistory.current == magnitudeEdit, "standard-star undo")
+        magnitudeHistory.redo(); try require(magnitudeHistory.current == removedReference, "standard-star redo")
+        var legacy = try JSONSerialization.jsonObject(with: JSONEncoder().encode(magnitudeEdit)) as! [String: Any]
+        legacy.removeValue(forKey: "magnitudeReference")
+        let legacyEdit = try JSONDecoder().decode(StarEdit.self, from: JSONSerialization.data(withJSONObject: legacy))
+        try require(legacyEdit.magnitudeReference == nil && legacyEdit.stars == magnitudeEdit.stars, "legacy star history without calibration")
         // Hand-selected fits must drive the real original PSF generator,
         // with saturated stars excluded and pixel units retained.
         var saturatedNative = measured.native
