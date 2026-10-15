@@ -6,6 +6,28 @@ import re
 
 root = Path.cwd()
 source = root / "siril-src"
+# Comet output owns a new regdata array, not the input's PSF allocations.
+# Keep inherited scalar measurements; a newly created shift has no quality
+# measurement (negative is explicitly absent in the mobile quality graph).
+comet = source / "src/registration/comet.c"
+text = comet.read_text()
+needle = 'regargs->imgparam = malloc(args->seq->number * sizeof(imgdata));'
+assert text.count(needle) == 1
+text = text.replace(needle, 'regargs->imgparam = calloc(args->seq->number, sizeof(imgdata));')
+needle = '\t\tregargs->imgparam[i].incl = !SEQUENCE_DEFAULT_INCLUDE; // this will be set by the image hook'
+assert text.count(needle) == 1
+text = text.replace(needle, '\t{\n' + needle + '\n\t\tif (regargs->imgparam[i].date_obs)\n'
+    '\t\t\tregargs->imgparam[i].date_obs = g_date_time_ref(regargs->imgparam[i].date_obs);\n\t}')
+needle = '\t\tcadata->current_regdata = NULL;\n\t}\n'
+assert text.count(needle) == 1
+text = text.replace(needle, needle + '\tfor (int i = 0; i < args->seq->number; i++) {\n'
+    '\t\tregargs->regparam[i].fwhm_data = NULL;\n'
+    '\t\tif (!cadata->current_regdata || guess_transform_from_H(cadata->current_regdata[i].H) == NULL_TRANSFORMATION)\n'
+    '\t\t\tregargs->regparam[i].quality = -1.0;\n\t}\n')
+needle = '\tfree_sequence(&seq, FALSE);'
+assert text.count(needle) == 1
+text = text.replace(needle, needle + '\n\tfree(distoparam);')
+comet.write_text(text)
 # A singleton third FITS axis is a monochrome image. Normalize the working
 # layout before the full/partial readers' three-channel checks.
 fits_io = source / "src/io/image_format_fits.c"
@@ -379,7 +401,7 @@ body = body.replace(needle, '\t\tx1 = fit->rx;\n\t\ty1 = fit->ry;', 1)
 path.write_text(text[:start] + body)
 destination = source / "src/ipados"
 destination.mkdir(exist_ok=True)
-for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "SirilDisplay.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc", "heif-runtime-tests.inc", "keyword-runtime-tests.inc", "display-runtime-tests.inc", "icc-runtime-tests.inc", "display-icc-tests.inc", "display-overlay-tests.inc", "display-proof-tests.inc", "cmyk-proof-fixture.inc", "noise-runtime-tests.inc", "large-image-runtime-tests.inc", "SirilPatternRegistration.inc"):
+for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "SirilDisplay.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc", "heif-runtime-tests.inc", "keyword-runtime-tests.inc", "display-runtime-tests.inc", "icc-runtime-tests.inc", "display-icc-tests.inc", "display-overlay-tests.inc", "display-proof-tests.inc", "cmyk-proof-fixture.inc", "noise-runtime-tests.inc", "large-image-runtime-tests.inc", "SirilPatternRegistration.inc", "SirilCometRegistration.inc"):
     shutil.copy2(root / "native" / name, destination / name)
 # Reuse the pinned desktop LUT arithmetic without GTK state or its UI cache.
 # The iPad bridge owns the image, level bounds, destination and STF parameters.

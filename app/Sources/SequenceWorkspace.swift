@@ -57,6 +57,8 @@ struct SequenceWorkspace: View {
     @State private var showApply = false
     @State private var showBackground = false
     @State private var showPhotometry = false
+    @State private var showComet = false
+    @State private var cometSource: SequenceLocation?
     @State private var backgroundRuns: [SequenceBackgroundRun] = []
     @State private var generated: SequenceLocation?
     @State private var flats: [FITSRecord] = []
@@ -181,6 +183,12 @@ struct SequenceWorkspace: View {
                     Text("选区用于参考帧。DFT 需要正方形；KOMBAT 支持矩形。单星 PSF 需圈住同一颗星，跟随模式按上一张拟合位置移动选区并顺序处理。只测量矩阵与质量，原帧像素保留；完成后可在下方应用配准或叠加。")
                         .font(.caption).foregroundStyle(.secondary)
                 }.id("sequence-pattern")
+                Section("移动目标配准") {
+                    Button("彗星／小行星：设置两次目标位置") { cometSource = currentLocation; showComet = true }
+                        .disabled(snapshot.info.included < 2 || snapshot.info.drizzle != 0)
+                    Text("按两帧位置与拍摄时间计算轨迹，可叠加已有星点配准；生成独立序列后应用矩阵或叠加。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }.id("sequence-comet")
                 Section("原版测量与处理") {
                     BatchPicker(title: "配准变换", value: $options.transform)
                     Stepper("最少匹配星对：\(options.minimumPairs)", value: $options.minimumPairs, in: 4...2000)
@@ -273,6 +281,7 @@ struct SequenceWorkspace: View {
                 for _ in 0..<60 where image == nil { try? await Task.sleep(for: .milliseconds(50)) }
                 guard image != nil else { return }
                 let section = ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] ?? "frames"
+                if section == "comet" { cometSource = currentLocation; showComet = true; return }
                 if section == "crop", let snapshot {
                     cropRegion = ImageSelection(x: Int(snapshot.info.width) / 4, y: Int(snapshot.info.height) / 4,
                         width: max(1, Int(snapshot.info.width) / 2), height: max(1, Int(snapshot.info.height) / 2))
@@ -347,6 +356,12 @@ struct SequenceWorkspace: View {
                 generated = output
                 do { _ = try await engine.recordSequenceResult(entry: location, source: backgroundSource ?? currentLocation, output: output) }
                 catch { throw EngineError.failed("校正输出已保存，但结果历史保存失败：" + error.localizedDescription) }
+            }
+        }
+        .fullScreenCover(isPresented: $showComet, onDismiss: { perform { let status = try await engine.sequenceResultStatus(location); await adopt(status) } }) {
+            SequenceCometView(location: cometSource ?? currentLocation, engine: engine) { output in
+                generated = output
+                _ = try await engine.recordSequenceResult(entry: location, source: cometSource ?? currentLocation, output: output)
             }
         }
         .sheet(isPresented: $showApply) {

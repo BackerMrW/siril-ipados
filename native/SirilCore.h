@@ -23,6 +23,15 @@ typedef struct {
     double fwhm, weighted_fwhm, roundness, background, quality, translation_x, translation_y;
     double mean, median, sigma;
 } SirilSequenceFrame;
+typedef struct {
+    int32_t layer, first, second;
+    double x1, y1, x2, y2; /* displayed pixels, origin at top left */
+} SirilCometOptions;
+/* Original moving-object registration; emits prefix+name without rewriting the
+ * input. Caller detaches generated links before publishing independent output. */
+int siril_sequence_comet_register(const char *directory, const char *name,
+    const char *prefix, const SirilCometOptions *options, double *velocity,
+    char *error, size_t capacity);
 /* Stateless reads use upstream readseqfile/seq_read_frame. name is an exact
  * .seq basename; index/reference are zero-based (-1 means automatic reference).
  * Returns frame count or -1 on error. NULL frames queries required capacity. */

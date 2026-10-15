@@ -4,6 +4,8 @@
 
 ## 已有直接执行证据
 
+- 2026-10-15 彗星／小行星配准补充待 Apple 执行：接入原版 `compute_velocity`、`cvTransfPoint` 和 `register_comet`，读取两次原图位置/DATE-OBS并叠加已有星点变换，输出不改写输入序列。原版链接输出转为独立普通文件，包含排除帧/容器及已有缓存，接入处理结果历史、独立删除/恢复与来源保护。原生双位置、帧/通道、坐标微调与30步持久化撤销已接入。新增单色两种 ROWORDER、RGB FITSEQ、已知速度/矩阵/实际对齐像素、已有星点矩阵合成、质量缺失、源字节、存储恢复、缺失/相同时间及无效位置检查；固定上游全新嵌入与 Python 语法通过，Apple 构建/数值/页面尚待确认。当前入口明确不接受 Drizzle、畸变和直接 SER 序列，这些完整对应仍待补齐。
+
 - 2026-10-15 核对 `a26050c1af179a56a384825fc8660cd558858630` 的[曲线/引导/反卷积 ROI 整轮回归](https://github.com/BackerMrW/siril-ipados/actions/runs/38701505054)：两个 SDK、完整 C/Swift 与原生页面均成功。引导滤波三种外部引导的独立逐像素 box/covariance 数值、原始 uint16 尺度、奇数选区边界、自引导、完整应用/重放与源保留通过；反卷积 RGB 单位核 RL/Wiener/部分蒙版全部选区及整图像素、无星小选区的整图星点 PSF 和 PSF-only 导出通过。曲线及既有42个工具和其他完整回归仍通过。小包完整下载并核对 SHA-256 `42782742dc2a67459725888b98f666ab1a590d99271a34ce45a61ebde1fbd77b`，实际目检引导与反卷积的 ROI 结果、坐标/清除、参数/来源及 PSF 切换控件可见且无重叠。固定源码 GUI 明确启用 ROI 的 asinh/curves/denoise/epf/histogram/median/newdeconv/saturation/scnr/unpurple/wavelets 已对应当前13个原生入口；这不等于所有工具接受 ROI，更不等于完整移植完成。真机、真实大图 Apple 工作流及其他剩余能力仍待验收，未发布新版本。
 
 - 2026-10-15 核对 `2f89e1d6d327e06558e16110432e31a00e434d10` 的[曲线与整数工作区整轮回归](https://github.com/BackerMrW/siril-ipados/actions/runs/38699903189)：两个 SDK、完整 C/Swift 与原生页面均成功。曲线选区/范围显示、保留阶段、uint16 RGGB 直方图/吸管、完整应用/任务重放及反向 MTF 三种深度蒙版解析混合检查通过。页面小包完整下载并核对 SHA-256 `1fcc134527cc5ea0d606454ed880e39c19d96227c0049b7bf232975ffdad5f7a`；实际目检曲线 ROI 结果、选区坐标/清除入口/曲线控件，以及标准星输入/设定/零点/清除与校准星等可见且无重叠。仅代表该提交，后续引导与反卷积补充仍待确认；真机未验收。
