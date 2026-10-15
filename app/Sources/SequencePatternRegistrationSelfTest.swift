@@ -127,6 +127,10 @@ extension SirilEngine {
             var options = BatchOptions(); options.transform = .shift; options.interpolation = .none
             options.scale = 1; options.drizzleOptions.enabled = false
             for method in [SequencePatternMethod.singleStar, .followStar] {
+                try measurePatternRegistration(source, recipe: SequencePatternRecipe(method: .dft,
+                    region: ImageSelection(x: 16, y: 48, width: 64, height: 64), layer: 0, moved: 0.25))
+                let pattern = try inspectSequence(source)
+                try require(pattern.frames.filter(\.included).contains(where: { $0.native.quality > 0 }), "prior DFT quality precondition")
                 let recipe = SequencePatternRecipe(method: method, region: ImageSelection(x: 25, y: 58, width: 38, height: 43), layer: 0, moved: 0.25)
                 try measurePatternRegistration(source, recipe: recipe)
                 let measured = try inspectSequence(source)

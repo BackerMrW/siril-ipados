@@ -90,6 +90,7 @@ struct StarAnalysisView: View {
                 TextField("标准星已知星等", value: $referenceMagnitude, format: .number).keyboardType(.numbersAndPunctuation)
                 Button("将所选星点设为标准星") {
                     guard selected.count == 1, let id = selected.first else { return }
+                    message = ""
                     do {
                         var next = edit
                         try next.setMagnitudeReference(starID: id, magnitude: referenceMagnitude)
@@ -151,6 +152,7 @@ struct StarAnalysisView: View {
             if !message.isEmpty { Section { Text(message).foregroundStyle(.red).textSelection(.enabled) } }
         }
         .onChange(of: edit.magnitudeReference) { _, value in
+            if let value { referenceMagnitude = value.magnitude }
             if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1", value != nil {
                 proxy.scrollTo("standard-magnitude", anchor: .center)
             }

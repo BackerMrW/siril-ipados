@@ -10,6 +10,8 @@ static int embedded_register_single_star(struct registration_args *args) {
         regdata *data = args->seq->regparam[args->layer];
         for (int i = 0; i < args->seq->number; i++) {
             if (args->seq->imgparam[i].incl && (!data || !data[i].fwhm_data || !isfinite(data[i].fwhm) || data[i].fwhm <= 0)) return 1;
+            // PSF registration measures FWHM, not the previous DFT/KOMBAT score.
+            if (data) data[i].quality = 0;
         }
     }
     return result;
