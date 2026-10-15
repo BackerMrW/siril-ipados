@@ -65,7 +65,6 @@ extension SirilEngine {
             try require(rejected, "accepted invalid region, empty white sample, limits or partial mask: \(scenario)")
         }
         try require(try Data(contentsOf: file.url) == source, "modified source bytes")
-        checkpoint("PASS: original color calibration manual coefficients, background mean/median offsets, white-reference gains, independent full RGB pixels, private job replay and invalid/empty selection guards")
         return jobs
     }
 }
