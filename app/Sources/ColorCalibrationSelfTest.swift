@@ -2,20 +2,37 @@
 import Foundation
 
 extension SirilEngine {
-    func colorCalibrationSelfTest(file: FITSRecord, values: [Float], width: Int, height: Int) async throws -> [ProcessingJob] {
+    func colorCalibrationSelfTest(file input: FITSRecord, values inputValues: [Float], width: Int, height: Int) async throws -> [ProcessingJob] {
         func require(_ condition: Bool, _ message: String) throws {
             if !condition { throw EngineError.failed("Color calibration: " + message) }
         }
-        let source = try Data(contentsOf: file.url)
+        let source = try Data(contentsOf: input.url)
+        var values = inputValues
+        let background = ImageSelection(x: 3, y: 11, width: 2, height: 2)
+        // Four exactly representable levels have upstream histogram median
+        // 3/8, while their mean is 5/16. This independently distinguishes the
+        // original mean offset / median reference from an exact sorted median.
+        for c in 0..<3 { for y in 0..<2 { for x in 0..<2 {
+            values[c * width * height + (background.y + y) * width + background.x + x] = Float(1 + y * 2 + x + c) / 8
+        } } }
+        var bytes = Data(source.prefix(2880))
+        for c in 0..<3 { for row in 0..<height { for x in 0..<width {
+            var encoded = values[c * width * height + (height - 1 - row) * width + x].bitPattern.bigEndian
+            withUnsafeBytes(of: &encoded) { bytes.append(contentsOf: $0) }
+        } } }
+        bytes.append(contentsOf: repeatElement(UInt8(0), count: (2880 - bytes.count % 2880) % 2880))
+        let fixture = documents.appendingPathComponent(UUID().uuidString + "-color-reference.fits")
+        try bytes.write(to: fixture)
+        let file = try importFile(fixture)
+        defer { try? FileManager.default.removeItem(at: fixture); try? FileManager.default.removeItem(at: file.url) }
         let session = NativeToolSession(); try await session.open(file)
-        let background = ImageSelection(x: 3, y: 11, width: 9, height: 7)
         let white = ImageSelection(x: 33, y: 35, width: 7, height: 9)
         func samples(_ region: ImageSelection, _ channel: Int) -> [Double] {
             (region.y..<(region.y + region.height)).flatMap { y in
                 (region.x..<(region.x + region.width)).map { x in Double(values[channel * width * height + y * width + x]) }
             }
         }
-        let bg = (0..<3).map { samples(background, $0).sorted()[background.width * background.height / 2] }
+        let bg = (0..<3).map { Double(3 + $0) / 8 }
         let means = (0..<3).map { channel in samples(background, channel).reduce(0, +) / Double(background.width * background.height) }
         let reference = bg.reduce(0, +) / 3
         let signal = (0..<3).map { channel in abs(samples(white, channel).reduce(0, +) / Double(white.width * white.height) - bg[channel]) }
@@ -44,7 +61,7 @@ extension SirilEngine {
                     let actual = Float(bitPattern: data[offset..<(offset + 4)].reduce(UInt32(0)) { ($0 << 8) | UInt32($1) })
                     let value = Double(values[c * width * height + (height - 1 - row) * width + x])
                     let expected = mode == 0 ? value * gains[c] : mode == 1 ? value - Double(Float(means[c] - reference)) : (value - bg[c]) * peak / signal[c] + bg[c]
-                    try require(abs(Double(actual) - expected) < 3e-6, "independent full RGB pixels, operation \(mode), channel \(c)")
+                    try require(abs(Double(actual) - expected) < 3e-6, "independent full RGB pixels, operation \(mode), channel \(c), (\(x),\(height - 1 - row)): \(actual) != \(expected)")
                 } } }
             }
             try verify(output)
@@ -64,7 +81,7 @@ extension SirilEngine {
             do { try await session.compute(invalid, library: [file]) } catch { rejected = true }
             try require(rejected, "accepted invalid region, empty white sample, limits or partial mask: \(scenario)")
         }
-        try require(try Data(contentsOf: file.url) == source, "modified source bytes")
+        try require(try Data(contentsOf: input.url) == source && Data(contentsOf: file.url) == bytes, "modified source bytes")
         return jobs
     }
 }

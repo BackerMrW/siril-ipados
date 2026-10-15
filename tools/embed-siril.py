@@ -21,6 +21,17 @@ fits_io.write_text(text)
 # runs the GUI idle. Release only its list containers and argument wrapper.
 sequence_io = source / "src/io/sequence.c"
 text = sequence_io.read_text()
+# A perfectly constant selection can produce a spurious converged Gaussian.
+# Reject zero contrast before fitting; preserve the original fitter otherwise.
+needle = '\tdata->psf = psf_get_minimisation(fit, 0, &psfarea, spsfargs->for_photometry, spsfargs->init_from_center, ps, TRUE, com.pref.starfinder_conf.profile, &error);'
+assert text.count(needle) == 1
+text = text.replace(needle, '\tgboolean has_contrast = TRUE;\n'
+    '\tif (!spsfargs->for_photometry) {\n'
+    '\t\timstats *contrast = statistics(NULL, -1, fit, 0, NULL, STATS_MINMAX, SINGLE_THREADED);\n'
+    '\t\thas_contrast = contrast && isfinite(contrast->min) && isfinite(contrast->max) && contrast->max > contrast->min;\n'
+    '\t\tif (contrast) free_stats(contrast);\n\t}\n'
+    '\tif (!has_contrast) error = PSF_ERR_INVALID_IMAGE;\n'
+    '\tif (has_contrast)\n' + needle)
 start = text.index('int seqpsf_finalize_hook(')
 end = text.index('gboolean end_seqpsf(', start)
 body = text[start:end]
