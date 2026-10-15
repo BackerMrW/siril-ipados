@@ -70,13 +70,16 @@ extension SirilEngine {
             try verify(replayOutput)
             try require(try JSONDecoder().decode(NativeToolRecipe.self, from: Data(contentsOf: job.folder.appendingPathComponent("native-tool.json"))) == recipe, "saved recipe changed")
         }
-        for scenario in 0...3 {
+        for scenario in 0...5 {
             var invalid = NativeToolRecipe(tool: .colorCalibration, file: file)
             invalid.values["operation"] = 2
+            for prefix in ["background", "white"] { invalid.values[prefix + "Width"] = Double(width); invalid.values[prefix + "Height"] = Double(height) }
             if scenario == 0 { invalid.values["backgroundX"] = Double(width) }
             if scenario == 1 { invalid.values["low"] = 0.95; invalid.values["high"] = 1 }
             if scenario == 2 { invalid.values["low"] = 0.9; invalid.values["high"] = 0.1 }
             if scenario == 3 { invalid.mask.values["mode"] = 1 }
+            if scenario == 4 { invalid.values["backgroundWidth"] = 0 }
+            if scenario == 5 { invalid.values["whiteHeight"] = 0 }
             var rejected = false
             do { try await session.compute(invalid, library: [file]) } catch { rejected = true }
             try require(rejected, "accepted invalid region, empty white sample, limits or partial mask: \(scenario)")

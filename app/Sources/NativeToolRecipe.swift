@@ -98,7 +98,7 @@ extension NativeTool {
             n("low", "白参考下限", 0, 0, 1, false), n("high", "白参考上限", 0.9, 0, 1, false)] + ["background", "white"].flatMap { prefix in
                 let label = prefix == "background" ? "背景" : "白参考"
                 return [n(prefix + "X", label + " X", 0, 0, 100000, true), n(prefix + "Y", label + " Y", 0, 0, 100000, true),
-                    n(prefix + "Width", label + "宽", 1, 1, 100000, true), n(prefix + "Height", label + "高", 1, 1, 100000, true)]
+                    n(prefix + "Width", label + "宽", 0, 0, 100000, true), n(prefix + "Height", label + "高", 0, 0, 100000, true)]
             }
         case .linearMatch: return [n("low", "参考像素下限", 0, 0, 1, false), n("high", "参考像素上限", 0.92, 0, 1, false)]
         case .colorManagement: return [c("action", "操作", ["分配配置文件（保留像素）", "转换颜色空间", "移除配置文件"], 0),
@@ -177,9 +177,6 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
     init(tool: NativeTool, file: FITSRecord) {
         self.tool = tool; values = Dictionary(uniqueKeysWithValues: tool.fields.map { ($0.id, $0.value) })
         if file.hasMask == true && ![.colorCalibration, .colorManagement, .pixelMath, .fftDirect, .fftInverse].contains(tool) { mask.values["mode"] = 6 }
-        if tool == .colorCalibration {
-            for prefix in ["background", "white"] { values[prefix + "Width"] = Double(file.width); values[prefix + "Height"] = Double(file.height) }
-        }
         if tool == .curves { curves = CurveRecipe() }
         if tool == .pixelMath { pixelMath = PixelMathRecipe() }
         if tool == .crop { values["width"] = Double(file.width); values["height"] = Double(file.height) }
@@ -204,6 +201,7 @@ struct NativeToolRecipe: Codable, Equatable, Sendable {
             guard mask.number("mode") == 0 else { throw EngineError.failed("颜色校准作用于整张图像，请关闭处理蒙版。") }
             if number("operation") != 0 {
                 for prefix in number("operation") == 1 ? ["background"] : ["background", "white"] {
+                    guard number(prefix + "Width") > 0, number(prefix + "Height") > 0 else { throw EngineError.failed("请先设置颜色校准需要的背景与白参考选区。") }
                     guard number(prefix + "X") + number(prefix + "Width") <= Double(file.width),
                           number(prefix + "Y") + number(prefix + "Height") <= Double(file.height) else { throw EngineError.failed("颜色参考选区超出原图。") }
                 }

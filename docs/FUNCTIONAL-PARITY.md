@@ -43,7 +43,7 @@
 | win.clear_roi | Clear ROI | 待移植或待逐项验证 |
 | win.align-global | 2-pass global star alignment (deep-sky) | 原版两遍全局星点配准、Drizzle / Bayer Drizzle 与实际应用已接入（畸变与外部参考仍待接入） |
 | win.align-kombat | KOMBAT alignment (planetary/deep-sky) | 原版矩形图案、5–100%移动范围、矩阵/参考帧、实际应用像素与失败元数据恢复已随1e36552整轮通过；真机未验收 |
-| win.align-psf | One star registration (deep-sky) | 原版固定/跟随选区 PSF 已接入，双 ROWORDER 的独立位移/像素与无星回滚回归待 Apple 执行；真机未验收 |
+| win.align-psf | One star registration (deep-sky) | 原版固定/跟随选区 PSF、双 ROWORDER 独立位移/FWHM/像素及无星回滚已随0778941整轮通过；质量切换补充待验证，真机未验收 |
 | win.align-dft | Image pattern alignment (planetary/deep-sky) | 原版 DFT、正方形选区、参考/排除帧、独立矩阵及实际应用像素与失败元数据恢复已随1e36552整轮通过；真机未验收 |
 | win.autostretch_mask | Autostretch Mask | 待移植或待逐项验证 |
 | win.threshold_mask | Apply Thresholds to Mask | 待移植或待逐项验证 |
@@ -62,7 +62,7 @@
 | win.curves-processing | Curves Transformation... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.histo-processing | Histogram Transformation... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
 | win.payne-processing | Generalised Hyperbolic Stretch Transformations... | 原版工具参数、全分辨率预览/另存与编辑历史已接入（完整GUI/ROI/序列对应仍需补齐，真机未验证） |
-| win.color-calib-processing | Color Calibration... | 原版背景中和、白参考校准、手动 RGB 系数及双选区已接入；Apple 数值与整轮回归待通过，真机未验收 |
+| win.color-calib-processing | Color Calibration... | 原版背景中和、白参考、手动 RGB 系数、独立全部像素与任务重放已随0778941整轮通过；界面分组/未选参考拒绝补充待验证，真机未验收 |
 | win.pcc-processing | Photometric Color Calibration... | 原版工作区/参数/历史已接入，完整测光与独立通道增益数值回归通过；远程星表/真机待验收 |
 | win.spcc-processing | Spectrophotometric Color Calibration... | 原版工作区/光谱模型/参数/历史已接入，完整光谱测光与独立窄带颜色数值回归通过；远程星表/真机待验收 |
 | win.rgb-compositing-processing | RGB Compositing... | 待移植或待逐项验证 |
@@ -134,6 +134,6 @@
 
 共享分析工作区已接入矩形选区、完整分辨率像素读数、原版 STATS_MAIN 九项统计（含 bgNoise）及归一化/CFA 开关、原版整图/选区直方图和完整文件头查看/搜索/复制，单张与批量关键字编辑及失败回滚已验证。选区目前用于分析；处理 ROI、多边形选择、文件信息编辑和完整直方图变换交互仍待补齐；普通/FITSEQ 序列关键字编辑及普通/FITSEQ/Drizzle 裁剪已通过独立像素与整轮回归。
 
-原生工具工作区已有41个原版图像工具通过整轮回归，另有颜色校准待验证：MTF/反向MTF、Asinh、GHS/反向GHS、修正Asinh及反向、线性/自动MTF/自动GHS、饱和度/SCNR/负片/去紫/CCM、中值/高斯/反锐化/CLAHE/条纹/双边/引导/NL-Bayes/小波、裁剪/任意角旋转/直角旋转/镜像/合并像素/重采样、曲线/像素数学、FFT正向/逆向、反卷积/PSF、ICC、线性匹配与旋转梯度。具备未改动输入快照、完整分辨率原版计算、原图/结果/蒙版比较、另存、30步跨关闭参数历史及共享图像结果撤销。原版亮度/通道/颜色/星点/外部图像蒙版与阈值/模糊/羽化/反转/乘法已接入；保存的蒙版随图像、几何变换和删除恢复保留。处理ROI、多边形、所有原版GUI细节和序列应用仍未完成。
+原生工具工作区已有42个原版图像工具通过整轮回归（0778941），包含颜色校准：MTF/反向MTF、Asinh、GHS/反向GHS、修正Asinh及反向、线性/自动MTF/自动GHS、饱和度/SCNR/负片/去紫/CCM、中值/高斯/反锐化/CLAHE/条纹/双边/引导/NL-Bayes/小波、裁剪/任意角旋转/直角旋转/镜像/合并像素/重采样、曲线/像素数学、FFT正向/逆向、反卷积/PSF、ICC、线性匹配与旋转梯度。具备未改动输入快照、完整分辨率原版计算、原图/结果/蒙版比较、另存、30步跨关闭参数历史及共享图像结果撤销。原版亮度/通道/颜色/星点/外部图像蒙版与阈值/模糊/羽化/反转/乘法已接入；保存的蒙版随图像、几何变换和删除恢复保留。处理ROI、多边形、所有原版GUI细节和序列应用仍未完成。
 
 背景提取已接入原版采样和图像 hook：增删/选择采样、自动/随机采样、RBF/1–4 阶多项式、减法/除法、抖动、自动渐变完整参数、原图/模型/结果预览与另存。校正结果支持共享 FITS 撤销/重做；采样点可拖动并重读原图中值，采样/参数修改支持30步跨重启撤销/重做、分支清除与滑块/拖动合并。编辑记录随图库文件删除/恢复/永久清理。序列应用接入原版 GUI worker：每帧重新采样、Bayer 四子通道处理、完整采样/自动模型参数、减法/除法与抖动；预览调用相同序列 hook，新输出独立命名并检查全部参与帧，部分失败保留日志与输出但不报全部完成。序列参数30步撤销/重做跨关闭保存，随任务删除恢复；单份输出独立删除/撤销/恢复已接入存储管理；关闭校正页切换到完成输出，整组结果支持30步跨关闭撤销/重做，重复从同一来源应用不会混成串行链；删除当前结果回退，恢复后可重做。

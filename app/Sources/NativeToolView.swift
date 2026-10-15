@@ -137,10 +137,10 @@ struct NativeToolView: View {
             }.padding(.horizontal)
             NativeDisplayControls(settings: $displaySettings).padding(.horizontal)
             if recipe.tool == .crop { Toggle("在原图上拖出裁剪选区", isOn: $selecting).padding(.horizontal) }
-            if recipe.tool == .colorCalibration {
+            if recipe.tool == .colorCalibration && recipe.number("operation") != 0 {
                 Toggle("在原图拖出参考选区", isOn: $selecting).padding(.horizontal)
                 HStack {
-                    ForEach(["background", "white"], id: \.self) { prefix in
+                    ForEach(recipe.number("operation") == 1 ? ["background"] : ["background", "white"], id: \.self) { prefix in
                         Button(prefix == "background" ? "设为背景参考" : "设为白参考") {
                             guard let region else { return }
                             recipe.values[prefix + "X"] = Double(region.x); recipe.values[prefix + "Y"] = Double(region.y)
@@ -186,6 +186,20 @@ struct NativeToolView: View {
                             isRGB: file.channels == 3)
             } else if recipe.tool == .pixelMath {
                 PixelMathEditor(settings: Binding(get: { recipe.mathSettings }, set: { recipe.mathSettings = $0 }), library: library, file: file)
+            } else if recipe.tool == .colorCalibration {
+                Section("颜色校准操作") {
+                    Picker("操作", selection: Binding(get: { recipe.number("operation") }, set: { recipe.values["operation"] = $0 })) {
+                        Text("手动 RGB 系数").tag(0.0); Text("背景中和").tag(1.0); Text("白参考校准").tag(2.0)
+                    }
+                }
+                if recipe.number("operation") == 0 {
+                    Section("手动 RGB 系数") { ToolFieldControls(fields: recipe.tool.fields.filter { ["red", "green", "blue"].contains($0.id) }, values: $recipe.values) }
+                } else {
+                    Section("背景参考选区") { ToolFieldControls(fields: recipe.tool.fields.filter { $0.id.hasPrefix("background") }, values: $recipe.values) }
+                    if recipe.number("operation") == 2 {
+                        Section("白参考与拒绝范围") { ToolFieldControls(fields: recipe.tool.fields.filter { $0.id.hasPrefix("white") || ["low", "high"].contains($0.id) }, values: $recipe.values) }
+                    }
+                }
             } else if !recipe.tool.fields.isEmpty {
                 Section("参数") { ToolFieldControls(fields: visibleToolFields, values: $recipe.values) }
             }
