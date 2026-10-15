@@ -104,7 +104,7 @@ extension SirilEngine {
         // Plan exact owned input/cache paths before the original worker creates
         // symlinks. Generated outputs are detached copies for gallery storage.
         let paths = try sequenceFilePaths(source).filter { $0 != "process/" + source.name }
-        let inputFiles = try paths.map { try sequenceTrashPath($0, under: root) }
+        let inputFiles = try paths.map { (try sequenceKeywordSource($0, under: root), root.appendingPathComponent($0).standardizedFileURL) }
         let folder = try owned(UUID().uuidString, under: try owned("SequenceRuns", under: root))
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
         let prefix = "r_" + folder.lastPathComponent.replacingOccurrences(of: "-", with: "") + "_"
@@ -127,8 +127,8 @@ extension SirilEngine {
             guard success != 0 else { throw EngineError.failed(String(cString: error)) }
             guard try Data(contentsOf: sourceURL) == sourceBytes else { throw EngineError.failed("原版处理改写了输入序列，已停止发布输出。") }
             siril_release_workspace()
-            for input in inputFiles {
-                let target = input.deletingLastPathComponent().appendingPathComponent(prefix + input.lastPathComponent)
+            for (input, logical) in inputFiles {
+                let target = logical.deletingLastPathComponent().appendingPathComponent(prefix + logical.lastPathComponent)
                 let parent = target.deletingLastPathComponent()
                 if parent.path != process.path { _ = try owned(parent.lastPathComponent, under: process) }
                 let type = (try? fm.attributesOfItem(atPath: target.path)[.type]) as? FileAttributeType

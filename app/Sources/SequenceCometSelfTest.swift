@@ -71,7 +71,7 @@ extension SirilEngine {
             }
             let sourceBytes = try Data(contentsOf: sourceURL)
             let inputPaths = try sequenceFilePaths(source).filter { $0 != "process/" + source.name }
-            let inputBytes = try inputPaths.map { try Data(contentsOf: sequenceTrashPath($0, under: job.folder)) }
+            let inputBytes = try inputPaths.map { try Data(contentsOf: sequenceKeywordSource($0, under: job.folder)) }
             let cameraX = registered ? 6.0 : 0, cameraY = registered ? 3.0 : 0
             var recipe = SequenceCometRecipe(); recipe.layer = layer
             recipe.first = CometAnchor(frame: 0, x: 35, y: 42)
@@ -99,8 +99,8 @@ extension SirilEngine {
             try require(velocity.count == 2 && abs(velocity[0] - 180) < 2e-4 && abs(velocity[1] + 120) < 2e-4, "independent anchor speed in reference pixels/hour")
             let prefix = String(output.name.dropLast(source.name.count))
             for (i, path) in inputPaths.enumerated() {
-                let input = try sequenceTrashPath(path, under: job.folder)
-                let detached = input.deletingLastPathComponent().appendingPathComponent(prefix + input.lastPathComponent)
+                let logical = job.folder.appendingPathComponent(path)
+                let detached = logical.deletingLastPathComponent().appendingPathComponent(prefix + logical.lastPathComponent)
                 try require(try fm.attributesOfItem(atPath: detached.path)[.type] as? FileAttributeType == .typeRegular && Data(contentsOf: detached) == inputBytes[i], "independent regular output bytes, including excluded/container frames")
             }
             _ = try recordSequenceResult(entry: source, source: source, output: output)
@@ -134,7 +134,7 @@ extension SirilEngine {
             for (i, path) in outputPaths.enumerated() { try require(try Data(contentsOf: sequenceTrashPath(path, under: job.folder)) == outputBytes[i], "comet output trash/restore changed bytes") }
             let finalTrash = try trashSequenceOutput(output); try permanentlyDeleteTrash([finalTrash])
             try require(try Data(contentsOf: sourceURL) == sourceBytes, "comet workflow changed original sequence metadata")
-            for (i, path) in inputPaths.enumerated() { try require(try Data(contentsOf: sequenceTrashPath(path, under: job.folder)) == inputBytes[i], "comet workflow changed source FITS/container") }
+            for (i, path) in inputPaths.enumerated() { try require(try Data(contentsOf: sequenceKeywordSource(path, under: job.folder)) == inputBytes[i], "comet workflow changed source FITS/container") }
             if variant == 0 {
                 var reverse = recipe; reverse.first = recipe.second; reverse.second = recipe.first
                 let reversed = try registerComet(source, recipe: reverse)
