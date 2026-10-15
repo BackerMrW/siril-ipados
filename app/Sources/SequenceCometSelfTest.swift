@@ -136,6 +136,30 @@ extension SirilEngine {
             try require(try Data(contentsOf: sourceURL) == sourceBytes, "comet workflow changed original sequence metadata")
             for (i, path) in inputPaths.enumerated() { try require(try Data(contentsOf: sequenceTrashPath(path, under: job.folder)) == inputBytes[i], "comet workflow changed source FITS/container") }
             if variant == 0 {
+                var reverse = recipe; reverse.first = recipe.second; reverse.second = recipe.first
+                let reversed = try registerComet(source, recipe: reverse)
+                let reversedInfo = try inspectSequence(reversed)
+                try require(abs(reversedInfo.frames[0].native.translation_x - 3) < 2e-5 && abs(reversedInfo.frames[3].native.translation_y - 4) < 2e-5, "reversed timestamp/anchor order changed physical motion")
+                let reversedTrash = try trashSequenceOutput(reversed); try permanentlyDeleteTrash([reversedTrash])
+                let interrupted = job.folder.appendingPathComponent("SequenceRuns").appendingPathComponent(UUID().uuidString)
+                try fm.createDirectory(at: interrupted, withIntermediateDirectories: true)
+                let interruptedPrefix = "r_" + interrupted.lastPathComponent.replacingOccurrences(of: "-", with: "") + "_"
+                let interruptedOutput = SequenceLocation(job: source.job, name: interruptedPrefix + source.name)
+                try JSONEncoder().encode(recipe).write(to: interrupted.appendingPathComponent("comet.json"))
+                try JSONEncoder().encode(source).write(to: interrupted.appendingPathComponent("source-location.json"))
+                try JSONEncoder().encode(interruptedOutput).write(to: interrupted.appendingPathComponent("output-sequence.json"))
+                try JSONEncoder().encode(JobState(created: Date(), updated: Date(), state: "运行中", inputCount: 3, message: "Interrupted fixture")).write(to: interrupted.appendingPathComponent("job.json"))
+                try sourceBytes.write(to: process.appendingPathComponent(interruptedOutput.name))
+                let link = process.appendingPathComponent(interruptedPrefix + "partial.fit")
+                try fm.createSymbolicLink(at: link, withDestinationURL: process.appendingPathComponent("light_00001.fit"))
+                let temporary = interrupted.appendingPathComponent(UUID().uuidString + ".frame")
+                try Data([1, 2, 3]).write(to: temporary)
+                activeJobIDs.insert(source.job); try recoverCometRuns(job: source.job)
+                try require(fm.fileExists(atPath: link.path), "recovery removed an active run")
+                activeJobIDs.remove(source.job)
+                let recovered = try sequenceOutputRecords(job: source.job).first { $0.location == interruptedOutput }
+                try require(recovered?.available == false && recovered?.state.state == "彗星配准被中断" && !fm.fileExists(atPath: link.path) && !fm.fileExists(atPath: temporary.path), "interrupted link/detach recovery did not clean private outputs")
+                try require(try Data(contentsOf: sourceURL) == sourceBytes && Data(contentsOf: process.appendingPathComponent("light_00001.fit")) == inputBytes[0], "interrupted recovery changed source")
                 let frame = process.appendingPathComponent("light_00004.fit"), original = try Data(contentsOf: frame)
                 let dateCard = stride(from: 0, to: 2880, by: 80).first { String(data: original[$0..<($0 + 8)], encoding: .ascii) == "DATE-OBS" }!
                 for card in ["COMMENT missing date", "DATE-OBS= '2026-10-15T00:00:00.000'"] {
@@ -153,6 +177,9 @@ extension SirilEngine {
                 invalid = recipe; invalid.second?.frame = 0
                 rejected = false; do { _ = try registerComet(source, recipe: invalid) } catch { rejected = true }
                 try require(rejected, "same-frame anchors accepted")
+                var invalidHistory = reopened; invalidHistory.current.first?.x = .nan
+                rejected = false; do { try saveCometHistory(invalidHistory) } catch { rejected = true }
+                try require(rejected && cometHistory(source).current == recipe, "invalid history overwrote saved anchors")
             }
         }
     }

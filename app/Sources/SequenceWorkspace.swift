@@ -361,7 +361,8 @@ struct SequenceWorkspace: View {
         .fullScreenCover(isPresented: $showComet, onDismiss: { perform { let status = try await engine.sequenceResultStatus(location); await adopt(status) } }) {
             SequenceCometView(location: cometSource ?? currentLocation, engine: engine) { output in
                 generated = output
-                _ = try await engine.recordSequenceResult(entry: location, source: cometSource ?? currentLocation, output: output)
+                do { _ = try await engine.recordSequenceResult(entry: location, source: cometSource ?? currentLocation, output: output) }
+                catch { throw EngineError.failed("新序列已保存，但结果历史保存失败：" + error.localizedDescription) }
             }
         }
         .sheet(isPresented: $showApply) {

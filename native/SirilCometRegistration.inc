@@ -23,8 +23,8 @@ static gpointer embedded_comet_thread(gpointer pointer) {
     }
     if (args->reference_date) g_date_time_unref(args->reference_date);
     g_free(args->prefix); g_free(args->new_seq_name);
-    free_sequence(args->seq, TRUE); free(args);
     stop_processing_thread();
+    free_sequence(args->seq, TRUE); free(args);
     return GINT_TO_POINTER(result);
 }
 

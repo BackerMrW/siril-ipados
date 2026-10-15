@@ -33,6 +33,47 @@ struct SequenceCometHistory: Codable, Sendable {
 }
 
 extension SirilEngine {
+    private func discardCometOutput(folder: URL, process: URL) throws {
+        guard UUID(uuidString: folder.lastPathComponent) != nil,
+              folder.deletingLastPathComponent().path == process.deletingLastPathComponent().appendingPathComponent("SequenceRuns").path else { throw EngineError.failed("无效的彗星配准清理目录。") }
+        let fm = FileManager.default, prefix = "r_" + folder.lastPathComponent.replacingOccurrences(of: "-", with: "") + "_"
+        for directory in [process, process.appendingPathComponent("cache"), process.appendingPathComponent("drizztmp")] {
+            guard fm.fileExists(atPath: directory.path) else { continue }
+            if directory.path != process.path { _ = try owned(directory.lastPathComponent, under: process) }
+            for item in try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) where item.lastPathComponent.hasPrefix(prefix) {
+                let type = try fm.attributesOfItem(atPath: item.path)[.type] as? FileAttributeType
+                guard type == .typeRegular || type == .typeSymbolicLink else { throw EngineError.failed("彗星配准清理遇到非文件输出。") }
+                try fm.removeItem(at: item)
+            }
+        }
+        for item in try fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            where item.pathExtension == "frame" && UUID(uuidString: item.deletingPathExtension().lastPathComponent) != nil {
+            let file = try owned(item.lastPathComponent, under: folder)
+            guard (try fm.attributesOfItem(atPath: file.path)[.type]) as? FileAttributeType == .typeRegular else { throw EngineError.failed("彗星配准临时文件无效。") }
+            try fm.removeItem(at: file)
+        }
+    }
+    func recoverCometRuns(job: String) throws {
+        guard UUID(uuidString: job) != nil else { throw EngineError.failed("无效任务。") }
+        guard !activeJobIDs.contains(job) else { return }
+        let root = try owned(job, under: documents.appendingPathComponent("Jobs"))
+        let runs = try owned("SequenceRuns", under: root), process = try owned("process", under: root)
+        guard FileManager.default.fileExists(atPath: runs.path) else { return }
+        for candidate in try FileManager.default.contentsOfDirectory(at: runs, includingPropertiesForKeys: nil) {
+            guard UUID(uuidString: candidate.lastPathComponent) != nil else { continue }
+            guard let folder = try? owned(candidate.lastPathComponent, under: runs) else { continue }
+            guard (try? JSONDecoder().decode(SequenceCometRecipe.self, from: Data(contentsOf: owned("comet.json", under: folder)))) != nil,
+                  let state = try? JSONDecoder().decode(JobState.self, from: Data(contentsOf: owned("job.json", under: folder))), state.state == "运行中",
+                  let source = try? JSONDecoder().decode(SequenceLocation.self, from: Data(contentsOf: owned("source-location.json", under: folder))), source.job == job,
+                  let output = try? JSONDecoder().decode(SequenceLocation.self, from: Data(contentsOf: owned("output-sequence.json", under: folder))), output.job == job else { continue }
+            let prefix = "r_" + folder.lastPathComponent.replacingOccurrences(of: "-", with: "") + "_"
+            guard output.name == prefix + source.name else { throw EngineError.failed("中断的彗星配准来源与输出不匹配。") }
+            _ = try owned(source.name, under: process); _ = try owned(output.name, under: process)
+            siril_release_workspace()
+            try discardCometOutput(folder: folder, process: process)
+            try writeJobState(folder, state: "彗星配准被中断", message: "未完成的输出已清理，输入序列保留。")
+        }
+    }
     private func cometHistoryURL(_ source: SequenceLocation) throws -> URL {
         let directory = try owned("SequenceEdits", under: sequenceFolder(source).deletingLastPathComponent())
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -89,7 +130,7 @@ extension SirilEngine {
             for input in inputFiles {
                 let target = input.deletingLastPathComponent().appendingPathComponent(prefix + input.lastPathComponent)
                 let parent = target.deletingLastPathComponent()
-                if parent != process { _ = try owned(parent.lastPathComponent, under: process) }
+                if parent.path != process.path { _ = try owned(parent.lastPathComponent, under: process) }
                 let type = (try? fm.attributesOfItem(atPath: target.path)[.type]) as? FileAttributeType
                 if type == .typeSymbolicLink {
                     guard target.resolvingSymlinksInPath() == input.resolvingSymlinksInPath() else { throw EngineError.failed("原版输出链接与输入不匹配。") }
@@ -115,15 +156,7 @@ extension SirilEngine {
         } catch {
             activeJobIDs.remove(source.job); siril_release_workspace()
             if (try? Data(contentsOf: sourceURL)) != sourceBytes { try sourceBytes.write(to: sourceURL, options: .atomic) }
-            for directory in [process, process.appendingPathComponent("cache"), process.appendingPathComponent("drizztmp")] {
-                guard fm.fileExists(atPath: directory.path) else { continue }
-                if directory != process { _ = try owned(directory.lastPathComponent, under: process) }
-                for item in try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) where item.lastPathComponent.hasPrefix(prefix) {
-                    let type = try fm.attributesOfItem(atPath: item.path)[.type] as? FileAttributeType
-                    guard type == .typeRegular || type == .typeSymbolicLink else { throw EngineError.failed("彗星配准清理遇到非文件输出。") }
-                    try fm.removeItem(at: item)
-                }
-            }
+            try discardCometOutput(folder: folder, process: process)
             try? writeJobState(folder, state: "彗星配准失败或取消", message: error.localizedDescription)
             throw error
         }

@@ -137,7 +137,8 @@ struct SequenceCometView: View {
         } catch { if index == frame { image = nil; message = error.localizedDescription } }
     }
     @MainActor private func record() {
-        guard var value = history else { return }
+        guard var value = history, let snapshot else { return }
+        do { try recipe.validate(snapshot, complete: false) } catch { message = error.localizedDescription; return }
         value.record(recipe); history = value
         let previous = persistTask
         persistTask = Task { await previous?.value; do { try await engine.saveCometHistory(value) } catch { message = error.localizedDescription } }
@@ -152,7 +153,7 @@ struct SequenceCometView: View {
         do {
             await persistTask?.value
             let result = try await engine.registerComet(location, recipe: recipe)
-            try await onOutput(result); output = result; message = "配准完成；可关闭此页，继续应用矩阵或叠加。"
+            output = result; try await onOutput(result); message = "配准完成；可关闭此页，继续应用矩阵或叠加。"
         } catch { message = error.localizedDescription }
     }
 }

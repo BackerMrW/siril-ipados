@@ -22,6 +22,7 @@ struct SequenceOutputRecord: Identifiable, Sendable {
 extension SirilEngine {
     func sequenceOutputRecords(job: String) throws -> [SequenceOutputRecord] {
         guard UUID(uuidString: job) != nil, !activeJobIDs.contains(job) else { throw EngineError.failed("任务正在处理或路径无效。") }
+        try recoverCometRuns(job: job)
         let root = try owned(job, under: documents.appendingPathComponent("Jobs"))
         let process = try owned("process", under: root), runs = try owned("SequenceRuns", under: root)
         let entries = trashEntries()
