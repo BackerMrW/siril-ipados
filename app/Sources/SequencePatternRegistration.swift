@@ -3,15 +3,16 @@ import Foundation
 import SirilCore
 
 enum SequencePatternMethod: String, BatchChoice {
-    case dft, kombat, singleStar, followStar
+    case dft, kombat, singleStar, followStar, manualStars
     var title: String { switch self {
         case .dft: return "DFT 图像图案"
         case .kombat: return "KOMBAT 图像图案"
         case .singleStar: return "单星 PSF · 固定选区"
         case .followStar: return "单星 PSF · 跟随星点"
+        case .manualStars: return "手动双星／三星 PSF"
     } }
     var native: Int32 { switch self {
-        case .dft: return 0; case .kombat: return 1; case .singleStar: return 2; case .followStar: return 3
+        case .dft: return 0; case .kombat: return 1; case .singleStar: return 2; case .followStar: return 3; case .manualStars: return 4
     } }
 }
 struct SequencePatternRecipe: Codable, Sendable {
@@ -19,11 +20,23 @@ struct SequencePatternRecipe: Codable, Sendable {
     let region: ImageSelection
     let layer: Int
     let moved: Double
+    var stars: [ImageSelection]? = nil
+    var rotation: Bool? = nil
+    var follow: Bool? = nil
 }
 extension SirilEngine {
     func measurePatternRegistration(_ location: SequenceLocation, recipe: SequencePatternRecipe) throws {
         guard (0...2).contains(recipe.layer) else { throw EngineError.failed("图案配准通道无效。") }
         let before = try inspectSequence(location, layer: recipe.layer), area = recipe.region
+        if recipe.method == .manualStars {
+            guard let stars = recipe.stars, (2...3).contains(stars.count), before.info.drizzle == 0,
+                  stars.allSatisfy({ $0.x >= 0 && $0.y >= 0 && $0.width >= 8 && $0.height >= 8 &&
+                      $0.width <= Int(before.info.width) && $0.height <= Int(before.info.height) &&
+                      $0.x <= Int(before.info.width) - $0.width && $0.y <= Int(before.info.height) - $0.height }),
+                  stars.enumerated().allSatisfy({ i, a in stars.dropFirst(i + 1).allSatisfy { b in
+                      a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y
+                  } }) else { throw EngineError.failed("双星／三星配准需要参考帧内两个或三个不重叠星点选区，暂不支持 Drizzle 序列。") }
+        }
         guard before.info.included >= 2, before.info.width > 0, before.info.height > 0, recipe.moved.isFinite,
               (0...1).contains(recipe.moved), recipe.method != .kombat || recipe.moved >= 0.05,
               area.x >= 0, area.y >= 0, area.width >= 8, area.height >= 8,
@@ -44,8 +57,15 @@ extension SirilEngine {
         activeJobIDs.insert(location.job); defer { activeJobIDs.remove(location.job) }
         do {
             var error = [CChar](repeating: 0, count: 4096), native = area.native; let capacity = error.count
-            let success = process.path.withCString { directory in location.name.withCString {
-                siril_sequence_pattern_register(directory, $0, recipe.method.native, Int32(recipe.layer), &native, recipe.moved, &error, capacity)
+            let success = process.path.withCString { directory in location.name.withCString { sequenceName in
+                if recipe.method == .manualStars {
+                    let nativeStars = (recipe.stars ?? []).map(\.native)
+                    return nativeStars.withUnsafeBufferPointer { boxes in
+                        siril_sequence_manual_stars_register(directory, sequenceName, Int32(recipe.layer), boxes.baseAddress,
+                            Int32(boxes.count), recipe.rotation == false ? 0 : 1, recipe.follow == true ? 1 : 0, &error, capacity)
+                    }
+                }
+                return siril_sequence_pattern_register(directory, sequenceName, recipe.method.native, Int32(recipe.layer), &native, recipe.moved, &error, capacity)
             } }
             try Self.processingLog().write(to: folder.appendingPathComponent("processing.log"), atomically: true, encoding: .utf8)
             guard success != 0 else { throw EngineError.failed(String(cString: error)) }

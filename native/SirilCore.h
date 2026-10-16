@@ -115,6 +115,10 @@ typedef struct {
 int siril_sequence_pattern_register(const char *directory, const char *name,
     int method, int layer, const SirilRegion *region, double moved,
     char *error, size_t capacity);
+/* Original two/three-star PSF registration; displayed reference-frame boxes. */
+int siril_sequence_manual_stars_register(const char *directory, const char *name,
+    int layer, const SirilRegion *regions, int count, int rotation, int follow,
+    char *error, size_t capacity);
 typedef struct {
     uint64_t total, good;
     double mean, median, sigma, average_deviation, mad, sqrt_bwmv, minimum, maximum, norm;

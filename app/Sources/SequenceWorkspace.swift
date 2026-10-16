@@ -72,6 +72,9 @@ struct SequenceWorkspace: View {
     @State private var patternMoved = 25.0
     @State private var selectingPattern = false
     @State private var patternRegion: ImageSelection?
+    @State private var manualStarRegions: [ImageSelection] = []
+    @State private var manualStarRotation = true
+    @State private var manualStarFollow = false
     @State private var resultStatus: SequenceResultStatus?
     @State private var backgroundSource: SequenceLocation?
     private var currentLocation: SequenceLocation { resultStatus?.history.current ?? location }
@@ -156,7 +159,7 @@ struct SequenceWorkspace: View {
                     }.buttonStyle(.borderless)
                 }
                 qualityPlot(snapshot).id("sequence-quality")
-                Section("图案与单星配准") {
+                Section("图案与星点配准") {
                     BatchPicker(title: "方法", value: $patternMethod)
                     Toggle("在参考帧拖动选择图案或星点", isOn: $selectingPattern)
                     if let patternRegion { Text(patternRegion.description).textSelection(.enabled) }
@@ -171,15 +174,31 @@ struct SequenceWorkspace: View {
                     if patternMethod == .kombat {
                         Stepper("最大移动：\(Int(patternMoved))%", value: $patternMoved, in: 5...100, step: 1)
                     }
+                    if patternMethod == .manualStars {
+                        Toggle("允许旋转", isOn: $manualStarRotation)
+                        Toggle("逐帧跟随星点", isOn: $manualStarFollow)
+                        Button("保存当前选区为星点 \(manualStarRegions.count + 1)") {
+                            if let patternRegion { manualStarRegions.append(patternRegion) }
+                        }.disabled(patternRegion == nil || manualStarRegions.count >= 3 ||
+                            index != (snapshot.info.reference >= 0 ? Int(snapshot.info.reference) : snapshot.frames.first(where: \.included)?.id ?? 0))
+                        ForEach(Array(manualStarRegions.enumerated()), id: \.offset) { item in
+                            Text("星点 \(item.offset + 1)：\(item.element.description)").font(.caption)
+                        }
+                        Button("清除已保存星点") { manualStarRegions = [] }
+                        Text("先切到参考帧，分别圈选两颗或三颗星并保存选区。选区必须不重叠；选区应覆盖各帧中的星点，或开启逐帧跟随。失败会恢复原序列元数据。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     Button("测量参与帧配准") {
                         guard let patternRegion else { return }
                         perform {
                             try await engine.measurePatternRegistration(currentLocation,
-                                recipe: SequencePatternRecipe(method: patternMethod, region: patternRegion, layer: layer, moved: patternMoved / 100))
-                            options.transform = .shift
+                                recipe: SequencePatternRecipe(method: patternMethod, region: patternRegion, layer: layer, moved: patternMoved / 100,
+                                    stars: manualStarRegions, rotation: manualStarRotation, follow: manualStarFollow))
+                            options.transform = patternMethod == .manualStars && manualStarRotation ? .similarity : .shift
                             log = SirilEngine.processingLog(); await reload()
                         }
-                    }.disabled(patternRegion == nil || snapshot.info.included < 2)
+                    }.disabled(patternRegion == nil || snapshot.info.included < 2 ||
+                        (patternMethod == .manualStars && (manualStarRegions.count < 2 || snapshot.info.drizzle != 0)))
                     Text("选区用于参考帧。DFT 需要正方形；KOMBAT 支持矩形。单星 PSF 需圈住同一颗星，跟随模式按上一张拟合位置移动选区并顺序处理。只测量矩阵与质量，原帧像素保留；完成后可在下方应用配准或叠加。")
                         .font(.caption).foregroundStyle(.secondary)
                 }.id("sequence-pattern")
@@ -288,12 +307,18 @@ struct SequenceWorkspace: View {
                     selectingCrop = true
                     try? await Task.sleep(for: .milliseconds(400)); proxy.scrollTo("sequence-crop", anchor: .center)
                 }
-                if ["pattern", "pattern-kombat", "pattern-single-star"].contains(section), let snapshot {
-                    patternMethod = section == "pattern-kombat" ? .kombat : section == "pattern-single-star" ? .followStar : .dft
+                if ["pattern", "pattern-kombat", "pattern-single-star", "pattern-manual-stars"].contains(section), let snapshot {
+                    patternMethod = section == "pattern-kombat" ? .kombat : section == "pattern-single-star" ? .followStar : section == "pattern-manual-stars" ? .manualStars : .dft
                     let side = max(8, min(Int(snapshot.info.width), Int(snapshot.info.height)) / 2)
                     patternRegion = ImageSelection(x: (Int(snapshot.info.width) - side) / 2,
                         y: (Int(snapshot.info.height) - side) / 2, width: side, height: side)
                     selectingPattern = true
+                    if section == "pattern-manual-stars" {
+                        let box = max(8, min(Int(snapshot.info.width), Int(snapshot.info.height)) / 8)
+                        manualStarRegions = [ImageSelection(x: box, y: box, width: box, height: box),
+                            ImageSelection(x: box * 3, y: box, width: box, height: box),
+                            ImageSelection(x: box * 2, y: box * 3, width: box, height: box)]
+                    }
                     try? await Task.sleep(for: .milliseconds(400)); proxy.scrollTo("sequence-pattern", anchor: .center)
                 }
                 if section == "results" {
@@ -336,6 +361,11 @@ struct SequenceWorkspace: View {
             }
         }
         .onChange(of: index) { _, _ in refreshPreview() }
+        .onChange(of: patternMethod) { _, method in
+            if method == .manualStars, let snapshot {
+                index = snapshot.info.reference >= 0 ? Int(snapshot.info.reference) : snapshot.frames.first(where: \.included)?.id ?? 0
+            }
+        }
         .onChange(of: selectingCrop) { _, value in if value { selectingPattern = false; patternRegion = nil } }
         .onChange(of: selectingPattern) { _, value in if value { selectingCrop = false; cropRegion = nil } }
         .onChange(of: channel) { _, _ in refreshPreview() }
@@ -448,6 +478,7 @@ struct SequenceWorkspace: View {
             plotFrame = nil; from = 1; generated = nil; result = nil; export = nil
             cropRegion = nil; selectingCrop = false
             patternRegion = nil; selectingPattern = false
+            manualStarRegions = []
         }
         resultStatus = status
         await reload(); to = snapshot?.frames.count ?? 1

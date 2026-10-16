@@ -83,6 +83,7 @@ extension SirilEngine {
         try require(rejected && Data(contentsOf: process.appendingPathComponent(source.name)) == beforeFailure, "failed pattern registration changed original sequence metadata")
         try require(try inspectSequence(source).selection == selection, "failed pattern registration changed selection/reference")
         try singleStarRegistrationSelfTest()
+        try manualStarsRegistrationSelfTest()
     }
     func singleStarRegistrationSelfTest() throws {
         let fm = FileManager.default, baseline = loadLibrary()

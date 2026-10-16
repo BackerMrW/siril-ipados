@@ -6,6 +6,60 @@ import re
 
 root = Path.cwd()
 source = root / "siril-src"
+# Manual star registration receives its selections and layer from the native
+# caller. Keep the original PSF fitter and rigid-transform implementation.
+three_stars = source / "src/registration/3stars.c"
+text = three_stars.read_text()
+text = text.replace('sequence_find_refimage(&com.seq)', 'sequence_find_refimage(args->seq)')
+text = text.replace('com.seq.number', 'regargs->seq->number')
+# The finalize hook has generic arguments, not registration arguments.
+start = text.index('static int _3stars_seqpsf_finalize_hook(')
+end = text.index('static void _3stars_free_results()', start)
+body = text[start:end].replace('regargs->seq->number', 'args->seq->number')
+transfer_start = body.index('\tGSList *iterator;')
+transfer_end = body.index('\n\tint refimage', transfer_start)
+transfer = body[transfer_start:transfer_end]
+body = body[:transfer_start] + body[transfer_end:]
+insert = body.index('\n\tif (args->retval)')
+body = body[:insert] + '\n' + transfer + body[insert:]
+gui_start = body.index('\tg_rw_lock_writer_lock(&com.stars_lock);')
+gui_end = body.index('\npsf_end:', gui_start)
+body = body[:gui_start] + body[gui_end:]
+body = body.replace('g_slist_free(spsfargs->list);', 'g_slist_free_full(spsfargs->list, free);')
+text = text[:start] + body + text[end:]
+text = text.replace('free(results[i].stars[s]);', 'free_psf(results[i].stars[s]);')
+text = text.replace('(regargs->follow_star) ? FOLLOW_STAR_FRAME : REGISTERED_FRAME', '(regargs->follow_star) ? FOLLOW_STAR_FRAME : ORIGINAL_FRAME')
+text = text.replace('\t\tfor (int i = 0 ; i < args->seq->number; i++)\n\t\t\tresults[i].stars[awaiting_star - 1] = NULL;\n', '')
+text = text.replace('get_registration_layer(&com.seq) : gui_iface.get_reg_layer()', 'regargs->layer : regargs->layer')
+needle = '\t\tmemcpy(&com.selection, &_3boxes[awaiting_star - 1], sizeof(rectangle));'
+assert text.count(needle) == 1
+text = text.replace(needle, '\t\tmemcpy(&com.selection, &_3boxes[i], sizeof(rectangle));')
+# Transform matrices are computed against refimage below. Preserve that same
+# reference in the saved sequence instead of selecting another frame by FWHM.
+needle = 'regargs->seq->reference_image = best_index;'
+assert text.count(needle) == 1
+text = text.replace(needle, 'regargs->seq->reference_image = refimage;\n\tbest_index = refimage;')
+needle = '\t\t\t\t\tstarsin = &(arrayref[k]);'
+start = text.index(needle)
+end = text.index('\n\t\t\t\tdouble err = cvCalculRigidTransform', start)
+body = text[start:end]
+assign_end = body.index('\n\t\t\t\t\tif (results[i].stars[j]')
+assign = body[:assign_end]
+body = body[assign_end:]
+insert = body.index('\n', body.index('!= NULL) {'))
+body = body[:insert] + '\n' + assign + body[insert:]
+text = text[:start] + body + text[end:]
+needle = '\t\tcurrent_regdata[i].roundness = sumy / sumx;'
+assert text.count(needle) == 1
+text = text.replace(needle, '\t\tcurrent_regdata[i].quality = 0;\n' + needle)
+text += '''
+void siril_ipados_reset_three_stars(void) {
+    _3stars_free_results();
+    awaiting_star = 0;
+    selected_stars = 0;
+}
+'''
+three_stars.write_text(text)
 # Comet output owns a new regdata array, not the input's PSF allocations.
 # Keep inherited scalar measurements; a newly created shift has no quality
 # measurement (negative is explicitly absent in the mobile quality graph).
