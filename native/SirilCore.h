@@ -120,6 +120,19 @@ int siril_sequence_manual_stars_register(const char *directory, const char *name
     int layer, const SirilRegion *regions, int count, int rotation, int follow,
     char *error, size_t capacity);
 typedef struct {
+    int32_t alignment, half_box, search, register_percent, stack_percent;
+    int32_t normalize, subpixel, refine, dewarp, skip_failed, float_output;
+    double structure, scale, smooth_radius, background_fraction, background_blend;
+} SirilMultipointOptions;
+typedef struct {
+    int32_t frames, included, points, failed_shifts, reference, stack_size;
+} SirilMultipointInfo;
+/* Original MPP stages A/B/C, with a new independent analysis sidecar.
+ * The returned image belongs to the caller; input .seq metadata is preserved. */
+SirilImage *siril_sequence_multipoint_stack(const char *directory, const char *name,
+    const char *sidecar, const SirilMultipointOptions *options, SirilMultipointInfo *info,
+    char *error, size_t capacity);
+typedef struct {
     uint64_t total, good;
     double mean, median, sigma, average_deviation, mad, sqrt_bwmv, minimum, maximum, norm;
     double background_noise; /* Original CFITSIO robust background estimate. */

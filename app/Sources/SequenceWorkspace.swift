@@ -58,6 +58,8 @@ struct SequenceWorkspace: View {
     @State private var showBackground = false
     @State private var showPhotometry = false
     @State private var showComet = false
+    @State private var showMultipoint = false
+    @State private var multipointSettings = SequenceMultipointSettings()
     @State private var cometSource: SequenceLocation?
     @State private var backgroundRuns: [SequenceBackgroundRun] = []
     @State private var generated: SequenceLocation?
@@ -208,6 +210,12 @@ struct SequenceWorkspace: View {
                     Text("按两帧位置与拍摄时间计算轨迹，可叠加已有星点配准；生成独立序列后应用矩阵或叠加。")
                         .font(.caption).foregroundStyle(.secondary)
                 }.id("sequence-comet")
+                Section("行星多点配准") {
+                    Button("多点分析、局部对齐与叠加") { showMultipoint = true }
+                        .disabled(snapshot.info.included < 2 || snapshot.info.drizzle != 0)
+                    Text("适合行星整盘或表面纹理；沿用原版自动对齐点和专用叠加流程。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }.id("sequence-multipoint")
                 Section("原版测量与处理") {
                     BatchPicker(title: "配准变换", value: $options.transform)
                     Stepper("最少匹配星对：\(options.minimumPairs)", value: $options.minimumPairs, in: 4...2000)
@@ -353,6 +361,8 @@ struct SequenceWorkspace: View {
                     return // The sheet writes readiness after its own real preview.
                 } else if section == "apply" {
                     options.drizzleOptions.enabled = true; options.scale = 2; showApply = true
+                } else if section == "multipoint" {
+                    showMultipoint = true
                 }
                 try? await Task.sleep(for: .milliseconds(400))
                 let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -418,6 +428,21 @@ struct SequenceWorkspace: View {
                     } }
                 }.navigationTitle("序列叠加")
                 .toolbar { Button("完成") { showStack = false } }
+            }
+        }
+        .sheet(isPresented: $showMultipoint) {
+            NavigationStack {
+                Form {
+                    SequenceMultipointControls(settings: $multipointSettings)
+                    Section { Button("生成独立多点叠加结果") {
+                        showMultipoint = false
+                        perform {
+                            result = try await engine.stackMultipoint(currentLocation, settings: multipointSettings)
+                            log = SirilEngine.processingLog()
+                        }
+                    } }
+                }.navigationTitle("原版多点配准")
+                    .toolbar { Button("完成") { showMultipoint = false } }
             }
         }
         }

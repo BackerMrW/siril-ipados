@@ -48,7 +48,7 @@ static int embedded_pattern_register(const char *directory, const char *name,
     sequence *seq = embedded_sequence(directory, name, error, capacity);
     if (!seq) goto done;
     if (!region || count < 1 || count > 3 || method < 0 || method > 7 || layer < 0 || layer >= seq->nb_layers ||
-            (method < 4 && count != 1) || (method >= 4 && (count < 2 || seq->is_drizzle)) ||
+            (method < 4 && count != 1) || (method >= 4 && (count < 2 || seq->is_drizzle || layer_has_distortion(seq, layer))) ||
             seq->selnum < 2 || seq->is_variable || !isfinite(moved) || moved < 0 || moved > 1 ||
             (method == 1 && moved < .05) ||
             region->x < 0 || region->y < 0 || region->width < 8 || region->height < 8 ||
