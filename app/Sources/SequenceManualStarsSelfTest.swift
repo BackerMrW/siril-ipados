@@ -65,9 +65,12 @@ extension SirilEngine {
                 guard lines.count == 3, let marker = lines[2].range(of: " H ") else { throw EngineError.failed("Manual star matrices missing") }
                 let h = lines[2][marker.upperBound...].split(separator: " ").compactMap { Double($0) }
                 let c = cos(angles[2]), s = sin(angles[2]), dx = shifts[2].0, dy = shifts[2].1
-                let expected = [c, -s, 64 - c * (64 + dx) + s * (63 - dy), s, c,
-                    63 - s * (64 + dx) - c * (63 - dy), 0, 0, 1]
-                try require(h.count >= 9 && zip(h, expected).allSatisfy { abs($0 - $1) < 0.06 }, "independently predicted rigid matrix")
+                // Original PSF positions and saved H use displayed coordinates;
+                // FITS storage row order is handled by the original readers.
+                let expected = [c, s, 64 - c * (64 + dx) - s * (64 + dy), -s, c,
+                    64 + s * (64 + dx) - c * (64 + dy), 0, 0, 1]
+                try require(h.count >= 9 && zip(h, expected).allSatisfy { abs($0 - $1) < 0.06 },
+                    "independently predicted rigid matrix; topDown=\(topDown), rotation=\(rotation), stars=\(count), follow=\(follow), actual=\(h), expected=\(expected)")
                 var options = BatchOptions(); options.transform = rotation ? .similarity : .shift
                 options.interpolation = rotation ? .linear : .none; options.scale = 1; options.drizzleOptions.enabled = false
                 let output = try applySequenceRegistration(source, options: options, layer: 0)
