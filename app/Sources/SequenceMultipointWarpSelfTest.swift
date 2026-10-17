@@ -3,7 +3,7 @@ import Foundation
 import SirilCore
 
 extension SirilEngine {
-    func multipointWarpSelfTest() throws {
+    func multipointWarpSelfTest(globalX: Int = 0, globalY: Int = 0) throws {
         let fm = FileManager.default, baseline = loadLibrary()
         let folder = documents.appendingPathComponent("multipoint-warp-" + UUID().uuidString)
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -31,8 +31,9 @@ extension SirilEngine {
                 let y = 255 - row
                 // Opposite horizontal translations in the upper/lower halves.
                 // Frame 1 relative to frame 0 needs +4 px above, -4 below.
-                let shift = (y < 128 ? 1 : -1) * (frame == 0 ? 2 : -2)
-                var encoded = (pixel(x - shift, y) ^ 0x8000).bigEndian
+                let sourceY = y - (frame == 1 ? globalY : 0)
+                let shift = (sourceY < 128 ? 1 : -1) * (frame == 0 ? 2 : -2) + (frame == 1 ? globalX : 0)
+                var encoded = (pixel(x - shift, sourceY) ^ 0x8000).bigEndian
                 withUnsafeBytes(of: &encoded) { bytes.append(contentsOf: $0) }
             } }
             bytes.append(contentsOf: repeatElement(UInt8(0), count: (2880 - bytes.count % 2880) % 2880))
@@ -40,7 +41,8 @@ extension SirilEngine {
             try bytes.write(to: path); inputs.append(try importFile(path))
         }
         let job = try createSequence(files: inputs)
-        defer { try? fm.removeItem(at: job.folder) }
+        var preserveFixture = false
+        defer { if !preserveFixture { try? fm.removeItem(at: job.folder) } }
         guard let source = sequenceLocations(job: job.folder.lastPathComponent).first else {
             throw EngineError.failed("Missing local-warp sequence")
         }
@@ -56,6 +58,10 @@ extension SirilEngine {
         edited = try editMultipoint(source, runID: edited, edit: .add(x: 128, y: 64, halfBox: 16))
         edited = try editMultipoint(source, runID: edited, edit: .add(x: 128, y: 192, halfBox: 16))
         let beforeEdge = try multipointAnalysis(source, runID: edited, display: NativeDisplaySettings())
+        if globalX != 0 && globalY != 0 {
+            try require(beforeEdge.width < beforeEdge.sourceWidth && beforeEdge.height < beforeEdge.sourceHeight,
+                "known global translation must exercise a cropped mean reference")
+        }
         edited = try editMultipoint(source, runID: edited,
             edit: .move(index: 0, x: beforeEdge.width - 1, y: beforeEdge.height - 1))
         let edge = try multipointAnalysis(source, runID: edited, display: NativeDisplaySettings())
@@ -76,9 +82,13 @@ extension SirilEngine {
             let a = first.shifts[index], b = second.shifts[index]
             let dx = (b.dx + b.globalDX) - (a.dx + a.globalDX)
             let dy = (b.dy + b.globalDY) - (a.dy + a.globalDY)
-            let expectedDX = index == 0 ? 4.0 : -4.0
-            try require(a.success && b.success && abs(dx - expectedDX) < 0.5 && abs(dy) < 0.5,
-                "known differential displacement AP \(index): expected X \(expectedDX), Y 0; got X \(dx), Y \(dy), ok \(a.success)/\(b.success)")
+            let expectedDX = (index == 0 ? 4.0 : -4.0) - Double(globalX)
+            let expectedDY = -Double(globalY)
+            try require(a.success && b.success && abs(dx - expectedDX) < 0.5 && abs(dy - expectedDY) < 0.5,
+                "known differential displacement AP \(index): expected X \(expectedDX), Y \(expectedDY); got X \(dx), Y \(dy), ok \(a.success)/\(b.success)")
+            try require(a.sourceX >= 0 && a.sourceX < first.sourceWidth && a.sourceY >= 0 && a.sourceY < first.sourceHeight &&
+                b.sourceX >= 0 && b.sourceX < second.sourceWidth && b.sourceY >= 0 && b.sourceY < second.sourceHeight,
+                "per-frame overlay anchor outside original frame")
         }
         let output = try resumeMultipoint(source, runID: id, phase: 3)
         try require(fm.fileExists(atPath: output.path), "registered warp did not stack")
@@ -91,5 +101,7 @@ extension SirilEngine {
         let magnitude1 = second.shifts.reduce(0) { $0 + hypot($1.dx, $1.dy) }
         try JSONEncoder().encode(magnitude1 > magnitude0 ? 1 : 0)
             .write(to: documents.appendingPathComponent("native-multipoint-warp-frame.json"), options: .atomic)
+        try JSONEncoder().encode(source).write(to: documents.appendingPathComponent("simulator-multipoint-warp-location.json"), options: .atomic)
+        preserveFixture = true
     }
 }

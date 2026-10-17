@@ -86,6 +86,9 @@ extension SirilEngine {
                 $0.included && $0.success && abs($0.dx) < 1e-9 && abs($0.dy) < 1e-9 &&
                 abs($0.globalDX) < 1e-9 && abs($0.globalDY) < 1e-9
             }, "identity global/local shifts and convergence flags")
+            try require(reopened.sourceWidth == 256 && reopened.sourceHeight == 256 && reopened.shifts.allSatisfy {
+                reopened.points[$0.id].x == $0.sourceX && reopened.points[$0.id].y == $0.sourceY
+            }, "identity original-frame overlay coordinates")
             let excludedShifts = try multipointAnalysis(source, runID: savedRuns[0].id, display: NativeDisplaySettings(), frame: 1)
             try require(excludedShifts.shifts.count == reopened.points.count && excludedShifts.shifts.allSatisfy { !$0.included && !$0.success },
                 "excluded frame must not be reported as measured")
@@ -313,6 +316,7 @@ extension SirilEngine {
             try require(rejected, "invalid frame selection accepted")
         }
         try multipointWarpSelfTest()
+        try multipointWarpSelfTest(globalX: 5, globalY: 3)
         try serSequenceSelfTest()
     }
 }

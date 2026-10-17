@@ -20,16 +20,35 @@ struct SequenceMultipointAnalysisView: View {
     @State private var shiftScale = 1.0
     @State private var stackOptions = SequenceMultipointSettings()
     @State private var showStackOptions = false
+    @State private var showSourceFrame = false
+    @State private var sourcePreview: PreviewBytes?
     private var fixtureSection: String { ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] ?? "" }
     private var fixture: Bool { ["multipoint-points", "multipoint-edit", "multipoint-shifts"].contains(fixtureSection) }
     private var point: SequenceMultipointPoint? { snapshot?.points.first { $0.id == selected } }
     private var selectedShift: SequenceMultipointShift? { snapshot?.shifts.first { $0.id == selected } }
+    private var canvasWidth: Int { showSourceFrame ? snapshot?.sourceWidth ?? 1 : snapshot?.width ?? 1 }
+    private var canvasHeight: Int { showSourceFrame ? snapshot?.sourceHeight ?? 1 : snapshot?.height ?? 1 }
+    private var canvasSamples: [SampleMarker] {
+        guard let snapshot else { return [] }
+        return snapshot.points.map { point in
+            let shift = snapshot.shifts.indices.contains(point.id) ? snapshot.shifts[point.id] : nil
+            return SampleMarker(id: point.id, x: Double(showSourceFrame ? shift?.sourceX ?? point.x : point.x),
+                y: Double(showSourceFrame ? shift?.sourceY ?? point.y : point.y), size: 8, median: [])
+        }
+    }
+    private var canvasRegion: ImageSelection? {
+        guard let point else { return nil }
+        guard showSourceFrame, let shift = selectedShift else { return point.box }
+        return ImageSelection(x: point.box.x + shift.sourceX - point.x, y: point.box.y + shift.sourceY - point.y,
+            width: point.box.width, height: point.box.height)
+    }
     private var displacementMarkers: [DisplacementMarker] {
         guard showShifts, let snapshot else { return [] }
         return snapshot.shifts.compactMap { shift in
             guard shift.included, snapshot.points.indices.contains(shift.id) else { return nil }
             let point = snapshot.points[shift.id]
-            return DisplacementMarker(x: Double(point.x), y: Double(point.y), dx: shift.dx * shiftScale, dy: shift.dy * shiftScale, success: shift.success)
+            return DisplacementMarker(x: Double(showSourceFrame ? shift.sourceX : point.x), y: Double(showSourceFrame ? shift.sourceY : point.y),
+                dx: shift.dx * shiftScale, dy: shift.dy * shiftScale, success: shift.success)
         }
     }
     var body: some View {
@@ -43,8 +62,12 @@ struct SequenceMultipointAnalysisView: View {
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar { Button("关闭") { dismiss() } }
             .task { await open() }
-            .onChange(of: runID) { _, _ in selected = nil; diagnosticFrame = 0; if !loading { Task { await refresh() } } }
+            .onChange(of: runID) { _, _ in
+                selected = nil; diagnosticFrame = 0; showSourceFrame = false; sourcePreview = nil
+                if !loading { Task { await refresh() } }
+            }
             .onChange(of: diagnosticFrame) { _, _ in if !loading { Task { await refresh() } } }
+            .onChange(of: showSourceFrame) { _, _ in if !loading { Task { await refresh() } } }
             .onChange(of: display) { _, _ in display.save(); Task { await refresh() } }
             .sheet(isPresented: $showStackOptions) {
                 NavigationStack {
@@ -66,26 +89,27 @@ struct SequenceMultipointAnalysisView: View {
     }
     private var imagePanel: some View {
         VStack {
-            if let snapshot, let image = snapshot.preview.uiImage {
+            if let snapshot, let bytes = showSourceFrame ? sourcePreview : snapshot.preview, let image = bytes.uiImage {
                 ZoomableImageCanvas(image: image,
-                    samples: snapshot.points.map { SampleMarker(id: $0.id, x: Double($0.x), y: Double($0.y), size: 8, median: []) },
-                    imageWidth: Double(snapshot.width), imageHeight: Double(snapshot.height), selected: selected, region: point?.box,
+                    samples: canvasSamples,
+                    imageWidth: Double(canvasWidth), imageHeight: Double(canvasHeight), selected: selected, region: canvasRegion,
                     displacements: displacementMarkers,
-                    movingSamples: moving && !loading && !fixture,
+                    movingSamples: moving && !loading && !fixture && !showSourceFrame,
                     onSampleMove: { index, x, y in Task { await edit(.move(index: index, x: Int(x.rounded()), y: Int(y.rounded()))) } },
                     onTap: { x, y in
-                        if adding && !loading && !fixture {
+                        if adding && !loading && !fixture && !showSourceFrame {
                             Task { await edit(.add(x: Int(x.rounded()), y: Int(y.rounded()), halfBox: halfBox)) }; return
                         }
-                        selected = snapshot.points.min { a, b in
-                            pow(Double(a.x) - x, 2) + pow(Double(a.y) - y, 2) < pow(Double(b.x) - x, 2) + pow(Double(b.y) - y, 2)
+                        selected = canvasSamples.min { a, b in
+                            pow(a.x - x, 2) + pow(a.y - y, 2) < pow(b.x - x, 2) + pow(b.y - y, 2)
                         }?.id
                     }).background(.black).clipped()
-                Text("原版平均参考图 · \(snapshot.width) × \(snapshot.height) · 点击选择最近对齐点")
+                Text("\(showSourceFrame ? "原始帧 \(diagnosticFrame + 1)" : "原版平均参考图") · \(canvasWidth) × \(canvasHeight) · 点击选择最近对齐点")
                     .font(.caption).padding(.horizontal)
                 NativeDisplayControls(settings: $display).padding(.horizontal)
             } else if loading { ProgressView("读取保存的分析").frame(maxWidth: .infinity, maxHeight: .infinity) }
-            else { ContentUnavailableView("尚无参考图", systemImage: "scope", description: Text("先生成一次多点配准结果，再打开其分析记录。")) }
+            else { ContentUnavailableView(showSourceFrame ? "原始帧不可用" : "尚无参考图", systemImage: "scope",
+                description: Text(showSourceFrame ? "可切回平均参考图，或恢复源序列后再试。" : "先生成一次多点配准结果，再打开其分析记录。")) }
         }
     }
     private var controls: some View {
@@ -108,7 +132,8 @@ struct SequenceMultipointAnalysisView: View {
                 }
                 if snapshot.registered && (!fixture || fixtureSection == "multipoint-shifts") {
                     Section("局部位移诊断") {
-                        Toggle("在参考图上显示位移", isOn: $showShifts)
+                        Toggle("显示局部位移箭头", isOn: $showShifts)
+                        Toggle("查看原始帧", isOn: $showSourceFrame).disabled(loading)
                         Stepper("帧：\(diagnosticFrame + 1) / \(snapshot.frames)", value: $diagnosticFrame, in: 0...max(0, snapshot.frames - 1))
                             .disabled(loading)
                         Slider(value: $shiftScale, in: 1...200, step: 1)
@@ -130,8 +155,8 @@ struct SequenceMultipointAnalysisView: View {
                     Section("编辑对齐点") {
                         Text("首次编辑创建副本。原分析与原叠加结果保留；编辑后需重新计算局部配准。")
                             .font(.caption)
-                        Toggle("点击添加对齐点", isOn: $adding)
-                        Toggle("拖动移动对齐点", isOn: $moving)
+                        Toggle("点击添加对齐点", isOn: $adding).disabled(showSourceFrame)
+                        Toggle("拖动移动对齐点", isOn: $moving).disabled(showSourceFrame)
                         Stepper("框半宽：\(halfBox) px", value: $halfBox, in: 8...128)
                         if let point {
                             Button("应用框大小到选中点") { Task { await edit(.resize(index: point.id, halfBox: halfBox)) } }
@@ -176,7 +201,7 @@ struct SequenceMultipointAnalysisView: View {
     @MainActor private func open() async {
         do {
             if fixtureSection == "multipoint-shifts" {
-                showShifts = true; shiftScale = 20
+                showShifts = true; shiftScale = 20; showSourceFrame = true
                 let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
                 diagnosticFrame = try JSONDecoder().decode(Int.self, from: Data(contentsOf: root.appendingPathComponent("native-multipoint-warp-frame.json")))
             }
@@ -192,19 +217,28 @@ struct SequenceMultipointAnalysisView: View {
     }
     @MainActor private func refresh() async {
         guard fixture || runID != nil else { return }
-        let current = runID, settings = display, frame = diagnosticFrame; loading = true
+        let current = runID, settings = display, frame = diagnosticFrame, original = showSourceFrame; loading = true
         defer { loading = false }
         do {
             let value: SequenceMultipointAnalysisSnapshot
             if fixture { value = try await engine.multipointAnalysisFixture(display: settings, frame: frame) }
             else if let current { value = try await engine.multipointAnalysis(location, runID: current, display: settings, frame: frame) }
             else { return }
-            if current == runID && settings == display && frame == diagnosticFrame {
+            let originalPreview: PreviewBytes?
+            do { originalPreview = original ? try await engine.sequencePreview(location, index: frame, settings: settings) : nil }
+            catch {
+                if current == runID && frame == diagnosticFrame && settings == display {
+                    snapshot = value; sourcePreview = nil; message = error.localizedDescription
+                }
+                return
+            }
+            if current == runID && settings == display && frame == diagnosticFrame && original == showSourceFrame {
                 snapshot = value
+                sourcePreview = originalPreview
                 if !value.points.contains(where: { $0.id == selected }) { selected = value.points.first?.id }
                 message = ""
             }
-        } catch { if current == runID { message = error.localizedDescription; snapshot = nil } }
+        } catch { if current == runID { message = error.localizedDescription; snapshot = nil; sourcePreview = nil } }
     }
     private func displacementText(_ dx: Double, _ dy: Double) -> String {
         String(format: "X %.4f，Y %.4f px", locale: Locale(identifier: "en_US_POSIX"), dx, dy)
@@ -212,6 +246,7 @@ struct SequenceMultipointAnalysisView: View {
     @MainActor private func edit(_ change: SequenceMultipointEdit) async {
         guard let runID, !loading else { return }
         loading = true
+        showSourceFrame = false; sourcePreview = nil
         do {
             let edited = try await engine.editMultipoint(location, runID: runID, edit: change)
             runs = try await engine.multipointRuns(location); self.runID = edited
@@ -228,6 +263,7 @@ struct SequenceMultipointAnalysisView: View {
     @MainActor private func restack(phase: Int32 = 0, settings: SequenceMultipointSettings? = nil) async {
         guard let runID, !loading else { return }
         loading = true
+        showSourceFrame = false; sourcePreview = nil
         do {
             let output = try await engine.resumeMultipoint(location, runID: runID, phase: phase, stackSettings: settings)
             runs = try await engine.multipointRuns(location); self.runID = output.deletingLastPathComponent().lastPathComponent

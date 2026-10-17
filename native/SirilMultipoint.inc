@@ -119,7 +119,7 @@ int siril_multipoint_info(SirilMultipointAnalysis *analysis, SirilMultipointAnal
     for (int i = 0; i < run->num_frames; i++) if (run->included[i]) included++;
     *info = (SirilMultipointAnalysisInfo){run->mean_frame_cols, run->mean_frame_rows,
         run->num_frames, included, run->aps->count, run->best_frame_idx,
-        run->best_frame_indices != NULL && run->shifts != NULL};
+        run->best_frame_indices != NULL && run->shifts != NULL, run->frame_cols, run->frame_rows};
     g_mutex_unlock(&engine_mutex);
     return 1;
 }
@@ -154,10 +154,19 @@ int siril_multipoint_shift(SirilMultipointAnalysis *analysis, int frame, int poi
         s->num_aps == run->aps->count && s->num_frames == run->num_frames &&
         frame >= 0 && frame < s->num_frames && point >= 0 && point < s->num_aps;
     if (ok) {
+        double x = run->intersection[2] - run->global_shifts[2*frame+1];
+        double y = run->intersection[0] - run->global_shifts[2*frame];
+        ok = isfinite(x) && isfinite(y) && fabs(x) < INT_MAX / 2 && fabs(y) < INT_MAX / 2;
+    }
+    if (ok) {
         size_t k = (size_t)frame * s->num_aps + point;
+        const mpp_ap_record_t *ap = &run->aps->records[point];
+        int offset_x = (int)lround(run->intersection[2] - run->global_shifts[2*frame+1]);
+        int offset_y = (int)lround(run->intersection[0] - run->global_shifts[2*frame]);
         *shift = (SirilMultipointShift){s->shifts[2*k+1], -s->shifts[2*k],
             run->global_shifts[2*frame+1], -run->global_shifts[2*frame],
-            !!s->success[k], !!run->included[frame]};
+            !!s->success[k], !!run->included[frame], ap->x + offset_x,
+            run->frame_rows - 1 - ap->y - offset_y};
         ok = isfinite(shift->dx) && isfinite(shift->dy) && isfinite(shift->global_dx) && isfinite(shift->global_dy);
     }
     g_mutex_unlock(&engine_mutex);

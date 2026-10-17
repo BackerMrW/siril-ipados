@@ -33,6 +33,8 @@ struct SequenceMultipointPoint: Identifiable, Codable, Equatable, Sendable {
 struct SequenceMultipointAnalysisSnapshot: Sendable {
     let width: Int
     let height: Int
+    let sourceWidth: Int
+    let sourceHeight: Int
     let frames: Int
     let included: Int
     let reference: Int
@@ -49,9 +51,12 @@ struct SequenceMultipointShift: Identifiable, Sendable {
     let globalDY: Double
     let success: Bool
     let included: Bool
+    let sourceX: Int
+    let sourceY: Int
     init(id: Int, native: SirilMultipointShift) {
         self.id = id; dx = native.dx; dy = native.dy; globalDX = native.global_dx; globalDY = native.global_dy
         success = native.success != 0; included = native.included != 0
+        sourceX = Int(native.source_x); sourceY = Int(native.source_y)
     }
 }
 extension SirilEngine {
@@ -117,7 +122,8 @@ extension SirilEngine {
         guard success != 0, let bytes = preview.rgba else { throw EngineError.failed("无法显示多点参考图。") }
         defer { siril_preview_free(&preview) }
         let rendered = PreviewBytes(data: Data(bytes: bytes, count: Int(preview.width) * Int(preview.height) * 4), width: Int(preview.width), height: Int(preview.height))
-        return SequenceMultipointAnalysisSnapshot(width: Int(info.width), height: Int(info.height), frames: Int(info.frames),
+        return SequenceMultipointAnalysisSnapshot(width: Int(info.width), height: Int(info.height),
+            sourceWidth: Int(info.source_width), sourceHeight: Int(info.source_height), frames: Int(info.frames),
             included: Int(info.included), reference: Int(info.reference), registered: info.registered != 0, points: points, preview: rendered, shifts: shifts)
     }
 }

@@ -415,8 +415,9 @@ struct ContentView: View {
                 }
                 if ProcessInfo.processInfo.environment["SIRIL_BATCH_VIEW_CHECK"] == "1" { showProcessing = true }
                 if ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_VIEW_CHECK"] == "1" {
-                    let file = ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] == "ser" ?
-                        "simulator-ser-sequence-location.json" : "simulator-sequence-location.json"
+                    let section = ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"]
+                    let file = section == "ser" ? "simulator-ser-sequence-location.json" :
+                        section == "multipoint-shifts" ? "simulator-multipoint-warp-location.json" : "simulator-sequence-location.json"
                     let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(file)
                     sequenceDemo = try? JSONDecoder().decode(SequenceLocation.self, from: Data(contentsOf: url))
                     showSequences = sequenceDemo != nil

@@ -140,6 +140,7 @@ SirilImage *siril_sequence_multipoint_stack(const char *directory, const char *n
 typedef struct SirilMultipointAnalysis SirilMultipointAnalysis;
 typedef struct {
     int32_t width, height, frames, included, points, reference, registered;
+    int32_t source_width, source_height;
 } SirilMultipointAnalysisInfo;
 /* AP centres and half-open box/patch bounds in displayed reference pixels. */
 typedef struct {
@@ -155,6 +156,7 @@ typedef struct {
     double dx, dy; /* Local displacement in displayed top-left coordinates. */
     double global_dx, global_dy;
     int32_t success, included;
+    int32_t source_x, source_y; /* AP anchor on this original frame, as in the upstream overlay. */
 } SirilMultipointShift;
 int siril_multipoint_shift(SirilMultipointAnalysis *analysis, int frame, int point, SirilMultipointShift *shift);
 int siril_multipoint_point(SirilMultipointAnalysis *analysis, int index, SirilMultipointPoint *point);
