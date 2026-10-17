@@ -65,7 +65,7 @@ extension SirilEngine {
         return try readMultipointAnalysis(owned("analysis.mpp", under: folder), points: history?.current, display: display)
     }
     func multipointAnalysisFixture(display: NativeDisplaySettings) throws -> SequenceMultipointAnalysisSnapshot {
-        guard ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] == "multipoint-points" else {
+        guard ["multipoint-points", "multipoint-edit"].contains(ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] ?? "") else {
             throw EngineError.failed("当前未运行多点分析页面检查。")
         }
         return try readMultipointAnalysis(owned("native-multipoint-analysis.mpp", under: documents), display: display)

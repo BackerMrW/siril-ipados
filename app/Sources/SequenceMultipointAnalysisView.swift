@@ -15,7 +15,8 @@ struct SequenceMultipointAnalysisView: View {
     @State private var adding = false
     @State private var moving = false
     @State private var halfBox = 16
-    private var fixture: Bool { ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] == "multipoint-points" }
+    private var fixtureSection: String { ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] ?? "" }
+    private var fixture: Bool { ["multipoint-points", "multipoint-edit"].contains(fixtureSection) }
     private var point: SequenceMultipointPoint? { snapshot?.points.first { $0.id == selected } }
     var body: some View {
         NavigationStack {
@@ -56,6 +57,7 @@ struct SequenceMultipointAnalysisView: View {
         }
     }
     private var controls: some View {
+        ScrollViewReader { proxy in
         Form {
             if !message.isEmpty { Text(message).foregroundStyle(.red).textSelection(.enabled) }
             if !fixture {
@@ -72,7 +74,7 @@ struct SequenceMultipointAnalysisView: View {
                     LabeledContent("对齐点", value: "\(snapshot.points.count)")
                     LabeledContent("局部配准", value: snapshot.registered ? "已保存" : "尚待计算")
                 }
-                if !fixture {
+                if !fixture || fixtureSection == "multipoint-edit" {
                     Section("编辑对齐点") {
                         Text("首次编辑创建副本。原分析与原叠加结果保留；编辑后需重新计算局部配准。")
                             .font(.caption)
@@ -89,9 +91,13 @@ struct SequenceMultipointAnalysisView: View {
                         }
                         Button("按原参数重新自动布点") { Task { await edit(.auto) } }
                         Button("清空对齐点") { Task { await edit(.clear) } }
+                        Button("仅重新计算局部配准") { Task { await restack(phase: 2) } }
+                            .disabled(snapshot.points.isEmpty)
+                        Button("使用已保存配准叠加") { Task { await restack(phase: 3) } }
+                            .disabled(!snapshot.registered)
                         Button("重新配准并叠加为新结果") { Task { await restack() } }
                             .disabled(snapshot.points.isEmpty)
-                    }.disabled(loading)
+                    }.disabled(loading || fixture).id("editing")
                 }
                 if let point {
                     Section("对齐点 \(point.id + 1)") {
@@ -108,6 +114,10 @@ struct SequenceMultipointAnalysisView: View {
                 }
             }
         }
+        .onChange(of: snapshot?.points.count) { _, _ in
+            if fixtureSection == "multipoint-edit" { proxy.scrollTo("editing", anchor: .top) }
+        }
+        }
     }
     @MainActor private func open() async {
         do {
@@ -117,7 +127,7 @@ struct SequenceMultipointAnalysisView: View {
                 let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
                 try? await Task.sleep(for: .milliseconds(400))
                 try "PASS: original saved multipoint reference, AP centres, selected bounds and analysis metadata loaded in native UI\n"
-                    .write(to: root.appendingPathComponent("simulator-sequence-multipoint-points-ready.txt"), atomically: true, encoding: .utf8)
+                    .write(to: root.appendingPathComponent("simulator-sequence-\(fixtureSection)-ready.txt"), atomically: true, encoding: .utf8)
             }
         } catch { message = error.localizedDescription }
     }
@@ -147,11 +157,11 @@ struct SequenceMultipointAnalysisView: View {
         } catch { message = error.localizedDescription }
         loading = false
     }
-    @MainActor private func restack() async {
+    @MainActor private func restack(phase: Int32 = 0) async {
         guard let runID, !loading else { return }
         loading = true
         do {
-            let output = try await engine.resumeMultipoint(location, runID: runID)
+            let output = try await engine.resumeMultipoint(location, runID: runID, phase: phase)
             runs = try await engine.multipointRuns(location); self.runID = output.deletingLastPathComponent().lastPathComponent
             await refresh()
         } catch { message = error.localizedDescription }

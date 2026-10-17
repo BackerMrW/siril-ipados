@@ -365,7 +365,7 @@ struct SequenceWorkspace: View {
                     options.drizzleOptions.enabled = true; options.scale = 2; showApply = true
                 } else if section == "multipoint" {
                     showMultipoint = true
-                } else if section == "multipoint-points" {
+                } else if section == "multipoint-points" || section == "multipoint-edit" {
                     showMultipointAnalysis = true
                     return
                 }
@@ -442,6 +442,13 @@ struct SequenceWorkspace: View {
             NavigationStack {
                 Form {
                     SequenceMultipointControls(settings: $multipointSettings)
+                    Section { Button("仅分析并编辑对齐点") {
+                        showMultipoint = false
+                        perform {
+                            _ = try await engine.stackMultipoint(currentLocation, settings: multipointSettings, phase: 1)
+                            log = SirilEngine.processingLog(); showMultipointAnalysis = true
+                        }
+                    } }
                     Section { Button("生成独立多点叠加结果") {
                         showMultipoint = false
                         perform {

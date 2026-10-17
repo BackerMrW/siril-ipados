@@ -170,6 +170,7 @@ struct embedded_multipoint_args {
     const char *input;
     const SirilMultipointPoint *points;
     int point_count;
+    int phase; // 0=A/B/C, 1=A only, 2=B only, 3=C from registered sidecar
     SirilImage *image;
     SirilMultipointInfo info;
 };
@@ -188,15 +189,19 @@ static gpointer embedded_multipoint_thread(gpointer pointer) {
             // Resume uses the baked analysis configuration, never recomputes
             // Stage A or silently replaces the edited alignment points.
             args->config = *run->cfg;
-            if (args->point_count >= 0 && !embedded_mpp_restore_points(run, args->points, args->point_count)) result = MPP_EINVAL;
-            if (!result) embedded_mpp_invalidate_shifts(run);
+            if (args->phase == 3) {
+                if (args->point_count >= 0 || !run->best_frame_indices || !run->shifts) result = MPP_EINVAL;
+            } else {
+                if (args->point_count >= 0 && !embedded_mpp_restore_points(run, args->points, args->point_count)) result = MPP_EINVAL;
+                if (!result) embedded_mpp_invalidate_shifts(run);
+            }
         }
     }
-    if (!result && (!run || !run->aps || run->aps->count < 1)) result = MPP_ENODATA;
-    if (!result) result = mpp_recompute_qualities(args->seq, run);
-    if (!result && args->config.alignment_points_de_warp) {
+    if (!result && (!run || !run->aps || (run->aps->count < 1 && args->phase != 1))) result = MPP_ENODATA;
+    if (!result && args->phase != 1 && args->phase != 3) result = mpp_recompute_qualities(args->seq, run);
+    if (!result && args->phase != 1 && args->phase != 3 && args->config.alignment_points_de_warp) {
         result = mpp_compute_shifts(args->seq, run->cfg, run);
-    } else if (!result) {
+    } else if (!result && args->phase != 1 && args->phase != 3) {
         // Pinned MPP exposes de_warp in its GUI/config but never reads it.
         // A global-only stack uses the original AP merge with zero local
         // displacement; the global subpixel offsets remain in the run.
@@ -218,14 +223,15 @@ static gpointer embedded_multipoint_thread(gpointer pointer) {
         args->info = (SirilMultipointInfo){run->num_frames, args->seq->selnum,
             run->aps->count, run->shifts ? run->shifts->failure_counter : 0,
             run->best_frame_idx, run->stack_size};
-        result = mpp_stack_apply(args->seq, run->cfg, run, &args->image->fit);
+        if (args->phase == 0 || args->phase == 3)
+            result = mpp_stack_apply(args->seq, run->cfg, run, &args->image->fit);
     }
     if (run) mpp_run_free(run);
     stop_processing_thread();
     return GINT_TO_POINTER(result);
 }
 static SirilImage *embedded_multipoint_process(const char *directory, const char *name,
-        const char *input, const SirilMultipointPoint *points, int count,
+        const char *input, const SirilMultipointPoint *points, int count, int phase,
         const char *sidecar, const SirilMultipointOptions *options, SirilMultipointInfo *info,
         char *error, size_t capacity) {
     if (error && capacity) error[0] = 0;
@@ -238,7 +244,8 @@ static SirilImage *embedded_multipoint_process(const char *directory, const char
     SirilImage *image = NULL;
     sequence *seq = embedded_sequence(directory, name, error, capacity);
     if (!seq) goto done;
-    if (!sidecar || !g_path_is_absolute(sidecar) || !g_str_has_suffix(sidecar, ".mpp") ||
+    if (phase < 0 || phase > 3 || ((phase == 2 || phase == 3) && !input) ||
+            (phase == 1 && input) || !sidecar || !g_path_is_absolute(sidecar) || !g_str_has_suffix(sidecar, ".mpp") ||
             g_file_test(sidecar, G_FILE_TEST_EXISTS) || seq->is_variable || seq->is_drizzle || seq->selnum < 2 ||
             (input && (!g_path_is_absolute(input) || !g_str_has_suffix(input, ".mpp") || count < -1)) ||
             (!input && (!options ||
@@ -261,7 +268,7 @@ static SirilImage *embedded_multipoint_process(const char *directory, const char
     image = g_try_new0(SirilImage, 1);
     if (!image) goto cleanup;
     struct embedded_multipoint_args args = {.seq = seq, .sidecar = sidecar, .image = image,
-        .input = input, .points = points, .point_count = count};
+        .input = input, .points = points, .point_count = count, .phase = phase};
     mpp_config_defaults(&args.config);
     if (options) {
     args.config.bitdepth = mpp_bitdepth_from_fits_bitpix(seq->bitpix);
@@ -285,7 +292,8 @@ static SirilImage *embedded_multipoint_process(const char *directory, const char
     waiting_for_thread();
     int ok = start_in_new_thread(embedded_multipoint_thread, &args) &&
         GPOINTER_TO_INT(waiting_for_thread()) == MPP_OK && !g_atomic_int_get(&cancel_requested);
-    if (ok && image->fit.rx > 0 && image->fit.ry > 0 && (image->fit.data || image->fit.fdata)) {
+    if (ok && (phase == 1 || phase == 2 ||
+            (image->fit.rx > 0 && image->fit.ry > 0 && (image->fit.data || image->fit.fdata)))) {
         if (info) *info = args.info;
     } else {
         clearfits(&image->fit); g_free(image); image = NULL;
@@ -300,11 +308,26 @@ done:
 SirilImage *siril_sequence_multipoint_stack(const char *directory, const char *name,
         const char *sidecar, const SirilMultipointOptions *options, SirilMultipointInfo *info,
         char *error, size_t capacity) {
-    return embedded_multipoint_process(directory, name, NULL, NULL, -1, sidecar, options, info, error, capacity);
+    return embedded_multipoint_process(directory, name, NULL, NULL, -1, 0, sidecar, options, info, error, capacity);
 }
 SirilImage *siril_sequence_multipoint_resume(const char *directory, const char *name,
         const char *input, const SirilMultipointPoint *points, int count,
         const char *sidecar, SirilMultipointInfo *info, char *error, size_t capacity) {
     if (!input) return NULL;
-    return embedded_multipoint_process(directory, name, input, points, count, sidecar, NULL, info, error, capacity);
+    return embedded_multipoint_process(directory, name, input, points, count, 0, sidecar, NULL, info, error, capacity);
+}
+int siril_sequence_multipoint_stage(const char *directory, const char *name,
+        const char *input, const SirilMultipointPoint *points, int count,
+        const char *sidecar, const SirilMultipointOptions *options, int phase,
+        SirilMultipointInfo *info, char *error, size_t capacity) {
+    if (phase != 1 && phase != 2) return 0;
+    SirilImage *image = embedded_multipoint_process(directory, name, input, points, count, phase, sidecar, options, info, error, capacity);
+    if (!image) return 0;
+    clearfits(&image->fit); g_free(image);
+    return 1;
+}
+SirilImage *siril_sequence_multipoint_stack_saved(const char *directory, const char *name,
+        const char *input, const char *sidecar, SirilMultipointInfo *info, char *error, size_t capacity) {
+    if (!input) return NULL;
+    return embedded_multipoint_process(directory, name, input, NULL, -1, 3, sidecar, NULL, info, error, capacity);
 }

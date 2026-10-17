@@ -27,7 +27,7 @@ struct SequenceMultipointControls: View {
             BatchNumber(title: "背景混合阈值", value: $settings.backgroundBlend)
         }
         Section {
-            Text("使用原版 MPP 分析、局部配准及专用叠加器，按当前参与帧自动布置对齐点。每次生成独立结果、参数和分析记录。手动对齐点编辑仍待接入。")
+            Text("使用原版 MPP 分析、局部配准及专用叠加器。可先分析并编辑对齐点，再分别配准和叠加；每次处理独立保存，原结果保留。")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

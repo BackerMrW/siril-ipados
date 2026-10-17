@@ -362,6 +362,7 @@ jobs:
           diagnostics/native-sequence-comet-simulator.png
           diagnostics/native-sequence-multipoint-simulator.png
           diagnostics/native-sequence-multipoint-points-simulator.png
+          diagnostics/native-sequence-multipoint-edit-simulator.png
           diagnostics/native-tools-roi-simulator.png
           diagnostics/native-tools-curves-roi-simulator.png
           diagnostics/native-tools-guided-roi-simulator.png

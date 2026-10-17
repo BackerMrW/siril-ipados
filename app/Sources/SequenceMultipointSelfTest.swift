@@ -163,6 +163,43 @@ extension SirilEngine {
                 editedID = try editMultipoint(source, runID: editedID, edit: .resize(index: 0, halfBox: 18))
                 let branched = try multipointHistory(editFolder)
                 try require(branched?.future.isEmpty == true, "editing after undo must discard redo branch")
+                let analyzed = try stackMultipoint(source, settings: settings, phase: 1)
+                let analyzedID = analyzed.deletingLastPathComponent().lastPathComponent
+                let analyzedBytes = try Data(contentsOf: analyzed)
+                let stageA = try multipointAnalysis(source, runID: analyzedID, display: NativeDisplaySettings())
+                try require(!stageA.registered && stageA.points.count == summary.points &&
+                    !fm.fileExists(atPath: analyzed.deletingLastPathComponent().appendingPathComponent("result.fits").path),
+                    "analyze-only must save reference and APs without shifts or stack")
+                var unregisteredRejected = false
+                do { _ = try resumeMultipoint(source, runID: analyzedID, phase: 3) } catch { unregisteredRejected = true }
+                try require(unregisteredRejected, "stack-only accepted unregistered analysis")
+                let stageEditedID = try editMultipoint(source, runID: analyzedID, edit: .remove(index: 0))
+                let registered = try resumeMultipoint(source, runID: stageEditedID, phase: 2)
+                let registeredID = registered.deletingLastPathComponent().lastPathComponent
+                let registeredBytes = try Data(contentsOf: registered)
+                let stageB = try multipointAnalysis(source, runID: registeredID, display: NativeDisplaySettings())
+                try require(stageB.registered && stageB.points.count == summary.points - 1 &&
+                    !fm.fileExists(atPath: registered.deletingLastPathComponent().appendingPathComponent("result.fits").path),
+                    "register-only must consume edited grid, save shifts and omit stack")
+                let stagedResult = try resumeMultipoint(source, runID: registeredID, phase: 3)
+                guard let stagedImage = stagedResult.path.withCString({ siril_image_read($0, &error, capacity) }),
+                      let combinedImage = resumed.path.withCString({ siril_image_read($0, &error, capacity) }) else {
+                    throw EngineError.failed(String(cString: error))
+                }
+                var stagedInfo = SirilImageInfo()
+                var stagedError: Float = 0
+                try require(siril_image_info(stagedImage, &stagedInfo) != 0 && stagedInfo.width == 256 && stagedInfo.height == 256,
+                    "staged identity geometry")
+                for y in 0..<256 { for x in 0..<256 {
+                    var a = [Float](repeating: 0, count: 3), b = a
+                    if siril_image_pixel(stagedImage, Int32(x), Int32(y), &a) != 1 ||
+                        siril_image_pixel(combinedImage, Int32(x), Int32(y), &b) != 1 { stagedError = 1 }
+                    stagedError = max(stagedError, abs(a[0] - b[0]))
+                } }
+                siril_image_free(stagedImage); siril_image_free(combinedImage)
+                try require(stagedError == 0, "staged A/edit/B/C differs from combined edited B/C: \(stagedError)")
+                try require(try Data(contentsOf: analyzed) == analyzedBytes && Data(contentsOf: registered) == registeredBytes,
+                    "staged processing modified its input sidecars")
             }
             var wrongSourceRejected = false
             do { _ = try multipointAnalysis(SequenceLocation(job: source.job, name: "unrelated.seq"), runID: savedRuns[0].id, display: NativeDisplaySettings()) }

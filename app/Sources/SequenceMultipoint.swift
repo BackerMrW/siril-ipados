@@ -53,12 +53,15 @@ struct SequenceMultipointSummary: Codable, Sendable {
     }
 }
 extension SirilEngine {
-    func resumeMultipoint(_ location: SequenceLocation, runID: String) throws -> URL {
+    func resumeMultipoint(_ location: SequenceLocation, runID: String, phase: Int32 = 0) throws -> URL {
         let folder = try multipointFolder(location, runID: runID)
         let settings = try JSONDecoder().decode(SequenceMultipointSettings.self, from: Data(contentsOf: owned("multipoint.json", under: folder)))
-        return try stackMultipoint(location, settings: settings, resuming: runID)
+        return try stackMultipoint(location, settings: settings, resuming: runID, phase: phase)
     }
-    func stackMultipoint(_ location: SequenceLocation, settings: SequenceMultipointSettings, resuming runID: String? = nil) throws -> URL {
+    func stackMultipoint(_ location: SequenceLocation, settings: SequenceMultipointSettings, resuming runID: String? = nil, phase: Int32 = 0) throws -> URL {
+        guard (0...3).contains(phase), phase != 1 || runID == nil, (phase != 2 && phase != 3) || runID != nil else {
+            throw EngineError.failed("多点处理阶段无效。")
+        }
         let snapshot = try inspectSequence(location)
         guard snapshot.info.included >= 2, snapshot.info.drizzle == 0 else {
             throw EngineError.failed("多点配准需要至少两张参与帧，暂不接受 Drizzle 后的序列。")
@@ -75,6 +78,7 @@ extension SirilEngine {
             }
         }
         let nativePoints = try overrides?.map { try $0.nativePoint() }
+        guard phase != 3 || nativePoints == nil else { throw EngineError.failed("编辑后的对齐点须先重新配准。") }
         let folder = try owned(UUID().uuidString, under: try owned("SequenceRuns", under: job))
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let sidecar = try owned("analysis.mpp", under: folder), output = try owned("result.fits", under: folder)
@@ -88,10 +92,24 @@ extension SirilEngine {
         do {
             var error = [CChar](repeating: 0, count: 4096), options = settings.native, info = SirilMultipointInfo()
             let capacity = error.count
-            let image = process.path.withCString { directory in location.name.withCString { name in sidecar.path.withCString {
+            var stageSucceeded = false
+            let image = process.path.withCString { directory in location.name.withCString { name in sidecar.path.withCString { target -> OpaquePointer? in
+                if phase == 1 || phase == 2 {
+                    func stage(_ input: UnsafePointer<CChar>?) -> Bool {
+                        if let nativePoints {
+                            return nativePoints.withUnsafeBufferPointer {
+                                siril_sequence_multipoint_stage(directory, name, input, $0.baseAddress, Int32($0.count), target, &options, phase, &info, &error, capacity) != 0
+                            }
+                        }
+                        return siril_sequence_multipoint_stage(directory, name, input, nil, -1, target, &options, phase, &info, &error, capacity) != 0
+                    }
+                    if let inputAnalysis { stageSucceeded = inputAnalysis.path.withCString { stage($0) } }
+                    else { stageSucceeded = stage(nil) }
+                    return nil
+                }
                 if let inputAnalysis {
-                    let target = $0
                     return inputAnalysis.path.withCString { input in
+                        if phase == 3 { return siril_sequence_multipoint_stack_saved(directory, name, input, target, &info, &error, capacity) }
                         if let nativePoints {
                             return nativePoints.withUnsafeBufferPointer {
                                 siril_sequence_multipoint_resume(directory, name, input, $0.baseAddress, Int32($0.count), target, &info, &error, capacity)
@@ -100,9 +118,16 @@ extension SirilEngine {
                         return siril_sequence_multipoint_resume(directory, name, input, nil, -1, target, &info, &error, capacity)
                     }
                 }
-                return siril_sequence_multipoint_stack(directory, name, $0, &options, &info, &error, capacity)
+                return siril_sequence_multipoint_stack(directory, name, target, &options, &info, &error, capacity)
             } } }
             try? Self.processingLog().write(to: folder.appendingPathComponent("processing.log"), atomically: true, encoding: .utf8)
+            if phase == 1 || phase == 2 {
+                guard stageSucceeded, info.frames == snapshot.info.count, info.included == snapshot.info.included,
+                      try Data(contentsOf: source) == sourceBytes else { throw EngineError.failed(String(cString: error)) }
+                try JSONEncoder().encode(SequenceMultipointSummary(info)).write(to: folder.appendingPathComponent("multipoint-summary.json"), options: .atomic)
+                try writeJobState(folder, state: phase == 1 ? "已分析，待配准" : "已配准，待叠加", message: "\(info.points) 个对齐点；阶段独立保存。")
+                return sidecar
+            }
             guard let image else { throw EngineError.failed(String(cString: error)) }
             defer { siril_image_free(image) }
             var resultInfo = SirilImageInfo()
