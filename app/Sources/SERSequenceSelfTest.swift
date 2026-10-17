@@ -57,9 +57,17 @@ extension SirilEngine {
         var rejected = false
         do { _ = try importSERSequence(broken) } catch { rejected = true }
         try require(rejected && Set(jobHistory().map(\.id)) == before, "truncated container succeeded or left a task")
-        for cfa in [false, true] {
+        for colorID in [0, 8, 9, 10, 11] {
+            let cfa = colorID != 0
+            let mosaic: [Int]
+            switch colorID {
+            case 8: mosaic = [40000, 20000, 20000, 10000] // RGGB
+            case 9: mosaic = [20000, 40000, 10000, 20000] // GRBG
+            case 10: mosaic = [20000, 10000, 40000, 20000] // GBRG
+            default: mosaic = [10000, 20000, 20000, 40000] // BGGR
+            }
             var data = Data("LUCAM-RECORDER".utf8)
-            let fields: [UInt32] = [0, cfa ? 8 : 0, 0, 256, 256, cfa ? 16 : 8, 3]
+            let fields: [UInt32] = [0, UInt32(colorID), 0, 256, 256, cfa ? 16 : 8, 3]
             for field in fields {
                 var value = field.littleEndian; withUnsafeBytes(of: &value) { data.append(contentsOf: $0) }
             }
@@ -68,12 +76,12 @@ extension SirilEngine {
             for _ in 0..<3 { for y in 0..<256 { for x in 0..<256 {
                 let disc = hypot(Double(x) - 127.5, Double(y) - 127.5) < 104
                 if cfa {
-                    let intensity = y % 2 == 0 ? (x % 2 == 0 ? 40000 : 20000) : (x % 2 == 0 ? 20000 : 10000)
+                    let intensity = mosaic[(y % 2) * 2 + x % 2]
                     var value = UInt16(disc ? intensity : 0).littleEndian
                     withUnsafeBytes(of: &value) { data.append(contentsOf: $0) }
                 } else { data.append(disc ? 100 : 0) }
             } } }
-            let path = folder.appendingPathComponent(cfa ? "cfa16.ser" : "mono8.ser")
+            let path = folder.appendingPathComponent(cfa ? "cfa16-\(colorID).ser" : "mono8.ser")
             try data.write(to: path)
             if !cfa {
                 let link = folder.appendingPathComponent("linked.ser")
@@ -110,7 +118,7 @@ extension SirilEngine {
                 } }
                 siril_image_free(image)
                 try require(infoOK != 0 && info.width == 256 && info.height == 256 && worst < 4.0 / 65535,
-                    "MPP native SER bit depth/CFA colors, cfa=\(cfa), debayer=\(debayer), error=\(worst), geometry=\(info.width)x\(info.height)")
+                    "MPP native SER bit depth/CFA colors, colorID=\(colorID), debayer=\(debayer), error=\(worst), geometry=\(info.width)x\(info.height)")
                 if cfa {
                     let sidecar = output.deletingLastPathComponent().appendingPathComponent("analysis.mpp")
                     guard let analysis = sidecar.path.withCString({ siril_multipoint_open($0, &error, capacity) }) else {
@@ -120,7 +128,7 @@ extension SirilEngine {
                     siril_multipoint_close(analysis)
                     guard let reference else { throw EngineError.failed(String(cString: error)) }
                     var luminanceError: Float = 0
-                    // Independent RGB luminance of the constant RGGB centre.
+                    // Independent RGB luminance shared by all four mosaics.
                     let expected: Float = (0.299 * 40000 + 0.587 * 20000 + 0.114 * 10000) / 65535
                     for y in 116..<140 { for x in 116..<140 {
                         var values = [Float](repeating: 0, count: 3)
@@ -129,12 +137,12 @@ extension SirilEngine {
                     } }
                     siril_image_free(reference)
                     try require(luminanceError < 4.0 / 65535,
-                        "SER CFA analysis Bayer orientation, luminance error=\(luminanceError)")
+                        "SER CFA analysis Bayer orientation, colorID=\(colorID), luminance error=\(luminanceError)")
                 }
             }
             try require(try Data(contentsOf: path) == data && Data(contentsOf: process.appendingPathComponent("capture.ser")) == data,
                 "MPP changed SER source bytes")
-            if cfa {
+            if colorID == 8 {
                 let demo = try importSERSequence(path)
                 try editSequence(demo, selection: SequenceSelection(included: [true, false, true], reference: 0))
                 try JSONEncoder().encode(demo).write(to: documents.appendingPathComponent("simulator-ser-sequence-location.json"), options: .atomic)
