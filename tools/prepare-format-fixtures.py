@@ -159,8 +159,8 @@ print("PASS: verified pinned HEIC/AVIF/16-bit HEIF codec fixtures, padding and a
 
 # Independent uncompressed AVI: odd RGB/gray row widths exercise both DIB
 # padding and FFMS2's aligned output stride without a host video encoder.
-def avi_fixture(name, rgb, frames=3):
-    width, height = 65, 49
+def avi_fixture(name, rgb, frames=3, bayer=None):
+    width, height = (66, 50) if bayer else (65, 49)
     channels = 3 if rgb else 1
     pitch = (width * channels + 3) // 4 * 4
     frame_size = pitch * height
@@ -184,7 +184,8 @@ def avi_fixture(name, rgb, frames=3):
         for y in reversed(range(height)):
             for x in range(width):
                 for channel in ((2, 1, 0) if rgb else (0,)):
-                    pixels.append(20 + frame * 7 + y * 2 + x % 13 + channel * 35)
+                    pixels.append(({"R": 80, "G": 120, "B": 180}[bayer[(y % 2) * 2 + x % 2]] + frame * 7)
+                                  if bayer else 20 + frame * 7 + y * 2 + x % 13 + channel * 35)
             pixels.extend(b"\xd5" * (pitch - width * channels))
         packet = chunk(b"00db", pixels)
         index.extend(struct.pack("<4sIII", b"00db", 0x10, offset, len(pixels)))
@@ -197,6 +198,8 @@ def avi_fixture(name, rgb, frames=3):
 avi_fixture("video-rgb", True)
 avi_fixture("video-mono", False)
 avi_fixture("video-single", True, 1)
+for pattern in ["RGGB", "BGGR", "GBRG", "GRBG"]:
+    avi_fixture("video-cfa-" + pattern.lower(), False, bayer=pattern)
 Path("app/TestAssets/video-invalid.avi").write_bytes(b"not a video")
 print("PASS: independent odd-width RGB/gray AVI, single-frame and invalid video fixtures")
 

@@ -894,6 +894,11 @@ text = ser.read_text()
 needle = '\tfits_flip_top_to_bottom(fit);\n\tfit->top_down = TRUE;\n\tsnprintf(fit->keywords.row_order, FLEN_VALUE, "TOP-DOWN");'
 assert text.count(needle) == 1
 text = text.replace(needle, needle.replace('= TRUE;', '= FALSE;').replace('"TOP-DOWN"', '"BOTTOM-UP"'))
+# A validated CFA keyword describes memory, so flip it along with the raster
+# even when that memory is now correctly labelled BOTTOM-UP.
+needle = '\tif (!g_strcmp0(fit->keywords.row_order, "TOP-DOWN") && fit_is_cfa(fit)) {'
+assert text.count(needle) == 1
+text = text.replace(needle, '\tif ((fit->debayer_checked || !g_strcmp0(fit->keywords.row_order, "TOP-DOWN")) && fit_is_cfa(fit)) {')
 ser.write_text(text)
 
 # FFMS output rows can be padded. Sample and copy actual row strides, then
@@ -963,6 +968,14 @@ needle = '\treturn NULL;'
 assert body.count(needle) == 1
 body = body.replace(needle, '\treturn GINT_TO_POINTER(embedded_result);')
 conversion.write_text(text[:start] + body + text[end:])
+
+# The AVI hint describes the flipped in-memory mosaic, as does raw SER read.
+# Mark that pattern as validated so the SER writer flips it with the raster.
+text = conversion.read_text()
+needle = '\t\t\t\t\tadjust_Bayer_pattern_orientation(&p, fit->ry, TRUE);'
+assert text.count(needle) == 1
+text = text.replace(needle, needle + '\n\t\t\t\t\tfit->debayer_checked = TRUE;')
+conversion.write_text(text)
 
 # Raw SER reads flip rows after loading the stored mosaic. Analysis must use
 # that in-memory Bayer orientation; the stack debayer runs before the flip.

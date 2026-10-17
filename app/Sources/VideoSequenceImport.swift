@@ -3,7 +3,8 @@ import Foundation
 import SirilCore
 
 extension SirilEngine {
-    func importVideoSequence(_ source: URL) throws -> SequenceLocation {
+    func importVideoSequence(_ source: URL, bayer: Int = 0) throws -> SequenceLocation {
+        guard (0...5).contains(bayer) else { throw EngineError.failed("视频 Bayer 排列无效。") }
         let ext = source.pathExtension.lowercased()
         guard ["avi", "mpg", "mpeg", "mov", "mp4", "webm"].contains(ext) else {
             throw EngineError.failed("请选择 AVI、MOV、MP4、MPEG 或 WebM 视频。")
@@ -26,7 +27,7 @@ extension SirilEngine {
             defer { activeJobIDs.remove(folder.lastPathComponent) }
             try Task.checkCancellation()
             let count = process.path.withCString { directory in copy.path.withCString {
-                siril_video_convert(directory, $0, &error, capacity)
+                siril_video_convert(directory, $0, Int32(bayer), &error, capacity)
             } }
             activeJobIDs.remove(folder.lastPathComponent)
             try? Self.processingLog().write(to: folder.appendingPathComponent("processing.log"), atomically: true, encoding: .utf8)
@@ -45,6 +46,7 @@ extension SirilEngine {
             let location = SequenceLocation(job: folder.lastPathComponent, name: "capture.seq")
             guard try inspectSequence(location).info.count == count else { throw EngineError.failed("视频序列索引帧数不符。") }
             try JSONEncoder().encode(source.lastPathComponent).write(to: owned("video-source-name.json", under: folder), options: .atomic)
+            try JSONEncoder().encode(bayer).write(to: owned("video-bayer.json", under: folder), options: .atomic)
             try JSONEncoder().encode(JobState(created: created, updated: Date(), state: "已完成", inputCount: Int(count),
                 message: "原版视频解码为 SER；保留原视频副本，逐帧读取。"))
                 .write(to: owned("job.json", under: folder), options: .atomic)

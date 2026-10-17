@@ -149,6 +149,7 @@ struct ContentView: View {
     @State private var files: [FITSRecord] = []
     @State private var showImporter = false
     @State private var nativeSERImport = false
+    @State private var videoBayer = 0
     @State private var busy = false
     @State private var importTask: Task<Void, Never>?
     @State private var progress = ""
@@ -543,7 +544,7 @@ struct ContentView: View {
             checkpoint("PASS: original comet velocity/matrix composition, mono/RGB FITSEQ and 8/16-bit mono/RGB/BGR SER actual aligned pixels, source preservation, persistent anchors, undo/redo and output recovery")
             checkpoint("START: original video decoder, streaming SER and independent odd-width pixel checks")
             try await engine.videoSequenceSelfTest()
-            checkpoint("PASS: original video decoder converted odd-width mono/RGB AVI, PNG MOV, H.264 RGB MP4 and VP9 RGB WebM to streaming SER; independent pixels, source preservation, invalid input cleanup, partial conversion failure and task restore")
+            checkpoint("PASS: original video decoder converted odd-width mono/RGB AVI, PNG MOV, H.264 RGB MP4 and VP9 RGB WebM to streaming SER; four Bayer sensor hints, independent raw/channel pixels, source preservation, invalid input cleanup, partial conversion failure and task restore")
             checkpoint("START: sequence registration/crop/storage checks")
             try await engine.sequenceRegistrationSelfTest()
             checkpoint("START: sequence background checks")
@@ -635,6 +636,11 @@ struct ContentView: View {
         Menu("导入", systemImage: "plus") {
             Button("导入图像 / SER 拆帧") { nativeSERImport = false; showImporter = true }
             Button("打开 SER / 视频序列") { nativeSERImport = true; showImporter = true }
+            Picker("原始视频 Bayer 排列", selection: $videoBayer) {
+                ForEach(Array(["自动", "单色", "RGGB", "BGGR", "GBRG", "GRBG"].enumerated()), id: \.offset) { index, name in
+                    Text(name).tag(index)
+                }
+            }
         }.disabled(busy)
     }
     @MainActor private func importSERContainer(_ urls: [URL]) async {
@@ -643,7 +649,7 @@ struct ContentView: View {
         defer { busy = false; progress = "" }
         do {
             sequenceDemo = url.pathExtension.lowercased() == "ser" ?
-                try await engine.importSERSequence(url) : try await engine.importVideoSequence(url)
+                try await engine.importSERSequence(url) : try await engine.importVideoSequence(url, bayer: videoBayer)
             showSequences = true
         }
         catch { errors = error.localizedDescription }

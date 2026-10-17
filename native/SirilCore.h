@@ -17,8 +17,9 @@ int siril_ser_complete(const SirilSER *session);
 SirilImage *siril_ser_read(SirilSER *session, uint32_t index, char *error, size_t capacity);
 void siril_ser_close(SirilSER *session);
 /* Decode a private video copy with the original converter into capture.ser.
+ * Bayer hint: 0 auto, 1 mono, 2 RGGB, 3 BGGR, 4 GBRG, 5 GRBG; RGB stays RGB.
  * Returns expected frame count, or -1; caller validates the complete output. */
-int32_t siril_video_convert(const char *directory, const char *path, char *error, size_t capacity);
+int32_t siril_video_convert(const char *directory, const char *path, int32_t bayer, char *error, size_t capacity);
 typedef struct SirilBackground SirilBackground;
 typedef struct {
     int32_t count, included, layers, reference, width, height, drizzle, type;

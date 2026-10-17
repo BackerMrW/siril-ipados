@@ -15,7 +15,7 @@ extension SirilEngine {
                 throw EngineError.failed("Missing independent video fixture: " + name)
             }
             let original = try Data(contentsOf: source)
-            let location = try importVideoSequence(source), process = try sequenceFolder(location)
+            let location = try importVideoSequence(source, bayer: name == "video-rgb" ? 2 : 0), process = try sequenceFolder(location)
             let root = process.deletingLastPathComponent()
             defer { try? fm.removeItem(at: root) }
             let snapshot = try inspectSequence(location)
@@ -53,6 +53,42 @@ extension SirilEngine {
             try require(try Data(contentsOf: root.appendingPathComponent("video/capture." + ext)) == original &&
                 Data(contentsOf: source) == original && Data(contentsOf: process.appendingPathComponent("capture.ser")) == converted &&
                 inspectSequence(location).info.count == 3, "original video/SER/index lost or modified through task restore")
+        }
+        for (hint, pattern, colorID) in [(2, "RGGB", 8), (3, "BGGR", 11), (4, "GBRG", 10), (5, "GRBG", 9)] {
+            guard let source = Bundle.main.url(forResource: "video-cfa-" + pattern.lowercased(), withExtension: "avi") else {
+                throw EngineError.failed("Missing independent Bayer AVI fixture")
+            }
+            let original = try Data(contentsOf: source), location = try importVideoSequence(source, bayer: hint)
+            let process = try sequenceFolder(location), root = process.deletingLastPathComponent()
+            defer { try? fm.removeItem(at: root) }
+            let bytes = try Data(contentsOf: process.appendingPathComponent("capture.ser"))
+            try require(Array(bytes[18..<22]) == [UInt8(colorID), 0, 0, 0], "Bayer SER sensor pattern changed after row flip: " + pattern)
+            let snapshot = try inspectSequence(location)
+            try require(snapshot.info.count == 3 && snapshot.info.layers == 1 && snapshot.info.width == 66 && snapshot.info.height == 50,
+                "Bayer video did not retain native mosaic")
+            var error = [CChar](repeating: 0, count: 512); let capacity = error.count
+            let mosaic = Array(pattern), levels: [Character: Int] = ["R": 80, "G": 120, "B": 180]
+            for frame in [2, 0, 1] {
+                guard let image = process.path.withCString({ directory in location.name.withCString {
+                    siril_sequence_frame(directory, $0, Int32(frame), &error, capacity)
+                } }) else { throw EngineError.failed(String(cString: error)) }
+                defer { siril_image_free(image) }
+                for y in 0..<50 { for x in 0..<66 {
+                    var pixel = [Float](repeating: 0, count: 3)
+                    let count = siril_image_pixel(image, Int32(x), Int32(y), &pixel)
+                    let expected = Float(levels[mosaic[(y % 2) * 2 + x % 2]]! + frame * 7) / 255
+                    try require(count == 1 && abs(pixel[0] - expected) < 1e-7, "Bayer video raw pixel orientation: " + pattern)
+                } }
+                var stats = [SirilChannelStatistics](repeating: SirilChannelStatistics(), count: 3)
+                try require(siril_image_statistics(image, nil, 1, &stats) == 3, "Bayer video channel statistics unavailable")
+                for (channel, level) in [80, 120, 180].enumerated() {
+                    try require(abs(stats[channel].mean - Double(level + frame * 7) / 255) < 1e-6,
+                        "Bayer video red/green/blue channel assignment: " + pattern)
+                }
+            }
+            try require(try Data(contentsOf: source) == original && Data(contentsOf: root.appendingPathComponent("video/capture.avi")) == original &&
+                JSONDecoder().decode(Int.self, from: Data(contentsOf: root.appendingPathComponent("video-bayer.json"))) == hint,
+                "Bayer video source or persisted sensor setting changed")
         }
         for name in ["video-single", "video-invalid"] {
             guard let source = Bundle.main.url(forResource: name, withExtension: "avi") else { throw EngineError.failed("Missing invalid AVI fixture") }

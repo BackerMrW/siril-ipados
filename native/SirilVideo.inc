@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "io/films.h"
 #include "io/conversion.h"
+#include "registration/mpp/mpp_config.h"
 
 #ifdef HAVE_FFMS2
 static int32_t embedded_video_count(const char *path, char *error, size_t capacity) {
@@ -19,7 +20,7 @@ static int32_t embedded_video_count(const char *path, char *error, size_t capaci
 }
 #endif
 
-int32_t siril_video_convert(const char *directory, const char *path, char *error, size_t capacity) {
+int32_t siril_video_convert(const char *directory, const char *path, int32_t bayer, char *error, size_t capacity) {
     if (error && capacity) error[0] = 0;
     int32_t count = -1;
     g_mutex_lock(&engine_mutex); initialize();
@@ -29,7 +30,8 @@ int32_t siril_video_convert(const char *directory, const char *path, char *error
     g_mutex_unlock(&log_mutex);
 #ifdef HAVE_FFMS2
     gchar *message = NULL;
-    if (!directory || !path || !g_path_is_absolute(path) || siril_change_dir(directory, &message) ||
+    if (bayer < MPP_AVI_BAYER_AUTO || bayer > MPP_AVI_BAYER_GRBG ||
+            !directory || !path || !g_path_is_absolute(path) || siril_change_dir(directory, &message) ||
             g_file_test("capture.ser", G_FILE_TEST_EXISTS) || g_file_test("capture.seq", G_FILE_TEST_EXISTS)) goto done;
     count = embedded_video_count(path, error, capacity);
     if (count < 2 || g_atomic_int_get(&cancel_requested)) { count = -1; goto done; }
@@ -39,6 +41,7 @@ int32_t siril_video_convert(const char *directory, const char *path, char *error
     args->list[0] = g_strdup(path); args->total = 1; args->start = 1;
     args->destroot = g_strdup("capture.ser"); args->output_type = SEQ_SER;
     args->input_has_a_seq = TRUE; args->input_has_a_film = TRUE;
+    args->avi_bayer_pattern = bayer;
     gettimeofday(&args->t_start, NULL);
     waiting_for_thread();
     if (!start_in_new_thread(convert_thread_worker, args)) {
