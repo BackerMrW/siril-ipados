@@ -3,6 +3,15 @@ import Foundation
 import SirilCore
 
 extension SirilEngine {
+    func makeVideoSequenceDemo() throws {
+        guard let source = Bundle.main.url(forResource: "video-h264", withExtension: "mp4") else {
+            throw EngineError.failed("Missing independent MP4 fixture")
+        }
+        let location = try importVideoSequence(source)
+        try editSequence(location, selection: SequenceSelection(included: [true, false, true], reference: 2))
+        try JSONEncoder().encode(location).write(to: documents.appendingPathComponent("simulator-video-sequence-location.json"), options: .atomic)
+    }
+
     func videoSequenceSelfTest() throws {
         let fm = FileManager.default
         func require(_ value: Bool, _ message: String) throws {
