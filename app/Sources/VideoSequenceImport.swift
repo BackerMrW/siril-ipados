@@ -13,25 +13,23 @@ extension SirilEngine {
         let fm = FileManager.default, created = Date()
         let folder = try owned(UUID().uuidString, under: documents.appendingPathComponent("Jobs"))
         let input = try owned("video", under: folder), process = try owned("process", under: folder)
-        try fm.createDirectory(at: input, withIntermediateDirectories: true)
-        try fm.createDirectory(at: process, withIntermediateDirectories: true)
         do {
+            try fm.createDirectory(at: input, withIntermediateDirectories: true)
+            try fm.createDirectory(at: process, withIntermediateDirectories: true)
             try writeJobState(folder, state: "运行中", message: "原版视频解码与 SER 转换")
             let copy = try owned("capture." + ext, under: input)
             try Task.checkCancellation()
             try fm.copyItem(at: source.resolvingSymlinksInPath(), to: copy)
             _ = try owned(copy.lastPathComponent, under: input)
             var error = [CChar](repeating: 0, count: 2048); let capacity = error.count
-            let count = copy.path.withCString { siril_video_count($0, &error, capacity) }
-            guard count >= 2 else { throw EngineError.failed(count < 0 ? String(cString: error) : "视频序列需要至少两帧。") }
-            let script = "cd video\nconvert capture -ser -out=../process\ncd ../process\n"
-            try script.write(to: folder.appendingPathComponent("processing.ssf"), atomically: true, encoding: .utf8)
             activeJobIDs.insert(folder.lastPathComponent)
             defer { activeJobIDs.remove(folder.lastPathComponent) }
             try Task.checkCancellation()
-            let converted = folder.path.withCString { directory in script.withCString { siril_run_commands(directory, $0, &error, capacity) } }
+            let count = process.path.withCString { directory in copy.path.withCString {
+                siril_video_convert(directory, $0, &error, capacity)
+            } }
             try? Self.processingLog().write(to: folder.appendingPathComponent("processing.log"), atomically: true, encoding: .utf8)
-            guard converted != 0 else { throw EngineError.failed(String(cString: error)) }
+            guard count >= 2 else { throw EngineError.failed(String(cString: error)) }
             try Task.checkCancellation()
             let container = try owned("capture.ser", under: process)
             guard let session = container.path.withCString({ siril_ser_open($0, &error, capacity) }) else {
