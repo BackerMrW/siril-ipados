@@ -85,9 +85,22 @@ struct SequenceMultipointSummary: Codable, Sendable {
     }
 }
 extension SirilEngine {
-    func resumeMultipoint(_ location: SequenceLocation, runID: String, phase: Int32 = 0) throws -> URL {
+    func savedMultipointSettings(_ location: SequenceLocation, runID: String) throws -> SequenceMultipointSettings {
         let folder = try multipointFolder(location, runID: runID)
-        let settings = try JSONDecoder().decode(SequenceMultipointSettings.self, from: Data(contentsOf: owned("multipoint.json", under: folder)))
+        return try JSONDecoder().decode(SequenceMultipointSettings.self, from: Data(contentsOf: owned("multipoint.json", under: folder)))
+    }
+    func resumeMultipoint(_ location: SequenceLocation, runID: String, phase: Int32 = 0, stackSettings: SequenceMultipointSettings? = nil) throws -> URL {
+        var settings = try savedMultipointSettings(location, runID: runID)
+        if let proposed = stackSettings {
+            guard phase == 3 else { throw EngineError.failed("叠加参数仅能用于已保存配准的叠加阶段。") }
+            settings.stackPercent = proposed.stackPercent; settings.skipFailed = proposed.skipFailed
+            settings.floatOutput = proposed.floatOutput; settings.scale = proposed.scale
+            settings.backgroundFraction = proposed.backgroundFraction; settings.backgroundBlend = proposed.backgroundBlend
+            var advanced = settings.advanced ?? SequenceMultipointAdvanced()
+            let chosen = proposed.advanced ?? SequenceMultipointAdvanced()
+            advanced.stackFrames = chosen.stackFrames; advanced.stackMethod = chosen.stackMethod; advanced.debayer = chosen.debayer
+            settings.advanced = advanced
+        }
         return try stackMultipoint(location, settings: settings, resuming: runID, phase: phase)
     }
     func stackMultipoint(_ location: SequenceLocation, settings: SequenceMultipointSettings, resuming runID: String? = nil, phase: Int32 = 0) throws -> URL {
@@ -141,7 +154,7 @@ extension SirilEngine {
                 }
                 if let inputAnalysis {
                     return inputAnalysis.path.withCString { input in
-                        if phase == 3 { return siril_sequence_multipoint_stack_saved(directory, name, input, target, &info, &error, capacity) }
+                        if phase == 3 { return siril_sequence_multipoint_stack_saved(directory, name, input, target, &options, &info, &error, capacity) }
                         if let nativePoints {
                             return nativePoints.withUnsafeBufferPointer {
                                 siril_sequence_multipoint_resume(directory, name, input, $0.baseAddress, Int32($0.count), target, &info, &error, capacity)

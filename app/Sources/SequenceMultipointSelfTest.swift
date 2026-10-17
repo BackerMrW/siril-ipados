@@ -219,6 +219,28 @@ extension SirilEngine {
                 try require(stagedError == 0, "staged A/edit/B/C differs from combined edited B/C: \(stagedError)")
                 try require(try Data(contentsOf: analyzed) == analyzedBytes && Data(contentsOf: registered) == registeredBytes,
                     "staged processing modified its input sidecars")
+                var stackOverride = settings
+                var stackAdvanced = SequenceMultipointAdvanced(); stackAdvanced.stackFrames = 1
+                stackOverride.advanced = stackAdvanced; stackOverride.scale = 2; stackOverride.floatOutput = false
+                // Analysis-time values must not be changed by a stack-only request.
+                stackOverride.search = 64; stackOverride.planet = false
+                let resizedStack = try resumeMultipoint(source, runID: registeredID, phase: 3, stackSettings: stackOverride)
+                let resizedSummary = try JSONDecoder().decode(SequenceMultipointSummary.self,
+                    from: Data(contentsOf: resizedStack.deletingLastPathComponent().appendingPathComponent("multipoint-summary.json")))
+                let resizedRecipe = try savedMultipointSettings(source, runID: resizedStack.deletingLastPathComponent().lastPathComponent)
+                try require(resizedSummary.stackSize == 1 && resizedRecipe.search == settings.search && resizedRecipe.planet == settings.planet,
+                    "stack override must report actual count and retain analysis settings")
+                guard let resizedImage = resizedStack.path.withCString({ siril_image_read($0, &error, capacity) }) else {
+                    throw EngineError.failed(String(cString: error))
+                }
+                var resizedInfo = SirilImageInfo()
+                let resizedOK = siril_image_info(resizedImage, &resizedInfo)
+                siril_image_free(resizedImage)
+                let resizedHeader = String(decoding: try Data(contentsOf: resizedStack).prefix(2880), as: UTF8.self)
+                try require(resizedOK != 0 && resizedInfo.width == 512 && resizedInfo.height == 512 &&
+                    resizedHeader.contains("BITPIX  =                   16"),
+                    "stack-only scale/bit-depth override was ignored")
+                try require(try Data(contentsOf: registered) == registeredBytes, "stack override rewrote registered source")
                 var advanced = SequenceMultipointAdvanced()
                 advanced.globalSearch = 12; advanced.referencePercent = 100
                 advanced.brightness = 1; advanced.contrast = 1; advanced.gridStep = 8

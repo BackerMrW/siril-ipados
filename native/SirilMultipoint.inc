@@ -225,9 +225,22 @@ static gpointer embedded_multipoint_thread(gpointer pointer) {
         if (!result) {
             // Resume uses the baked analysis configuration, never recomputes
             // Stage A or silently replaces the edited alignment points.
+            mpp_config_t requested = args->config;
             args->config = *run->cfg;
             if (args->phase == 3) {
                 if (args->point_count >= 0 || !run->best_frame_indices || !run->shifts) result = MPP_EINVAL;
+                if (!result) {
+                    run->cfg->stack_frame_percent = requested.stack_frame_percent;
+                    run->cfg->stack_frame_number = requested.stack_frame_number;
+                    run->cfg->stack_skip_failed_aps = requested.stack_skip_failed_aps;
+                    run->cfg->stack_method = requested.stack_method;
+                    run->cfg->output_scale = requested.output_scale;
+                    run->cfg->output_32bit = requested.output_32bit;
+                    run->cfg->stack_frames_background_fraction = requested.stack_frames_background_fraction;
+                    run->cfg->stack_frames_background_blend_threshold = requested.stack_frames_background_blend_threshold;
+                    run->cfg->debayer_method = requested.debayer_method;
+                    args->config = *run->cfg;
+                }
             } else {
                 if (args->point_count >= 0 && !embedded_mpp_restore_points(run, args->points, args->point_count)) result = MPP_EINVAL;
                 if (!result) embedded_mpp_invalidate_shifts(run);
@@ -262,6 +275,7 @@ static gpointer embedded_multipoint_thread(gpointer pointer) {
             run->best_frame_idx, run->stack_size};
         if (args->phase == 0 || args->phase == 3)
             result = mpp_stack_apply(args->seq, run->cfg, run, &args->image->fit);
+        if (!result) args->info.stack_size = run->stack_size;
     }
     if (run) mpp_run_free(run);
     stop_processing_thread();
@@ -285,7 +299,7 @@ static SirilImage *embedded_multipoint_process(const char *directory, const char
             (phase == 1 && input) || !sidecar || !g_path_is_absolute(sidecar) || !g_str_has_suffix(sidecar, ".mpp") ||
             g_file_test(sidecar, G_FILE_TEST_EXISTS) || seq->is_variable || seq->is_drizzle || seq->selnum < 2 ||
             (input && (!g_path_is_absolute(input) || !g_str_has_suffix(input, ".mpp") || count < -1)) ||
-            (!input && (!options ||
+            ((!input || phase == 3) && (!options ||
             options->alignment < 0 || options->alignment > 1 || options->half_box < 8 || options->half_box > 128 ||
             options->half_box * 2 > MIN(seq->rx, seq->ry) || options->search < 1 || options->search > 64 ||
             options->register_percent < 1 || options->register_percent > 100 || options->stack_percent < 1 ||
@@ -383,7 +397,8 @@ int siril_sequence_multipoint_stage(const char *directory, const char *name,
     return 1;
 }
 SirilImage *siril_sequence_multipoint_stack_saved(const char *directory, const char *name,
-        const char *input, const char *sidecar, SirilMultipointInfo *info, char *error, size_t capacity) {
+        const char *input, const char *sidecar, const SirilMultipointOptions *options,
+        SirilMultipointInfo *info, char *error, size_t capacity) {
     if (!input) return NULL;
-    return embedded_multipoint_process(directory, name, input, NULL, -1, 3, sidecar, NULL, info, error, capacity);
+    return embedded_multipoint_process(directory, name, input, NULL, -1, 3, sidecar, options, info, error, capacity);
 }

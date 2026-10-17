@@ -21,14 +21,7 @@ struct SequenceMultipointControls: View {
             Toggle("局部形变校正", isOn: $settings.dewarp)
             BatchNumber(title: "位移平滑半径（网格间距）", value: $settings.smoothRadius)
         }
-        Section("专用叠加") {
-            Stepper("每个对齐点叠加：\(settings.stackPercent)%", value: $settings.stackPercent, in: 1...100)
-            Toggle("跳过局部测量失败的帧贡献", isOn: $settings.skipFailed)
-            Toggle("32 位浮点结果", isOn: $settings.floatOutput)
-            BatchNumber(title: "输出倍率（1–3）", value: $settings.scale)
-            BatchNumber(title: "背景帧比例", value: $settings.backgroundFraction)
-            BatchNumber(title: "背景混合阈值", value: $settings.backgroundBlend)
-        }
+        SequenceMultipointStackControls(settings: $settings)
         SequenceMultipointAdvancedControls(settings: advanced)
         Section {
             Text("使用原版 MPP 分析、局部配准及专用叠加器。可先分析并编辑对齐点，再分别配准和叠加；每次处理独立保存，原结果保留。")
@@ -39,7 +32,6 @@ struct SequenceMultipointControls: View {
 
 private struct SequenceMultipointAdvancedControls: View {
     @Binding var settings: SequenceMultipointAdvanced
-    private let debayerNames = ["Bilinear", "VNG", "AHD", "AMaZE", "DCB", "HPHD", "IGV", "LMMSE", "RCD"]
     private let bayerNames = ["自动", "单色", "RGGB", "BGGR", "GBRG", "GRBG"]
     var body: some View {
         Section("高级参数") {
@@ -57,6 +49,34 @@ private struct SequenceMultipointAdvancedControls: View {
                 Stepper("细化参考帧：\(settings.referenceFrames)（0 自动）", value: $settings.referenceFrames, in: 0...500)
             }
             DisclosureGroup("叠加与去马赛克") {
+                SequenceMultipointStackAdvancedControls(settings: $settings)
+                Picker("无 Bayer 标记视频的排列", selection: $settings.aviBayer) {
+                    ForEach(bayerNames.indices, id: \.self) { Text(bayerNames[$0]).tag($0) }
+                }
+            }
+        }
+    }
+}
+
+struct SequenceMultipointStackControls: View {
+    @Binding var settings: SequenceMultipointSettings
+    var body: some View {
+        Section("专用叠加") {
+            Stepper("每个对齐点叠加：\(settings.stackPercent)%", value: $settings.stackPercent, in: 1...100)
+            Toggle("跳过局部测量失败的帧贡献", isOn: $settings.skipFailed)
+            Toggle("32 位浮点结果", isOn: $settings.floatOutput)
+            BatchNumber(title: "输出倍率（1–3）", value: $settings.scale)
+            BatchNumber(title: "背景帧比例", value: $settings.backgroundFraction)
+            BatchNumber(title: "背景混合阈值", value: $settings.backgroundBlend)
+        }
+    }
+}
+
+struct SequenceMultipointStackAdvancedControls: View {
+    @Binding var settings: SequenceMultipointAdvanced
+    private let debayerNames = ["Bilinear", "VNG", "AHD", "AMaZE", "DCB", "HPHD", "IGV", "LMMSE", "RCD"]
+    var body: some View {
+        Group {
                 Stepper("每点叠加帧数：\(settings.stackFrames)（≤0 按比例）", value: $settings.stackFrames, in: -1...10000)
                 Text("显式帧数优先于比例，最多使用已参与配准的帧数。").font(.caption).foregroundStyle(.secondary)
                 Picker("叠加方式", selection: $settings.stackMethod) {
@@ -65,10 +85,6 @@ private struct SequenceMultipointAdvancedControls: View {
                 Picker("CFA 去马赛克", selection: $settings.debayer) {
                     ForEach(debayerNames.indices, id: \.self) { Text(debayerNames[$0]).tag($0) }
                 }
-                Picker("无 Bayer 标记视频的排列", selection: $settings.aviBayer) {
-                    ForEach(bayerNames.indices, id: \.self) { Text(bayerNames[$0]).tag($0) }
-                }
-            }
         }
     }
 }

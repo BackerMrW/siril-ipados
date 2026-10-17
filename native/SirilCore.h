@@ -173,7 +173,8 @@ int siril_sequence_multipoint_stage(const char *directory, const char *name,
         const char *sidecar, const SirilMultipointOptions *options, int phase,
         SirilMultipointInfo *info, char *error, size_t capacity);
 SirilImage *siril_sequence_multipoint_stack_saved(const char *directory, const char *name,
-        const char *input, const char *sidecar, SirilMultipointInfo *info, char *error, size_t capacity);
+        const char *input, const char *sidecar, const SirilMultipointOptions *options,
+        SirilMultipointInfo *info, char *error, size_t capacity);
 typedef struct {
     uint64_t total, good;
     double mean, median, sigma, average_deviation, mad, sqrt_bwmv, minimum, maximum, norm;

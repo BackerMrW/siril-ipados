@@ -18,6 +18,8 @@ struct SequenceMultipointAnalysisView: View {
     @State private var diagnosticFrame = 0
     @State private var showShifts = false
     @State private var shiftScale = 1.0
+    @State private var stackOptions = SequenceMultipointSettings()
+    @State private var showStackOptions = false
     private var fixtureSection: String { ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] ?? "" }
     private var fixture: Bool { ["multipoint-points", "multipoint-edit", "multipoint-shifts"].contains(fixtureSection) }
     private var point: SequenceMultipointPoint? { snapshot?.points.first { $0.id == selected } }
@@ -44,6 +46,22 @@ struct SequenceMultipointAnalysisView: View {
             .onChange(of: runID) { _, _ in selected = nil; diagnosticFrame = 0; if !loading { Task { await refresh() } } }
             .onChange(of: diagnosticFrame) { _, _ in if !loading { Task { await refresh() } } }
             .onChange(of: display) { _, _ in display.save(); Task { await refresh() } }
+            .sheet(isPresented: $showStackOptions) {
+                NavigationStack {
+                    Form {
+                        SequenceMultipointStackControls(settings: $stackOptions)
+                        Section("叠加高级参数") {
+                            SequenceMultipointStackAdvancedControls(settings: Binding(
+                                get: { stackOptions.advanced ?? SequenceMultipointAdvanced() }, set: { stackOptions.advanced = $0 }))
+                        }
+                        Section { Button("复用配准并生成新叠加结果") {
+                            showStackOptions = false
+                            Task { await restack(phase: 3, settings: stackOptions) }
+                        } }
+                    }.navigationTitle("多点叠加参数")
+                        .toolbar { Button("取消") { showStackOptions = false } }
+                }
+            }
         }
     }
     private var imagePanel: some View {
@@ -129,6 +147,8 @@ struct SequenceMultipointAnalysisView: View {
                             .disabled(snapshot.points.isEmpty)
                         Button("使用已保存配准叠加") { Task { await restack(phase: 3) } }
                             .disabled(!snapshot.registered)
+                        Button("调整叠加参数后生成新结果") { Task { await openStackOptions() } }
+                            .disabled(!snapshot.registered)
                         Button("重新配准并叠加为新结果") { Task { await restack() } }
                             .disabled(snapshot.points.isEmpty)
                     }.disabled(loading || fixture).id("editing")
@@ -195,11 +215,17 @@ struct SequenceMultipointAnalysisView: View {
         } catch { message = error.localizedDescription }
         loading = false
     }
-    @MainActor private func restack(phase: Int32 = 0) async {
+    @MainActor private func openStackOptions() async {
+        guard let runID, !loading else { return }
+        loading = true; defer { loading = false }
+        do { stackOptions = try await engine.savedMultipointSettings(location, runID: runID); showStackOptions = true }
+        catch { message = error.localizedDescription }
+    }
+    @MainActor private func restack(phase: Int32 = 0, settings: SequenceMultipointSettings? = nil) async {
         guard let runID, !loading else { return }
         loading = true
         do {
-            let output = try await engine.resumeMultipoint(location, runID: runID, phase: phase)
+            let output = try await engine.resumeMultipoint(location, runID: runID, phase: phase, stackSettings: settings)
             runs = try await engine.multipointRuns(location); self.runID = output.deletingLastPathComponent().lastPathComponent
             await refresh()
         } catch { message = error.localizedDescription }
