@@ -314,7 +314,8 @@ def video_dependencies():
     identity = {"revision": ffms_revision, "ffmpeg": ffmpeg_revision, "target": TARGET}
     if not ready("ffms2", identity):
         source = checkout("ffms2", "https://github.com/FFMS/ffms2.git", ffms_revision)
-        run(["autoreconf", "-fi"], "ffms2-bootstrap", cwd=source, env=dict(ENV, LIBTOOLIZE="glibtoolize"))
+        run(["sh", source / "autogen.sh"], "ffms2-bootstrap", cwd=source,
+            env=dict(ENV, LIBTOOLIZE="glibtoolize", NOCONFIGURE="1"))
         build = WORK / "ffms2-build"
         build.mkdir()
         env = dict(ENV, CC=cc, CXX=cpp, CFLAGS=flags, CXXFLAGS=flags,
