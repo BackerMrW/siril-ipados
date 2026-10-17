@@ -44,10 +44,9 @@ int32_t siril_video_convert(const char *directory, const char *path, char *error
     if (!start_in_new_thread(convert_thread_worker, args)) {
         g_strfreev(args->list); g_free(args->destroot); free(args); count = -1; goto done;
     }
-    waiting_for_thread(); // Original worker owns its arguments and sequence writer.
-    if (g_atomic_int_get(&cancel_requested) || !g_file_test("capture.ser", G_FILE_TEST_EXISTS)) count = -1;
-done:
-    g_free(message);
+    int result = GPOINTER_TO_INT(waiting_for_thread()); // Worker owns args and writer.
+    if (result || g_atomic_int_get(&cancel_requested) || !g_file_test("capture.ser", G_FILE_TEST_EXISTS)) count = -1;
+done: // message is borrowed from the original log.
 #endif
     if (count < 0 && error && capacity && !*error)
         snprintf(error, capacity, "Video conversion needs at least two decodable frames and a new output directory");

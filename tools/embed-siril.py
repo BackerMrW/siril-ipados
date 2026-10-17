@@ -937,6 +937,33 @@ assert text.count(needle) == 1
 text = text.replace(needle, '\tif ((bytes_read >= 12 && memcmp(magic + 4, "ftypavif", 8) == 0) ||\n\t\t\t(bytes_read >= 16 && memcmp(magic + 4, "ftypmif3avif", 12) == 0))')
 utils.write_text(text)
 
+# Native video import joins the original converter. Return its real outcome
+# before end_convert frees args; a partial decode must not become a valid job.
+# If scheduling failed before the first queued frame, no worker can signal the
+# memory-adjustment condition, so skip that wait and perform normal cleanup.
+text = conversion.read_text()
+start = text.index('gpointer convert_thread_worker(gpointer p)')
+end = text.index('static struct reader_seq_counter *get_new_read_counter(', start)
+body = text[start:end]
+needle = '\tdo {\n'
+assert body.count(needle) == 1
+body = body.replace(needle, '\tint embedded_queued = 0;\n' + needle)
+needle = '\t\tif (rstatus == GOT_OK_LAST_FILE || rstatus == GOT_OK_LAST_IN_SEQ_LAST_FILE)'
+assert body.count(needle) == 1
+body = body.replace(needle, '\t\tembedded_queued++;\n' + needle)
+needle = '\twhile (convert.first <= 0) {'
+assert body.count(needle) == 1
+body = body.replace(needle, '\twhile (embedded_queued && convert.first <= 0) {')
+needle = '\targs->update_GUI = TRUE;'
+assert body.count(needle) == 1
+body = body.replace(needle, '\tint embedded_result = !embedded_queued || convert.fatal_error || convert.failed_images ||\n'
+    '\t\tconvert.converted_images != convert.nb_input_images || !processing_should_continue();\n'
+    '\targs->retval = embedded_result;\n' + needle)
+needle = '\treturn NULL;'
+assert body.count(needle) == 1
+body = body.replace(needle, '\treturn GINT_TO_POINTER(embedded_result);')
+conversion.write_text(text[:start] + body + text[end:])
+
 # Raw SER reads flip rows after loading the stored mosaic. Analysis must use
 # that in-memory Bayer orientation; the stack debayer runs before the flip.
 text = mpp.read_text()

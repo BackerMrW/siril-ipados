@@ -60,5 +60,21 @@ extension SirilEngine {
             try require(rejected && Set(jobHistory().map(\.id)) == jobs && (try Data(contentsOf: source)) == bytes,
                 "invalid/single-frame video accepted, changed source or left a task")
         }
+        guard let valid = Bundle.main.url(forResource: "bias", withExtension: "fits") else {
+            throw EngineError.failed("Missing conversion failure fixture")
+        }
+        let scratch = documents.appendingPathComponent("conversion-failure-" + UUID().uuidString)
+        try fm.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { siril_release_workspace(); try? fm.removeItem(at: scratch) }
+        let original = try Data(contentsOf: valid), broken = Data("not a FITS image".utf8)
+        try original.write(to: scratch.appendingPathComponent("a-valid.fits"))
+        try broken.write(to: scratch.appendingPathComponent("b-broken.fits"))
+        var error = [CChar](repeating: 0, count: 512); let capacity = error.count
+        let failed = scratch.path.withCString { directory in "convert partial -ser\n".withCString {
+            siril_run_commands(directory, $0, &error, capacity)
+        } }
+        try require(failed == 0 && Data(contentsOf: scratch.appendingPathComponent("a-valid.fits")) == original &&
+            Data(contentsOf: scratch.appendingPathComponent("b-broken.fits")) == broken,
+            "partially converted inputs reported success or changed their sources")
     }
 }
