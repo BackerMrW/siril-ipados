@@ -89,6 +89,26 @@ extension SirilEngine {
             try require(reopened.sourceWidth == 256 && reopened.sourceHeight == 256 && reopened.shifts.allSatisfy {
                 reopened.points[$0.id].x == $0.sourceX && reopened.points[$0.id].y == $0.sourceY
             }, "identity original-frame overlay coordinates")
+            let originalPreview = try sequenceFramePreview(source, index: 0, settings: NativeDisplaySettings())
+            let sourceImage = process.path.withCString { directory in source.name.withCString {
+                siril_sequence_frame(directory, $0, 0, &error, capacity)
+            } }
+            guard let sourceImage else { throw EngineError.failed(String(cString: error)) }
+            var sourceInfo = SirilImageInfo(), overlayError: Float = 0
+            let sourceOK = siril_image_info(sourceImage, &sourceInfo)
+            for shift in reopened.shifts {
+                let y = sourceInfo.top_down != 0 ? 255 - shift.sourceY : shift.sourceY
+                var values = [Float](repeating: 0, count: 3)
+                if siril_image_pixel(sourceImage, Int32(shift.sourceX), Int32(y), &values) != channels { overlayError = 1 }
+                let point = reopened.points[shift.id]
+                for channel in 0..<channels {
+                    overlayError = max(overlayError, abs(values[channel] - Float(expected(point.x, point.y, channel)) / 65535))
+                }
+            }
+            siril_image_free(sourceImage)
+            try require(sourceOK != 0 && originalPreview.width == 256 && originalPreview.height == 256 &&
+                originalPreview.topDown == (sourceInfo.top_down != 0) && !originalPreview.bytes.data.isEmpty && overlayError < 2.0 / 65535,
+                "independent source-overlay samples and ROWORDER-aware preview, channels=\(channels), error=\(overlayError)")
             let excludedShifts = try multipointAnalysis(source, runID: savedRuns[0].id, display: NativeDisplaySettings(), frame: 1)
             try require(excludedShifts.shifts.count == reopened.points.count && excludedShifts.shifts.allSatisfy { !$0.included && !$0.success },
                 "excluded frame must not be reported as measured")

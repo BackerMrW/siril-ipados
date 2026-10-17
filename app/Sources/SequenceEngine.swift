@@ -8,6 +8,12 @@ struct SequenceLocation: Identifiable, Hashable, Codable, Sendable {
     var id: String { job + "/" + name }
     var base: String { String(name.dropLast(4)) }
 }
+struct SequenceFramePreview: Sendable {
+    let bytes: PreviewBytes
+    let width: Int
+    let height: Int
+    let topDown: Bool
+}
 struct SequenceSelection: Codable, Equatable, Sendable {
     var included: [Bool]
     var reference: Int
@@ -157,19 +163,26 @@ extension SirilEngine {
         } catch { try recoverSequenceEdit(location); throw error }
     }
     func sequencePreview(_ location: SequenceLocation, index: Int, channel: Int = -1, automatic: Bool = true, settings: NativeDisplaySettings? = nil) throws -> PreviewBytes {
-        _ = try inspectSequence(location)
+        try sequenceFramePreview(location, index: index, channel: channel, automatic: automatic, settings: settings).bytes
+    }
+    func sequenceFramePreview(_ location: SequenceLocation, index: Int, channel: Int = -1, automatic: Bool = true, settings: NativeDisplaySettings? = nil) throws -> SequenceFramePreview {
+        let snapshot = try inspectSequence(location)
+        guard index >= 0, index < Int(snapshot.info.count) else { throw EngineError.failed("序列帧号无效。") }
         let folder = try sequenceFolder(location)
         var error = [CChar](repeating: 0, count: 512)
         let capacity = error.count
         guard let image = folder.path.withCString({ directory in location.name.withCString { siril_sequence_frame(directory, $0, Int32(index), &error, capacity) } }) else { throw EngineError.failed(String(cString: error)) }
         defer { siril_image_free(image) }
+        var info = SirilImageInfo()
+        guard siril_image_info(image, &info) != 0 else { throw EngineError.failed("无法读取序列帧尺寸和方向。") }
         var preview = SirilPreview()
         let success: Int32
         if let settings { success = try settings.withNative { siril_image_preview_mode(image, 1536, Int32(channel), &$0, &preview) } }
         else { success = siril_image_preview_display(image, 1536, Int32(channel), automatic ? 1 : 0, &preview) }
         guard success != 0, let bytes = preview.rgba else { throw EngineError.failed("无法预览序列帧，请检查显示范围。") }
         defer { siril_preview_free(&preview) }
-        return PreviewBytes(data: Data(bytes: bytes, count: Int(preview.width * preview.height) * 4), width: Int(preview.width), height: Int(preview.height))
+        return SequenceFramePreview(bytes: PreviewBytes(data: Data(bytes: bytes, count: Int(preview.width * preview.height) * 4),
+            width: Int(preview.width), height: Int(preview.height)), width: Int(info.width), height: Int(info.height), topDown: info.top_down != 0)
     }
     func exportSequenceQuality(_ location: SequenceLocation, layer: Int) throws -> URL {
         let snapshot = try inspectSequence(location, layer: layer)
