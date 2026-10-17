@@ -540,7 +540,7 @@ struct ContentView: View {
             checkpoint("PASS: original multipoint analysis, local alignment and stacking; mono/RGB independent identity pixels, excluded-frame isolation and source preservation")
             checkpoint("START: original comet registration and independent moving-object alignment checks")
             try await engine.cometRegistrationSelfTest()
-            checkpoint("PASS: original comet velocity/matrix composition, mono/RGB FITSEQ actual aligned pixels, source preservation, persistent anchors, undo/redo and output recovery")
+            checkpoint("PASS: original comet velocity/matrix composition, mono/RGB FITSEQ and 8/16-bit mono/RGB/BGR SER actual aligned pixels, source preservation, persistent anchors, undo/redo and output recovery")
             checkpoint("START: sequence registration/crop/storage checks")
             try await engine.sequenceRegistrationSelfTest()
             checkpoint("START: sequence background checks")

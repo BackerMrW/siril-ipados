@@ -216,8 +216,8 @@ SirilImage *siril_sequence_frame(const char *directory, const char *name, int in
     if (image) image->fit.fptr = NULL;
     if (image && seq->type == SEQ_SER) {
         import_metadata_from_serfile(seq->ser_file, &image->fit);
-        // Upstream SER reads flip raster rows but keep TOP-DOWN metadata.
-        // Use the same displayed-pixel boundary as standalone SER import.
+        // Keep the same displayed-pixel and saved sensor-pattern boundary
+        // as standalone SER import; the embedded reader corrects row order.
         image->fit.top_down = FALSE;
         if (image->fit.keywords.bayer_pattern[0]) {
             sensor_pattern pattern = get_cfa_pattern_index_from_string(image->fit.keywords.bayer_pattern);
