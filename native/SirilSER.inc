@@ -14,10 +14,7 @@ SirilSER *siril_ser_open(const char *path, char *error, size_t capacity) {
     if (!failed) {
         const struct ser_struct *file = &session->file;
         double bytes = (double)file->image_width * file->image_height * file->number_of_planes * 16;
-        long double required = 178.0L + (long double)file->image_width * file->image_height *
-            file->number_of_planes * file->byte_pixel_depth * file->frame_count;
         failed = !file->frame_count || file->frame_count > INT_MAX ||
-            file->image_width < 1 || file->image_height < 1 || file->filesize < required ||
             file->image_width > MAX_IMAGE_DIM || file->image_height > MAX_IMAGE_DIM ||
             bytes > (double)get_available_memory() * .8;
     }
@@ -30,6 +27,13 @@ SirilSER *siril_ser_open(const char *path, char *error, size_t capacity) {
 }
 uint32_t siril_ser_count(const SirilSER *session) {
     return session ? session->file.frame_count : 0;
+}
+int siril_ser_complete(const SirilSER *session) {
+    if (!session) return 0;
+    const struct ser_struct *file = &session->file;
+    long double required = 178.0L + (long double)file->image_width * file->image_height *
+        file->number_of_planes * file->byte_pixel_depth * file->frame_count;
+    return file->image_width > 0 && file->image_height > 0 && file->frame_count > 0 && file->filesize >= required;
 }
 SirilImage *siril_ser_read(SirilSER *session, uint32_t index, char *error, size_t capacity) {
     if (error && capacity) error[0] = 0;

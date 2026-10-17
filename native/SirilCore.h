@@ -12,6 +12,8 @@ typedef struct SirilSER SirilSER;
  * whose interrupted capture left an empty frame-count field. CFA is retained. */
 SirilSER *siril_ser_open(const char *path, char *error, size_t capacity);
 uint32_t siril_ser_count(const SirilSER *session);
+/* Whole-container import check; partial frame reads keep their original contract. */
+int siril_ser_complete(const SirilSER *session);
 SirilImage *siril_ser_read(SirilSER *session, uint32_t index, char *error, size_t capacity);
 void siril_ser_close(SirilSER *session);
 typedef struct SirilBackground SirilBackground;

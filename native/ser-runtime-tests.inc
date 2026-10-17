@@ -9,6 +9,7 @@ static int ser_reference_checks(const char *directory) {
         CHECK(g_file_get_contents(source, &bytes, &length, NULL));
         CHECK(g_file_set_contents(copy, bytes, length, NULL)); g_free(bytes);
         SirilSER *session = siril_ser_open(copy, error, sizeof error); CHECK(session);
+        CHECK(siril_ser_complete(session) == (k != 4));
         CHECK(siril_ser_count(session) == 3 && !siril_ser_read(session, 3, error, sizeof error));
         if (k == 4) {
             SirilImage *first = siril_ser_read(session, 0, error, sizeof error); CHECK(first); siril_image_free(first);

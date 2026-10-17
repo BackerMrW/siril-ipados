@@ -22,7 +22,9 @@ extension SirilEngine {
                 throw EngineError.failed(String(cString: error))
             }
             let count = siril_ser_count(session)
+            let complete = siril_ser_complete(session) != 0
             siril_ser_close(session)
+            guard complete else { throw EngineError.failed("SER 文件缺少声明的完整帧数据。") }
             guard count >= 2 else { throw EngineError.failed("原生 SER 序列需要至少两帧。") }
             try Task.checkCancellation()
             let indexed = process.path.withCString { siril_sequence_discover($0, &error, capacity) }
