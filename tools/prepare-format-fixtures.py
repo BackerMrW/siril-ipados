@@ -210,4 +210,4 @@ for name, entry in video_manifest["files"].items():
     body = Path("app/TestAssets", name).read_bytes()
     if hashlib.sha256(body).hexdigest() != entry["sha256"]:
         raise RuntimeError("Compressed video fixture checksum mismatch: " + name)
-print("PASS: verified synthetic lossless PNG MOV, H.264 RGB MP4 and VP9 RGB WebM fixtures")
+print("PASS: verified synthetic PNG MOV, H.264 RGB / limited-range BT.709 YUV420 MP4 and VP9 RGB WebM fixtures")

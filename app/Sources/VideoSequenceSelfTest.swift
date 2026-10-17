@@ -17,9 +17,11 @@ extension SirilEngine {
         func require(_ value: Bool, _ message: String) throws {
             if !value { throw EngineError.failed("Video sequence: " + message) }
         }
-        let fixtures = [("video-mono", "avi", false), ("video-rgb", "avi", true),
-                        ("video-png", "mov", true), ("video-h264", "mp4", true), ("video-vp9", "webm", true)]
-        for (name, ext, rgb) in fixtures {
+        let fixtures: [(String, String, Bool, Int, Int, Float)] = [
+            ("video-mono", "avi", false, 65, 49, 1e-7), ("video-rgb", "avi", true, 65, 49, 1e-7),
+            ("video-png", "mov", true, 65, 49, 1e-7), ("video-h264", "mp4", true, 65, 49, 1e-7),
+            ("video-vp9", "webm", true, 65, 49, 1e-7), ("video-h264-yuv420", "mp4", true, 66, 50, 2.01 / 255)]
+        for (name, ext, rgb, width, height, tolerance) in fixtures {
             guard let source = Bundle.main.url(forResource: name, withExtension: ext) else {
                 throw EngineError.failed("Missing independent video fixture: " + name)
             }
@@ -29,7 +31,7 @@ extension SirilEngine {
             defer { try? fm.removeItem(at: root) }
             let snapshot = try inspectSequence(location)
             try require(snapshot.info.count == 3 && snapshot.info.layers == (rgb ? 3 : 1) &&
-                snapshot.info.width == 65 && snapshot.info.height == 49, "decoded frame count/shape/channels")
+                Int(snapshot.info.width) == width && Int(snapshot.info.height) == height, "decoded frame count/shape/channels")
             try require(try !(fm.contentsOfDirectory(atPath: process.path)).contains(where: { $0.hasSuffix(".fits") }),
                 "video conversion expanded frames instead of streaming SER")
             var error = [CChar](repeating: 0, count: 512); let capacity = error.count
@@ -39,20 +41,20 @@ extension SirilEngine {
                 } }) else { throw EngineError.failed(String(cString: error)) }
                 var worst: Float = 0
                 var firstMismatch = ""
-                for y in 0..<49 { for x in 0..<65 {
+                for y in 0..<height { for x in 0..<width {
                     var values = [Float](repeating: 0, count: 3)
                     let channels = Int(siril_image_pixel(image, Int32(x), Int32(y), &values))
                     if channels != (rgb ? 3 : 1) { worst = 1 }
                     for channel in 0..<channels {
                         let expected = Float(20 + frame * 7 + y * 2 + x % 13 + channel * 35) / 255
-                        if firstMismatch.isEmpty && abs(values[channel] - expected) >= 1e-7 {
+                        if firstMismatch.isEmpty && abs(values[channel] - expected) >= tolerance {
                             firstMismatch = "frame=\(frame), x=\(x), y=\(y), channel=\(channel), actual=\(values[channel]), expected=\(expected)"
                         }
                         worst = max(worst, abs(values[channel] - expected))
                     }
                 } }
                 siril_image_free(image)
-                try require(worst < 1e-7, "independent video pixels, row padding/orientation/order, fixture=\(name), error=\(worst), \(firstMismatch)")
+                try require(worst < tolerance, "independent video pixels, row padding/orientation/order, fixture=\(name), error=\(worst), \(firstMismatch)")
             }
             try editSequence(location, selection: SequenceSelection(included: [true, false, true], reference: 2))
             try require(try inspectSequence(location).selection == SequenceSelection(included: [true, false, true], reference: 2),

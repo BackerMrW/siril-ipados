@@ -1,5 +1,5 @@
 {
-  "source": "RGB24 top-down, 65x49, 3 frames at 30 fps; pixel = 20 + frame*7 + y*2 + x%13 + channel*35",
+  "source": "RGB24 top-down, 3 frames at 30 fps; pixel = 20 + frame*7 + y*2 + x%13 + channel*35",
   "encoder": "ffmpeg version 7.1-essentials_build-www.gyan.dev Copyright (c) 2000-2024 the FFmpeg developers",
   "files": {
     "video-png.mov": {
@@ -9,7 +9,10 @@
         "png",
         "-pix_fmt",
         "rgb24"
-      ]
+      ],
+      "width": 65,
+      "height": 49,
+      "maximum_sample_error": 0
     },
     "video-h264.mp4": {
       "sha256": "c79351470e60244a472954f136a95a2b9f49591025682f5d390f7fa269226fe3",
@@ -22,7 +25,10 @@
         "medium",
         "-pix_fmt",
         "rgb24"
-      ]
+      ],
+      "width": 65,
+      "height": 49,
+      "maximum_sample_error": 0
     },
     "video-vp9.webm": {
       "sha256": "ce404283a656484ee8f29ae07158163baa468e30484435fccf59c62cad31f3ec",
@@ -37,7 +43,30 @@
         "rgb",
         "-color_range",
         "pc"
-      ]
+      ],
+      "width": 65,
+      "height": 49,
+      "maximum_sample_error": 0
+    },
+    "video-h264-yuv420.mp4": {
+      "sha256": "ef4eeb28aec6414f8a7a21699017839f1b9767eec836f80b91c9c23be423dd18",
+      "options": [
+        "-vf",
+        "scale=out_color_matrix=bt709:out_range=tv",
+        "-c:v",
+        "libx264",
+        "-crf",
+        "0",
+        "-pix_fmt",
+        "yuv420p",
+        "-colorspace",
+        "bt709",
+        "-color_range",
+        "tv"
+      ],
+      "width": 66,
+      "height": 50,
+      "maximum_sample_error": 2
     }
   }
 }
