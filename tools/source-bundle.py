@@ -12,6 +12,8 @@ import urllib.request
 import zipfile
 
 GIT_SOURCES = [
+    ("FFmpeg", "https://github.com/FFmpeg/FFmpeg.git", "f893221c8d89cb798b829bebe71d55e1a3f242fd", None),
+    ("FFMS2", "https://github.com/FFMS/ffms2.git", "3af2ef2ae47bc30b64597c9e419e5b19c4bda7d8", None),
     ("libheif", "https://github.com/strukturag/libheif.git", "f81f28ac014b1c28dee483ac45b72c6b05bc421a", None),
     ("libde265", "https://github.com/strukturag/libde265.git", "ba62bf4cfb3242f3bf0a45617ff09e35236e4d82", None),
     ("dav1d", "https://github.com/videolan/dav1d.git", "54706fc6bc0cdecab7e9593974a4039cc038fca7", None),

@@ -282,6 +282,56 @@ def autotools(name, url, digest, options):
     mark(name, identity)
 
 
+def video_dependencies():
+    """Build the original file-video reader's static, target-only libraries."""
+    ffmpeg_revision = "f893221c8d89cb798b829bebe71d55e1a3f242fd"  # FFmpeg 7.1.2
+    ffms_revision = "3af2ef2ae47bc30b64597c9e419e5b19c4bda7d8"
+    flags = shlex.join(["-target", TARGET, "-isysroot", SDK, "-O2", "-fPIC"])
+    cc = subprocess.check_output(["xcrun", "--sdk", SDK_NAME, "--find", "clang"], text=True).strip()
+    cpp = subprocess.check_output(["xcrun", "--sdk", SDK_NAME, "--find", "clang++"], text=True).strip()
+    options = ["--enable-cross-compile", "--target-os=darwin", "--arch=aarch64",
+               "--disable-shared", "--enable-static", "--enable-pic", "--disable-autodetect",
+               "--disable-programs", "--disable-doc", "--disable-debug", "--disable-avdevice",
+               "--disable-avfilter", "--disable-postproc", "--disable-encoders", "--disable-muxers",
+               "--disable-network", "--disable-protocols", "--enable-protocol=file", "--enable-zlib",
+               "--enable-libdav1d"]
+    identity = {"revision": ffmpeg_revision, "options": options, "target": TARGET}
+    if not ready("ffmpeg", identity):
+        source = checkout("ffmpeg", "https://github.com/FFmpeg/FFmpeg.git", ffmpeg_revision)
+        build = WORK / "ffmpeg-build"
+        build.mkdir()
+        run([source / "configure", f"--prefix={STAGE}", f"--sysroot={SDK}",
+             f"--cc={cc}", f"--cxx={cpp}", f"--extra-cflags={flags}",
+             f"--extra-ldflags={flags}", "--pkg-config=pkg-config", *options],
+            "ffmpeg-configure", cwd=build)
+        run(["make", "-j3"], "ffmpeg-build", cwd=build)
+        run(["make", "install"], "ffmpeg-install", cwd=build)
+        notices = ROOT / "ThirdPartyLicenses" / "FFmpeg"
+        notices.mkdir(parents=True, exist_ok=True)
+        for name in ("COPYING.LGPLv2.1", "COPYING.LGPLv3", "LICENSE.md"):
+            (notices / name).write_bytes((source / name).read_bytes())
+        mark("ffmpeg", identity)
+    identity = {"revision": ffms_revision, "ffmpeg": ffmpeg_revision, "target": TARGET}
+    if not ready("ffms2", identity):
+        source = checkout("ffms2", "https://github.com/FFMS/ffms2.git", ffms_revision)
+        run(["autoreconf", "-fi"], "ffms2-bootstrap", cwd=source, env=dict(ENV, LIBTOOLIZE="glibtoolize"))
+        build = WORK / "ffms2-build"
+        build.mkdir()
+        env = dict(ENV, CC=cc, CXX=cpp, CFLAGS=flags, CXXFLAGS=flags,
+                   CPPFLAGS=f"-I{STAGE}/include", LDFLAGS=f"{flags} -L{STAGE}/lib",
+                   AR="/usr/bin/ar", RANLIB="/usr/bin/ranlib", PKG_CONFIG="pkg-config --static")
+        run([source / "configure", f"--prefix={STAGE}", "--host=aarch64-apple-darwin",
+             "--disable-shared", "--enable-static", "--disable-avisynth"],
+            "ffms2-configure", cwd=build, env=env)
+        run(["make", "-j3", "src/core/libffms2.la"], "ffms2-build", cwd=build, env=env)
+        run(["make", "install-libLTLIBRARIES", "install-includeHEADERS", "install-pkgconfigDATA"],
+            "ffms2-install", cwd=build, env=env)
+        notices = ROOT / "ThirdPartyLicenses" / "FFMS2"
+        notices.mkdir(parents=True, exist_ok=True)
+        (notices / "COPYING").write_bytes((source / "COPYING").read_bytes())
+        mark("ffms2", identity)
+
+
 def main():
     # The SDK supplies libz.tbd and headers, but no pkg-config metadata. Give
     # target-only packages their required zlib entry without using host Homebrew.
@@ -372,7 +422,9 @@ def main():
            "-DWITH_GTK=OFF", "-DWITH_QT=OFF", "-DWITH_JPEG=OFF", "-DWITH_PNG=OFF", "-DWITH_TIFF=OFF",
            "-DWITH_WEBP=OFF", "-DWITH_OPENEXR=OFF", "-DWITH_JASPER=OFF", "-DWITH_OPENJPEG=OFF",
            "-DWITH_ITT=OFF", "-DWITH_PROTOBUF=OFF", "-DOPENCV_GENERATE_PKGCONFIG=ON", "-DIOS_INSTALL_COMBINED=OFF"], ios_opencv_metadata)
-    run(["pkg-config", "--modversion", "glib-2.0", "gio-2.0", "cairo", "pango", "pangocairo",
+    video_dependencies()
+    run(["pkg-config", "--modversion", "ffms2", "libavformat", "libavcodec", "libavutil", "libswscale", "libswresample",
+         "glib-2.0", "gio-2.0", "cairo", "pango", "pangocairo",
          "gdk-pixbuf-2.0", "gsl", "lcms2", "fftw3f", "cfitsio", "opencv4", "libcurl", "sqlite3", "libraw", "libxisf", "libzstd", "libjxl", "libjxl_threads", "libheif", "libde265", "dav1d"], "core-dependency-versions")
 
 

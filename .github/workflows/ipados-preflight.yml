@@ -53,6 +53,9 @@ jobs:
         set -euo pipefail
         if ! command -v cmake >/dev/null; then brew install cmake; fi
         if ! command -v pkg-config >/dev/null; then brew install pkgconf; fi
+        if ! command -v autoreconf >/dev/null; then brew install autoconf; fi
+        if ! command -v automake >/dev/null; then brew install automake; fi
+        if ! command -v glibtoolize >/dev/null; then brew install libtool; fi
         python3 -m venv "$RUNNER_TEMP/siril-build-tools"
         "$RUNNER_TEMP/siril-build-tools/bin/python" -m pip install meson ninja
         echo "$RUNNER_TEMP/siril-build-tools/bin" >> "$GITHUB_PATH"
@@ -284,7 +287,7 @@ jobs:
           -Dopenmp=false -Darch_native=false -Dcriterion=false \
           -Dexiv2=false -Dlibraw=true -Dlibtiff=true -Dlibjpeg=true \
           -Dlibpng=true -Dlibheif=true -DlibXISF=true -Dlibjxl=true \
-          -Dlibgit2=false -Dffms2=false -Dffmpeg=false -Dlibcurl=true -Dsqlite=true \
+          -Dlibgit2=false -Dffms2=true -Dffmpeg=false -Dlibcurl=true -Dsqlite=true \
           2>&1 | tee diagnostics/siril-configure.log
         configure_status=${PIPESTATUS[0]}
         set -e
