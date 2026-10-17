@@ -48,7 +48,7 @@ extension SirilEngine {
             let process = try sequenceFolder(source), metadata = try Data(contentsOf: process.appendingPathComponent(source.name))
             let sourceBytes = try inputs.map { try Data(contentsOf: $0.url) }
             var settings = SequenceMultipointSettings()
-            settings.planet = channels == 1; settings.halfBox = 16; settings.search = 4
+            settings.planet = true; settings.halfBox = 16; settings.search = 4
             settings.structure = 0; settings.normalize = false; settings.refine = false
             settings.dewarp = false; settings.smoothRadius = 0; settings.floatOutput = true
             let result = try stackMultipoint(source, settings: settings)
@@ -60,7 +60,7 @@ extension SirilEngine {
             guard let image = result.path.withCString({ siril_image_read($0, &error, capacity) }) else { throw EngineError.failed(String(cString: error)) }
             var info = SirilImageInfo()
             try require(siril_image_info(image, &info) != 0 && info.width == 256 && info.height == 256 && info.channels == channels,
-                "identity stack geometry and channels")
+                "centroid identity stack geometry and channels: \(info.width)x\(info.height), \(info.channels)")
             var worst: Float = 0
             for y in 0..<256 { for x in 0..<256 {
                 var pixel = [Float](repeating: 0, count: 3)
@@ -71,14 +71,14 @@ extension SirilEngine {
             } }
             siril_image_free(image)
             try require(worst < 4.0 / 65535, "independent identical-frame pixels, channels=\(channels), error=\(worst)")
-            if channels == 3 {
-                var local = settings; local.dewarp = true
+            if channels == 3 { for planet in [true, false] {
+                var local = settings; local.dewarp = true; local.planet = planet
                 let warped = try stackMultipoint(source, settings: local)
                 guard let aligned = warped.path.withCString({ siril_image_read($0, &error, capacity) }) else { throw EngineError.failed(String(cString: error)) }
                 var alignedInfo = SirilImageInfo()
                 try require(siril_image_info(aligned, &alignedInfo) != 0 && alignedInfo.channels == 3 &&
                     alignedInfo.width > 200 && alignedInfo.width <= 256 && alignedInfo.height > 200 && alignedInfo.height <= 256,
-                    "original locally aligned common-area geometry")
+                    "original locally aligned common-area geometry, planet=\(planet): \(alignedInfo.width)x\(alignedInfo.height)")
                 var colorError: Float = 0, peak: Float = 0
                 for y in 0..<Int(alignedInfo.height) { for x in 0..<Int(alignedInfo.width) {
                     var pixel = [Float](repeating: 0, count: 3)
@@ -88,8 +88,8 @@ extension SirilEngine {
                 } }
                 siril_image_free(aligned)
                 try require(peak > 0.3 && colorError < 4.0 / 65535,
-                    "independent RGB linearity under original local warps and excluded bright-frame isolation, error=\(colorError)")
-            }
+                    "independent RGB linearity under original local warps and excluded bright-frame isolation, planet=\(planet), error=\(colorError)")
+            } }
             try require(try Data(contentsOf: process.appendingPathComponent(source.name)) == metadata, "changed source sequence metadata")
             for (i, input) in inputs.enumerated() { try require(try Data(contentsOf: input.url) == sourceBytes[i], "changed source FITS pixels") }
             var invalid = settings; invalid.stackPercent = 101
