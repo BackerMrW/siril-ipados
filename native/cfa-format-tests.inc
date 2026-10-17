@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "algos/demosaicing.h"
 #include "io/ser.h"
+#include "io/seqwriter.h"
 static int cfa_format_color_checks(const char *directory) {
     const char *names[] = {"linear-cfa-color.dng", "xisf-colored-cfa.xisf", "ser-colored-cfa.ser"};
     char path[4096], output[4096], error[512];
@@ -15,12 +16,16 @@ static int cfa_format_color_checks(const char *directory) {
             image = siril_ser_read(session, 0, error, sizeof error); siril_ser_close(session);
             struct ser_struct input = {0}, converted = {0}; fits raw = {0};
             CHECK(ser_open_file(path, &input) == SER_OK);
-            CHECK(ser_read_frame(&input, 0, &raw, FALSE, FALSE) == SER_OK);
-            CHECK(raw.debayer_checked && !strcmp(raw.keywords.row_order, "BOTTOM-UP"));
+            fits *queued = calloc(1, sizeof *queued); CHECK(queued);
+            CHECK(ser_read_frame(&input, 0, queued, FALSE, FALSE) == SER_OK);
+            CHECK(queued->debayer_checked && !strcmp(queued->keywords.row_order, "BOTTOM-UP"));
             snprintf(output, sizeof output, "%s/colored-cfa-rewritten.ser", directory);
+            seqwriter_set_number_of_outputs(1); seqwriter_set_max_active_blocks(1);
             CHECK(ser_create_file(output, &converted, FALSE, NULL) == SER_OK);
-            CHECK(ser_write_frame_from_fit(&converted, &raw, 0) == SER_OK);
-            clearfits(&raw); CHECK(ser_write_and_close(&converted) == SER_OK); CHECK(ser_close_file(&input) == SER_OK);
+            seqwriter_wait_for_memory();
+            CHECK(seqwriter_append_write(converted.writer, queued, 0) == 0);
+            CHECK(ser_write_and_close(&converted) == SER_OK); CHECK(ser_close_file(&input) == SER_OK);
+            seqwriter_set_max_active_blocks(0);
             CHECK(ser_open_file(output, &converted) == SER_OK && converted.color_id == SER_BAYER_RGGB);
             CHECK(ser_read_frame(&converted, 0, &raw, FALSE, FALSE) == SER_OK);
             for (int y = 0; y < raw.ry; y++) for (int x = 0; x < raw.rx; x++) {
