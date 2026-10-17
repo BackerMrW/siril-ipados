@@ -97,6 +97,15 @@ fits_io.write_text(text)
 # runs the GUI idle. Release only its list containers and argument wrapper.
 sequence_io = source / "src/io/sequence.c"
 text = sequence_io.read_text()
+# Metadata-only SER reads need the indexed trailer date, just like the full
+# and partial readers. Comet's reference-date path uses this generic reader.
+start = text.index("int seq_read_frame_metadata(")
+start = text.index("\t\tcase SEQ_SER:", start)
+end = text.index("\t\tcase SEQ_FITSEQ:", start)
+body = text[start:end]
+assert body.count("\t\t\tbreak;") == 1
+body = body.replace("\t\t\tbreak;", "\t\t\tdest->keywords.date_obs = ser_read_frame_date(seq->ser_file, index);\n\t\t\tbreak;")
+text = text[:start] + body + text[end:]
 # A perfectly constant selection can produce a spurious converged Gaussian.
 # Reject zero contrast before fitting; preserve the original fitter otherwise.
 needle = '\tdata->psf = psf_get_minimisation(fit, 0, &psfarea, spsfargs->for_photometry, spsfargs->init_from_center, ps, TRUE, com.pref.starfinder_conf.profile, &error);'
@@ -876,6 +885,15 @@ needle = "run->frame_rows, run->frame_cols"
 assert body.count(needle) == 2
 body = body.replace(needle, "run->mean_frame_rows, run->mean_frame_cols")
 mpp.write_text(text[:start] + body + text[end:])
+
+# Full SER frames are vertically flipped to FITS storage before return.
+# Sequence apply/save workers also need the true buffer orientation.
+ser = source / "src/io/ser.c"
+text = ser.read_text()
+needle = '\tfits_flip_top_to_bottom(fit);\n\tfit->top_down = TRUE;\n\tsnprintf(fit->keywords.row_order, FLEN_VALUE, "TOP-DOWN");'
+assert text.count(needle) == 1
+text = text.replace(needle, needle.replace('= TRUE;', '= FALSE;').replace('"TOP-DOWN"', '"BOTTOM-UP"'))
+ser.write_text(text)
 
 # Raw SER reads flip rows after loading the stored mosaic. Analysis must use
 # that in-memory Bayer orientation; the stack debayer runs before the flip.

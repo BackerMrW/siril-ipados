@@ -238,13 +238,13 @@ int siril_sequence_files(const char *directory, const char *name, char *output,
     sequence *seq = embedded_sequence(directory, name, error, error_size);
     int result = -1;
     if (!seq) goto done;
-    if (seq->type != SEQ_REGULAR && seq->type != SEQ_FITSEQ) {
-        if (error && error_size) snprintf(error, error_size, "Independent file ownership requires a FITS sequence");
+    if (seq->type != SEQ_REGULAR && seq->type != SEQ_FITSEQ && seq->type != SEQ_SER) {
+        if (error && error_size) snprintf(error, error_size, "Independent file ownership requires a FITS/FITSEQ/SER sequence");
         goto free_seq;
     }
     GString *paths = g_string_new(name);
-    if (seq->type == SEQ_FITSEQ) {
-        gchar *filename = g_path_get_basename(seq->fitseq_file->filename);
+    if (seq->type == SEQ_FITSEQ || seq->type == SEQ_SER) {
+        gchar *filename = g_path_get_basename(seq->type == SEQ_SER ? seq->ser_file->filename : seq->fitseq_file->filename);
         if (strchr(filename, '\n') || strchr(filename, '\r')) {
             g_free(filename); g_string_free(paths, TRUE); goto free_seq;
         }

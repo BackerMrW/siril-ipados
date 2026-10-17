@@ -11,7 +11,7 @@ extension SirilEngine {
         defer { try? saveLibrary(library); try? fm.removeItem(at: fixtureFolder) }
         let width = 96, height = 80
         let selection = SequenceSelection(included: [true, true, false, true], reference: 1)
-        for variant in 0..<3 {
+        for variant in 0..<4 {
             let registered = variant == 1, channels = variant == 2 ? 3 : 1
             let layer = channels == 3 ? 1 : 0
             func gaussian(_ x: Double, _ y: Double, _ cx: Double, _ cy: Double, _ sigma: Double) -> Double {
@@ -41,7 +41,28 @@ extension SirilEngine {
             var inputs: [FITSRecord] = []
             defer { for input in inputs { try? fm.removeItem(at: input.url) } }
             let job: ProcessingJob, source: SequenceLocation
-            if variant == 2 {
+            if variant == 3 {
+                var container = Data("LUCAM-RECORDER".utf8)
+                let fields: [UInt32] = [0, 0, 0, UInt32(width), UInt32(height), 16, 4]
+                for field in fields {
+                    var encoded = field.littleEndian
+                    withUnsafeBytes(of: &encoded) { container.append(contentsOf: $0) }
+                }
+                container.append(contentsOf: repeatElement(UInt8(0), count: 136))
+                for frame in 0..<4 { for y in 0..<height { for x in 0..<width {
+                    var encoded = UInt16((Double(pixel(frame, 0, x, y)) * 65535).rounded()).littleEndian
+                    withUnsafeBytes(of: &encoded) { container.append(contentsOf: $0) }
+                } } }
+                // .NET/SER ticks since 0001-01-01, 2026-10-15 UTC, one minute apart.
+                for frame in 0..<4 {
+                    var ticks = (UInt64(639276192000000000) + UInt64(frame) * 600000000).littleEndian
+                    withUnsafeBytes(of: &ticks) { container.append(contentsOf: $0) }
+                }
+                let path = fixtureFolder.appendingPathComponent("comet.ser")
+                try container.write(to: path)
+                source = try importSERSequence(path)
+                job = ProcessingJob(folder: try sequenceFolder(source).deletingLastPathComponent(), script: "")
+            } else if variant == 2 {
                 job = try prepareJob(files: [], script: "# Independent RGB FITSEQ moving-object fixture\n")
                 var container = hdu(0)
                 for frame in 1..<4 { container.append(hdu(frame, extensionImage: true)) }
@@ -85,7 +106,7 @@ extension SirilEngine {
             history.step(redo: true); try require(history.current == edited, "anchor redo")
             let output = try registerComet(source, recipe: recipe)
             let generated = try inspectSequence(output, layer: layer)
-            let numbers: [Int32] = variant == 2 ? [0, 1, 2, 3] : [1, 2, 3, 4]
+            let numbers: [Int32] = variant >= 2 ? [0, 1, 2, 3] : [1, 2, 3, 4]
             try require(generated.selection == selection && generated.frames.map({ $0.native.file_number }) == numbers, "full numbering, excluded frame and nonzero reference")
             for frame in generated.frames.filter(\.included) {
                 let x = Double((1 - frame.id) * (registered ? 5 : 3)), y = Double((1 - frame.id) * (registered ? -1 : -2))
@@ -119,7 +140,8 @@ extension SirilEngine {
                     try require(Int(siril_image_pixel(image, Int32(x), Int32(y), &actual)) == channels, "applied pixel channels")
                     for c in 0..<channels {
                         let cx = registered ? 40.0 : 38.0, cy = registered ? 41.0 : 40.0
-                        let predicted = Float((0.1 + 0.6 * gaussian(Double(x), Double(y), cx, cy, 2)) * (1 - 0.1 * Double(c)))
+                        var predicted = Float((0.1 + 0.6 * gaussian(Double(x), Double(y), cx, cy, 2)) * (1 - 0.1 * Double(c)))
+                        if variant == 3 { predicted = Float((Double(predicted) * 65535).rounded()) / 65535 }
                         try require(abs(actual[c] - predicted) < 3e-6, "actual independently aligned moving object pixels")
                     }
                 } }
@@ -135,6 +157,30 @@ extension SirilEngine {
             let finalTrash = try trashSequenceOutput(output); try permanentlyDeleteTrash([finalTrash])
             try require(try Data(contentsOf: sourceURL) == sourceBytes, "comet workflow changed original sequence metadata")
             for (i, path) in inputPaths.enumerated() { try require(try Data(contentsOf: sequenceKeywordSource(path, under: job.folder)) == inputBytes[i], "comet workflow changed source FITS/container") }
+            if variant == 3 {
+                let container = process.appendingPathComponent("capture.ser")
+                let original = try Data(contentsOf: container)
+                let trailer = 178 + width * height * 2 * 4
+                for equalDates in [false, true] {
+                    var invalid = Data(original.prefix(trailer))
+                    if equalDates {
+                        for _ in 0..<4 {
+                            var ticks = UInt64(639276192000000000).littleEndian
+                            withUnsafeBytes(of: &ticks) { invalid.append(contentsOf: $0) }
+                        }
+                    }
+                    siril_release_workspace()
+                    try invalid.write(to: container)
+                    rejected = false
+                    do { _ = try registerComet(source, recipe: recipe) } catch { rejected = true }
+                    siril_release_workspace()
+                    try original.write(to: container)
+                    try require(rejected && Data(contentsOf: sourceURL) == sourceBytes,
+                        "SER missing/equal frame timestamps accepted or changed source")
+                    try require(try sequenceOutputRecords(job: source.job).filter(\.available).isEmpty,
+                        "SER timestamp failure left a publishable output")
+                }
+            }
             if variant == 0 {
                 var reverse = recipe; reverse.first = recipe.second; reverse.second = recipe.first
                 let reversed = try registerComet(source, recipe: reverse)

@@ -46,13 +46,13 @@ int siril_sequence_comet_register(const char *directory, const char *name,
     if (!seq) goto done;
     int layer = options->layer;
     if (layer < 0 || layer >= seq->nb_layers || seq->selnum < 2 || seq->is_variable || seq->is_drizzle ||
-            (seq->type != SEQ_REGULAR && seq->type != SEQ_FITSEQ) || layer_has_distortion(seq, layer) ||
+            (seq->type != SEQ_REGULAR && seq->type != SEQ_FITSEQ && seq->type != SEQ_SER) || layer_has_distortion(seq, layer) ||
             options->first < 0 || options->first >= seq->number || options->second < 0 || options->second >= seq->number ||
             options->first == options->second || !isfinite(options->x1) || !isfinite(options->y1) ||
             !isfinite(options->x2) || !isfinite(options->y2) || options->x1 < 0 || options->x1 >= seq->rx ||
             options->x2 < 0 || options->x2 >= seq->rx || options->y1 < 0 || options->y1 >= seq->ry ||
             options->y2 < 0 || options->y2 >= seq->ry || strlen(prefix) + strlen(seq->seqname) > 230) {
-        if (error && capacity) snprintf(error, capacity, "Comet registration needs two distinct valid frames/positions and a regular FITS/FITSEQ sequence without Drizzle or distortion");
+        if (error && capacity) snprintf(error, capacity, "Comet registration needs two distinct valid frames/positions and a FITS/FITSEQ/SER sequence without Drizzle or distortion");
         goto done;
     }
     GDir *dir = g_dir_open(directory, 0, NULL);
