@@ -467,6 +467,7 @@ destination.mkdir(exist_ok=True)
 for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "SirilDisplay.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc", "heif-runtime-tests.inc", "keyword-runtime-tests.inc", "display-runtime-tests.inc", "icc-runtime-tests.inc", "display-icc-tests.inc", "display-overlay-tests.inc", "display-proof-tests.inc", "cmyk-proof-fixture.inc", "noise-runtime-tests.inc", "large-image-runtime-tests.inc", "SirilPatternRegistration.inc", "SirilCometRegistration.inc", "SirilMultipoint.inc"):
     shutil.copy2(root / "native" / name, destination / name)
 shutil.copy2(root / "native/SirilVideo.inc", destination / "SirilVideo.inc")
+shutil.copy2(root / "native/video-runtime-tests.inc", destination / "video-runtime-tests.inc")
 # Reuse the pinned desktop LUT arithmetic without GTK state or its UI cache.
 # The iPad bridge owns the image, level bounds, destination and STF parameters.
 text = (source / "src/gui-gtk4/image_display.c").read_text()
@@ -905,6 +906,21 @@ ser.write_text(text)
 # describe the flipped FITS buffer consistently when saving converted frames.
 films = source / "src/io/films.c"
 text = films.read_text()
+needle = 'static int pixfmt_gray, pixfmt_rgb, pixfmt_gray16, pixfmt_rgb48;'
+assert text.count(needle) == 1
+text = text.replace(needle, needle + '''
+extern int siril_ipados_video_cancelled(void);
+static int FFMS_CC embedded_film_progress(int64_t current, int64_t total, void *context) {
+    (void)current; (void)total; (void)context;
+    return siril_ipados_video_cancelled();
+}
+''')
+needle = '\t\tindex = FFMS_DoIndexing2(indexer, FFMS_IEH_ABORT, &film->errinfo);'
+assert text.count(needle) == 1
+text = text.replace(needle, '\t\tFFMS_SetProgressCallback(indexer, embedded_film_progress, NULL);\n' + needle)
+needle = '\tconst FFMS_Frame *frame = FFMS_GetFrame(film->videosource, frame_no, &film->errinfo);'
+assert text.count(needle) == 1
+text = text.replace(needle, '\tif (siril_ipados_video_cancelled()) return FILM_ERROR;\n' + needle)
 needle = '\tconst FFMS_Frame *propframe = FFMS_GetFrame(film->videosource, 0, &film->errinfo);'
 assert text.count(needle) == 1
 text = text.replace(needle, needle + '\n\tif (!propframe) { film_close_file(film); return FILM_ERROR; }')

@@ -3,6 +3,8 @@
 #include "io/conversion.h"
 #include "registration/mpp/mpp_config.h"
 
+int siril_ipados_video_cancelled(void) { return g_atomic_int_get(&cancel_requested); }
+
 #ifdef HAVE_FFMS2
 static int32_t embedded_video_count(const char *path, char *error, size_t capacity) {
     int32_t count = -1;

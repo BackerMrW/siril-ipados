@@ -245,7 +245,10 @@ struct ContentView: View {
                 VStack(spacing: 5) {
                     Text(String(cString: siril_core_version())).font(.caption)
                     if busy { ProgressView(progress) }
-                    if importTask != nil { Button("取消导入") { importTask?.cancel() }.font(.caption) }
+                    if importTask != nil { Button("取消导入") {
+                        importTask?.cancel()
+                        if nativeSERImport { siril_cancel_processing() }
+                    }.font(.caption) }
                     Button("删除与存储", systemImage: "trash") { showStorage = true }.font(.caption).disabled(busy)
                     Button("关于与源码") { showAbout = true }.font(.caption)
                     Button("序列与质量图", systemImage: "square.stack") { showSequences = true }.font(.caption).disabled(busy)

@@ -28,6 +28,7 @@
 #include "xisf-runtime-tests.inc"
 #include "photometry-runtime-tests.inc"
 #include "ser-runtime-tests.inc"
+#include "video-runtime-tests.inc"
 #include "jxl-runtime-tests.inc"
 #include "cfa-format-tests.inc"
 #include "heif-runtime-tests.inc"
@@ -647,6 +648,7 @@ int main(int argc, char **argv) {
     CHECK(xisf_reference_checks(argv[1]) == 0);
     CHECK(ser_reference_checks(argv[1]) == 0);
     CHECK(cfa_format_color_checks(argv[1]) == 0);
+    CHECK(video_cancellation_checks(argv[1]) == 0);
     CHECK(jxl_reference_checks(argv[1]) == 0);
     CHECK(heif_reference_checks(argv[1]) == 0);
     CHECK(keyword_reference_checks(image, argv[1]) == 0);
