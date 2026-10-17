@@ -161,7 +161,7 @@ struct SequenceMultipointAnalysisView: View {
                             .font(.caption)
                         Toggle("点击添加对齐点", isOn: $adding).disabled(showSourceFrame)
                         Toggle("拖动移动对齐点", isOn: $moving).disabled(showSourceFrame)
-                        Stepper("框半宽：\(halfBox) px", value: $halfBox, in: 8...128)
+                        Stepper("框半宽：\(halfBox) px", value: $halfBox, in: 6...128)
                         if let point {
                             Button("应用框大小到选中点") { Task { await edit(.resize(index: point.id, halfBox: halfBox)) } }
                             Button("删除选中点") { Task { await edit(.remove(index: point.id)) } }

@@ -62,17 +62,19 @@ extension SirilEngine {
             try require(beforeEdge.width < beforeEdge.sourceWidth && beforeEdge.height < beforeEdge.sourceHeight,
                 "known global translation must exercise a cropped mean reference")
         }
-        edited = try editMultipoint(source, runID: edited,
-            edit: .move(index: 0, x: beforeEdge.width - 1, y: beforeEdge.height - 1))
-        let edge = try multipointAnalysis(source, runID: edited, display: NativeDisplaySettings())
-        try require(edge.points[0].box.x + edge.points[0].box.width <= edge.width &&
-            edge.points[0].box.y + edge.points[0].box.height <= edge.height &&
-            edge.points[0].patch.x + edge.points[0].patch.width <= edge.width &&
-            edge.points[0].patch.y + edge.points[0].patch.height <= edge.height,
-            "edge AP bounds used source dimensions instead of cropped reference")
-        edited = try editMultipoint(source, runID: edited, edit: .undo)
-        let restored = try multipointAnalysis(source, runID: edited, display: NativeDisplaySettings())
-        try require(restored.points == beforeEdge.points, "edge move undo changed original point bounds")
+        for (x, y) in [(0, 0), (beforeEdge.width - 1, 0), (0, beforeEdge.height - 1),
+            (beforeEdge.width - 1, beforeEdge.height - 1)] {
+            edited = try editMultipoint(source, runID: edited, edit: .move(index: 0, x: x, y: y))
+            let edge = try multipointAnalysis(source, runID: edited, display: NativeDisplaySettings())
+            let point = edge.points[0]
+            try require(point.box.x >= 0 && point.box.y >= 0 && point.patch.x >= 0 && point.patch.y >= 0 &&
+                point.box.x + point.box.width <= edge.width && point.box.y + point.box.height <= edge.height &&
+                point.patch.x + point.patch.width <= edge.width && point.patch.y + point.patch.height <= edge.height,
+                "edge AP bounds used source dimensions instead of cropped reference")
+            edited = try editMultipoint(source, runID: edited, edit: .undo)
+            let restored = try multipointAnalysis(source, runID: edited, display: NativeDisplaySettings())
+            try require(restored.points == beforeEdge.points, "edge move undo changed original point bounds")
+        }
         let registration = try resumeMultipoint(source, runID: edited, phase: 2)
         let id = registration.deletingLastPathComponent().lastPathComponent
         let first = try multipointAnalysis(source, runID: id, display: NativeDisplaySettings(), frame: 0)

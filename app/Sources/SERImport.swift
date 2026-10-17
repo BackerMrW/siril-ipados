@@ -11,7 +11,7 @@ extension SirilEngine {
         try manager.createDirectory(at: temporary, withIntermediateDirectories: true)
         defer { try? manager.removeItem(at: temporary) }
         let copied = temporary.appendingPathComponent("capture.ser")
-        try manager.copyItem(at: source, to: copied)
+        try manager.copyItem(at: source.resolvingSymlinksInPath(), to: copied)
         var error = [CChar](repeating: 0, count: 512); let capacity = error.count
         guard let session = copied.path.withCString({ siril_ser_open($0, &error, capacity) }) else {
             throw EngineError.failed(String(cString: error))

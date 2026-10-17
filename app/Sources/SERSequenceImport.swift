@@ -16,7 +16,8 @@ extension SirilEngine {
             try writeJobState(folder, state: "运行中", message: "复制并索引原生 SER 序列")
             try Task.checkCancellation()
             let copied = try owned("capture.ser", under: process)
-            try fm.copyItem(at: source, to: copied)
+            try fm.copyItem(at: source.resolvingSymlinksInPath(), to: copied)
+            _ = try owned("capture.ser", under: process)
             var error = [CChar](repeating: 0, count: 1024); let capacity = error.count
             guard let session = copied.path.withCString({ siril_ser_open($0, &error, capacity) }) else {
                 throw EngineError.failed(String(cString: error))

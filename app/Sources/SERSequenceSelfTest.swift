@@ -75,6 +75,16 @@ extension SirilEngine {
             } } }
             let path = folder.appendingPathComponent(cfa ? "cfa16.ser" : "mono8.ser")
             try data.write(to: path)
+            if !cfa {
+                let link = folder.appendingPathComponent("linked.ser")
+                try fm.createSymbolicLink(at: link, withDestinationURL: path)
+                let linked = try importSERSequence(link), linkedProcess = try sequenceFolder(linked)
+                defer { try? fm.removeItem(at: linkedProcess.deletingLastPathComponent()) }
+                let copied = linkedProcess.appendingPathComponent("capture.ser")
+                let attributes = try fm.attributesOfItem(atPath: copied.path)
+                try require(attributes[.type] as? FileAttributeType == .typeRegular && (try Data(contentsOf: copied)) == data,
+                    "selected link must become an independent regular container copy")
+            }
             let location = try importSERSequence(path), process = try sequenceFolder(location)
             defer { try? fm.removeItem(at: process.deletingLastPathComponent()) }
             try editSequence(location, selection: SequenceSelection(included: [true, false, true], reference: 0))

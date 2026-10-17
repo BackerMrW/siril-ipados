@@ -265,7 +265,10 @@ static gpointer embedded_multipoint_thread(gpointer pointer) {
         // A global-only stack uses the original AP merge with zero local
         // displacement; the global subpixel offsets remain in the run.
         size_t count = (size_t)run->num_frames * run->aps->count;
-        run->shifts = calloc(1, sizeof *run->shifts);
+        if ((long double)count * (2 * sizeof(double) + sizeof(uint8_t)) > (long double)get_available_memory() * .5L) {
+            siril_log_message("Global-only MPP displacement table exceeds the available memory budget\n");
+            result = MPP_ENOMEM;
+        } else run->shifts = calloc(1, sizeof *run->shifts);
         if (!run->shifts) result = MPP_ENOMEM;
         else {
             run->shifts->num_frames = run->num_frames;
@@ -309,7 +312,7 @@ static SirilImage *embedded_multipoint_process(const char *directory, const char
             g_file_test(sidecar, G_FILE_TEST_EXISTS) || seq->is_variable || seq->is_drizzle || seq->selnum < 2 ||
             (input && (!g_path_is_absolute(input) || !g_str_has_suffix(input, ".mpp") || count < -1)) ||
             ((!input || phase == 3) && (!options ||
-            options->alignment < 0 || options->alignment > 1 || options->half_box < 8 || options->half_box > 128 ||
+            options->alignment < 0 || options->alignment > 1 || options->half_box < 4 || options->half_box > 128 ||
             options->half_box * 2 > MIN(seq->rx, seq->ry) || options->search < 1 || options->search > 64 ||
             options->register_percent < 1 || options->register_percent > 100 || options->stack_percent < 1 ||
             options->stack_percent > options->register_percent || !isfinite(options->structure) ||

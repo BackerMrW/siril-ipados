@@ -12,7 +12,7 @@ struct SequenceMultipointControls: View {
             Toggle("帧亮度归一化", isOn: $settings.normalize)
         }
         Section("局部对齐点") {
-            Stepper("对齐框半宽：\(settings.halfBox) px", value: $settings.halfBox, in: 8...128)
+            Stepper("对齐框半宽：\(settings.halfBox) px", value: $settings.halfBox, in: 4...128)
             Stepper("局部搜索：\(settings.search) px", value: $settings.search, in: 1...64)
             BatchNumber(title: "结构阈值", value: $settings.structure)
             Stepper("参与局部配准：\(settings.registerPercent)%", value: $settings.registerPercent, in: 1...100)

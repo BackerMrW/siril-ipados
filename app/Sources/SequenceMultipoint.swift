@@ -62,7 +62,7 @@ struct SequenceMultipointSettings: Codable, Equatable, Sendable {
     }
     func validate(width: Int, height: Int) throws {
         try (advanced ?? SequenceMultipointAdvanced()).validate()
-        guard (8...128).contains(halfBox), halfBox * 2 <= min(width, height), (1...64).contains(search),
+        guard (4...128).contains(halfBox), halfBox * 2 <= min(width, height), (1...64).contains(search),
               (1...100).contains(registerPercent), (1...registerPercent).contains(stackPercent),
               structure.isFinite, (0...1).contains(structure), scale.isFinite, (1...3).contains(scale),
               smoothRadius.isFinite, (0...10).contains(smoothRadius),

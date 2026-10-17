@@ -296,6 +296,12 @@ extension SirilEngine {
                 var advancedRejected = false
                 do { _ = try stackMultipoint(source, settings: invalidAdvanced, phase: 1) } catch { advancedRejected = true }
                 try require(advancedRejected, "out-of-range advanced option accepted")
+                var smallBox = settings; smallBox.halfBox = 4
+                let smallAnalysis = try stackMultipoint(source, settings: smallBox, phase: 1)
+                let smallPoints = try multipointAnalysis(source, runID: smallAnalysis.deletingLastPathComponent().lastPathComponent,
+                    display: NativeDisplaySettings()).points
+                try require(!smallPoints.isEmpty && smallPoints.allSatisfy { $0.box.width == 8 && $0.box.height == 8 },
+                    "original GUI half-box lower bound must reach automatic placement")
             }
             var wrongSourceRejected = false
             do { _ = try multipointAnalysis(SequenceLocation(job: source.job, name: "unrelated.seq"), runID: savedRuns[0].id, display: NativeDisplaySettings()) }
