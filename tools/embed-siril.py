@@ -876,3 +876,22 @@ needle = "run->frame_rows, run->frame_cols"
 assert body.count(needle) == 2
 body = body.replace(needle, "run->mean_frame_rows, run->mean_frame_cols")
 mpp.write_text(text[:start] + body + text[end:])
+
+# Raw SER reads flip rows after loading the stored mosaic. Analysis must use
+# that in-memory Bayer orientation; the stack debayer runs before the flip.
+text = mpp.read_text()
+start = text.index("/* CFA SER → OpenCV")
+end = text.index("\n}\n", start) + 3
+body = text[start:end]
+body = body.replace(" * the same pattern to librtprocess without orientation adjustment, and\n * ser_read_frame doesn't flip rows — so it maps directly. */",
+    " * the same pattern to librtprocess before flipping rows. Raw analysis\n * reads have already been flipped and need the matching Bayer orientation. */")
+assert "doesn't flip rows" not in body
+needle = "\tswitch (seq->ser_file->color_id) {"
+assert body.count(needle) == 1
+body = body.replace(needle, "\tsensor_pattern pat;\n" + needle)
+for pattern in ("RGGB", "BGGR", "GBRG", "GRBG"):
+    needle = "return bayer_pattern_to_cv_code(BAYER_FILTER_" + pattern + ");"
+    assert body.count(needle) == 1
+    body = body.replace(needle, "pat = BAYER_FILTER_" + pattern + "; break;")
+body = body.removesuffix("}\n") + "\tadjust_Bayer_pattern_orientation(&pat, seq->ser_file->image_height, TRUE);\n\treturn bayer_pattern_to_cv_code(pat);\n}\n"
+mpp.write_text(text[:start] + body + text[end:])

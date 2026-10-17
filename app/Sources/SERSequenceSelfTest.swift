@@ -111,6 +111,26 @@ extension SirilEngine {
                 siril_image_free(image)
                 try require(infoOK != 0 && info.width == 256 && info.height == 256 && worst < 4.0 / 65535,
                     "MPP native SER bit depth/CFA colors, cfa=\(cfa), debayer=\(debayer), error=\(worst), geometry=\(info.width)x\(info.height)")
+                if cfa {
+                    let sidecar = output.deletingLastPathComponent().appendingPathComponent("analysis.mpp")
+                    guard let analysis = sidecar.path.withCString({ siril_multipoint_open($0, &error, capacity) }) else {
+                        throw EngineError.failed(String(cString: error))
+                    }
+                    let reference = siril_multipoint_reference(analysis, &error, capacity)
+                    siril_multipoint_close(analysis)
+                    guard let reference else { throw EngineError.failed(String(cString: error)) }
+                    var luminanceError: Float = 0
+                    // Independent RGB luminance of the constant RGGB centre.
+                    let expected: Float = (0.299 * 40000 + 0.587 * 20000 + 0.114 * 10000) / 65535
+                    for y in 116..<140 { for x in 116..<140 {
+                        var values = [Float](repeating: 0, count: 3)
+                        if siril_image_pixel(reference, Int32(x), Int32(y), &values) != 1 { luminanceError = 1 }
+                        luminanceError = max(luminanceError, abs(values[0] - expected))
+                    } }
+                    siril_image_free(reference)
+                    try require(luminanceError < 4.0 / 65535,
+                        "SER CFA analysis Bayer orientation, luminance error=\(luminanceError)")
+                }
             }
             try require(try Data(contentsOf: path) == data && Data(contentsOf: process.appendingPathComponent("capture.ser")) == data,
                 "MPP changed SER source bytes")
