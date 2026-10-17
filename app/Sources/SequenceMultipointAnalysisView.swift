@@ -21,6 +21,8 @@ struct SequenceMultipointAnalysisView: View {
                 else { VStack(spacing: 0) { imagePanel.frame(height: geometry.size.height * 0.48); controls } }
             }
             .navigationTitle("多点参考图与对齐点").navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Color(uiColor: .systemBackground), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar { Button("关闭") { dismiss() } }
             .task { await open() }
             .onChange(of: runID) { _, _ in Task { await refresh() } }
@@ -37,7 +39,7 @@ struct SequenceMultipointAnalysisView: View {
                         selected = snapshot.points.min { a, b in
                             pow(Double(a.x) - x, 2) + pow(Double(a.y) - y, 2) < pow(Double(b.x) - x, 2) + pow(Double(b.y) - y, 2)
                         }?.id
-                    }).background(.black)
+                    }).background(.black).clipped()
                 Text("原版平均参考图 · \(snapshot.width) × \(snapshot.height) · 点击选择最近对齐点")
                     .font(.caption).padding(.horizontal)
                 NativeDisplayControls(settings: $display).padding(.horizontal)
