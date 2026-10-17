@@ -28,6 +28,7 @@ extension SirilEngine {
             let count = process.path.withCString { directory in copy.path.withCString {
                 siril_video_convert(directory, $0, &error, capacity)
             } }
+            activeJobIDs.remove(folder.lastPathComponent)
             try? Self.processingLog().write(to: folder.appendingPathComponent("processing.log"), atomically: true, encoding: .utf8)
             guard count >= 2 else { throw EngineError.failed(String(cString: error)) }
             try Task.checkCancellation()
