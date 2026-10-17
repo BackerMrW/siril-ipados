@@ -15,6 +15,10 @@ extension SirilEngine {
         func require(_ value: Bool, _ message: String) throws {
             if !value { throw EngineError.failed("Multipoint: " + message) }
         }
+        let oldRecipe = try JSONEncoder().encode(SequenceMultipointSettings())
+        let oldDecoded = try JSONDecoder().decode(SequenceMultipointSettings.self, from: oldRecipe)
+        try require(oldDecoded.advanced == nil && oldDecoded.native.global_search == 34 && oldDecoded.native.debayer == 7 &&
+            oldDecoded.native.stack_frames == -1 && oldDecoded.native.seed == 1, "old recipes must retain original advanced defaults")
         func expected(_ x: Int, _ y: Int, _ channel: Int) -> UInt16 {
             let dx = Double(x) - 127.5, dy = Double(y) - 127.5
             let distance = sqrt(dx * dx + dy * dy)
@@ -200,20 +204,59 @@ extension SirilEngine {
                 try require(stagedError == 0, "staged A/edit/B/C differs from combined edited B/C: \(stagedError)")
                 try require(try Data(contentsOf: analyzed) == analyzedBytes && Data(contentsOf: registered) == registeredBytes,
                     "staged processing modified its input sidecars")
+                var advanced = SequenceMultipointAdvanced()
+                advanced.globalSearch = 12; advanced.referencePercent = 100
+                advanced.brightness = 1; advanced.contrast = 1; advanced.gridStep = 8
+                advanced.referenceFrames = 2; advanced.debayer = 4; advanced.aviBayer = 2
+                advanced.zeroMean = true; advanced.fastChanging = true; advanced.seed = false
+                advanced.stackFrames = 1; advanced.stackMethod = 1
+                var denseSettings = settings; denseSettings.advanced = advanced
+                let densePath = try stackMultipoint(source, settings: denseSettings, phase: 1)
+                guard let dense = densePath.path.withCString({ siril_multipoint_open($0, &error, capacity) }) else {
+                    throw EngineError.failed(String(cString: error))
+                }
+                var baked = SirilMultipointOptions()
+                let bakedOK = siril_multipoint_options(dense, &baked)
+                siril_multipoint_close(dense)
+                try require(bakedOK != 0 && baked.global_search == 12 && baked.reference_percent == 100 &&
+                    baked.brightness == 1 && baked.contrast == 1 && baked.grid_step == 8 && baked.reference_frames == 2 &&
+                    baked.debayer == 4 && baked.avi_bayer == 2 && baked.zero_mean == 1 && baked.fast_changing == 1 &&
+                    baked.seed == 0 && baked.stack_frames == 1 && baked.stack_method == 1,
+                    "advanced settings must reach original saved config")
+                let denseID = densePath.deletingLastPathComponent().lastPathComponent
+                let denseSnapshot = try multipointAnalysis(source, runID: denseID, display: NativeDisplaySettings())
+                try require(denseSnapshot.points.count > summary.points &&
+                    denseSnapshot.points.contains(where: { $0.patch.width < $0.box.width || $0.patch.height < $0.box.height }),
+                    "dense placement must retain original independent measurement/merge sizes")
+                let denseEdited = try editMultipoint(source, runID: denseID, edit: .remove(index: 0))
+                let denseReopened = try multipointAnalysis(source, runID: denseEdited, display: NativeDisplaySettings())
+                try require(denseReopened.points.count == denseSnapshot.points.count - 1,
+                    "dense AP history wrongly requires merge patch to contain measurement box")
+                var invalidAdvanced = denseSettings; invalidAdvanced.advanced?.globalSearch = 65
+                var advancedRejected = false
+                do { _ = try stackMultipoint(source, settings: invalidAdvanced, phase: 1) } catch { advancedRejected = true }
+                try require(advancedRejected, "out-of-range advanced option accepted")
             }
             var wrongSourceRejected = false
             do { _ = try multipointAnalysis(SequenceLocation(job: source.job, name: "unrelated.seq"), runID: savedRuns[0].id, display: NativeDisplaySettings()) }
             catch { wrongSourceRejected = true }
             try require(wrongSourceRejected, "opened analysis belonging to another sequence")
-            if channels == 3 { for planet in [true, false] {
+            if channels == 3 { for (planet, warp) in [(true, false), (false, false), (true, true)] {
                 var local = settings; local.dewarp = true; local.planet = planet
                 if planet { local.refine = true; local.smoothRadius = 2.5 }
+                if warp {
+                    var advanced = SequenceMultipointAdvanced()
+                    advanced.zeroMean = true; advanced.referenceFrames = 1
+                    advanced.stackMethod = 1; advanced.stackFrames = 1
+                    local.advanced = advanced; local.scale = 1.5
+                }
                 let warped = try stackMultipoint(source, settings: local)
                 guard let aligned = warped.path.withCString({ siril_image_read($0, &error, capacity) }) else { throw EngineError.failed(String(cString: error)) }
                 var alignedInfo = SirilImageInfo()
                 try require(siril_image_info(aligned, &alignedInfo) != 0 && alignedInfo.channels == 3 &&
-                    alignedInfo.width > 200 && alignedInfo.width <= 256 && alignedInfo.height > 200 && alignedInfo.height <= 256,
-                    "original locally aligned common-area geometry, planet=\(planet): \(alignedInfo.width)x\(alignedInfo.height)")
+                    Double(alignedInfo.width) > 200 * local.scale && Double(alignedInfo.width) <= 256 * local.scale &&
+                    Double(alignedInfo.height) > 200 * local.scale && Double(alignedInfo.height) <= 256 * local.scale,
+                    "original locally aligned common-area geometry, planet=\(planet), warp=\(warp): \(alignedInfo.width)x\(alignedInfo.height)")
                 var colorError: Float = 0, peak: Float = 0
                 for y in 0..<Int(alignedInfo.height) { for x in 0..<Int(alignedInfo.width) {
                     var pixel = [Float](repeating: 0, count: 3)
@@ -223,7 +266,7 @@ extension SirilEngine {
                 } }
                 siril_image_free(aligned)
                 try require(peak > 0.3 && colorError < 4.0 / 65535,
-                    "independent RGB linearity under original local warps and excluded bright-frame isolation, planet=\(planet), error=\(colorError)")
+                    "independent RGB linearity under original local warps and excluded bright-frame isolation, planet=\(planet), warp=\(warp), error=\(colorError)")
             } }
             try require(try Data(contentsOf: process.appendingPathComponent(source.name)) == metadata, "changed source sequence metadata")
             for (i, input) in inputs.enumerated() { try require(try Data(contentsOf: input.url) == sourceBytes[i], "changed source FITS pixels") }

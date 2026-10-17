@@ -2,7 +2,32 @@
 import Foundation
 import SirilCore
 
+struct SequenceMultipointAdvanced: Codable, Equatable, Sendable {
+    var globalSearch = 34
+    var referencePercent = 5
+    var brightness = 10
+    var contrast = 0
+    var gridStep = 0
+    var referenceFrames = 0
+    var debayer = 7 // Original BAYER_LMMSE.
+    var aviBayer = 0
+    var zeroMean = false
+    var fastChanging = false
+    var seed = true
+    var stackFrames = -1
+    var stackMethod = 0
+    func validate() throws {
+        guard (4...64).contains(globalSearch), (1...100).contains(referencePercent),
+              (0...100).contains(brightness), (0...100).contains(contrast), (0...500).contains(gridStep),
+              (0...500).contains(referenceFrames), (0...8).contains(debayer), (0...5).contains(aviBayer),
+              (-1...10000).contains(stackFrames), (0...1).contains(stackMethod) else {
+            throw EngineError.failed("多点高级参数超出原版界面的有效范围。")
+        }
+    }
+}
 struct SequenceMultipointSettings: Codable, Equatable, Sendable {
+    // Optional for analysis recipes saved before advanced controls existed.
+    var advanced: SequenceMultipointAdvanced?
     var planet = true
     var halfBox = 24
     var search = 14
@@ -23,6 +48,12 @@ struct SequenceMultipointSettings: Codable, Equatable, Sendable {
         value.alignment = planet ? 1 : 0; value.half_box = Int32(halfBox); value.search = Int32(search)
         value.register_percent = Int32(registerPercent); value.stack_percent = Int32(stackPercent)
         value.normalize = normalize ? 1 : 0
+        let a = advanced ?? SequenceMultipointAdvanced()
+        value.global_search = Int32(a.globalSearch); value.reference_percent = Int32(a.referencePercent)
+        value.brightness = Int32(a.brightness); value.contrast = Int32(a.contrast); value.grid_step = Int32(a.gridStep)
+        value.reference_frames = Int32(a.referenceFrames); value.debayer = Int32(a.debayer); value.avi_bayer = Int32(a.aviBayer)
+        value.zero_mean = a.zeroMean ? 1 : 0; value.fast_changing = a.fastChanging ? 1 : 0; value.seed = a.seed ? 1 : 0
+        value.stack_frames = Int32(a.stackFrames); value.stack_method = Int32(a.stackMethod)
         value.refine = refine ? 1 : 0; value.dewarp = dewarp ? 1 : 0
         value.skip_failed = skipFailed ? 1 : 0; value.float_output = floatOutput ? 1 : 0
         value.structure = structure; value.scale = scale; value.smooth_radius = smoothRadius
@@ -30,6 +61,7 @@ struct SequenceMultipointSettings: Codable, Equatable, Sendable {
         return value
     }
     func validate(width: Int, height: Int) throws {
+        try (advanced ?? SequenceMultipointAdvanced()).validate()
         guard (8...128).contains(halfBox), halfBox * 2 <= min(width, height), (1...64).contains(search),
               (1...100).contains(registerPercent), (1...registerPercent).contains(stackPercent),
               structure.isFinite, (0...1).contains(structure), scale.isFinite, (1...3).contains(scale),

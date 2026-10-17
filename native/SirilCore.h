@@ -122,6 +122,9 @@ int siril_sequence_manual_stars_register(const char *directory, const char *name
 typedef struct {
     int32_t alignment, half_box, search, register_percent, stack_percent;
     int32_t normalize, refine, dewarp, skip_failed, float_output;
+    int32_t global_search, reference_percent, brightness, contrast, grid_step;
+    int32_t reference_frames, debayer, avi_bayer, zero_mean, fast_changing, seed;
+    int32_t stack_frames, stack_method;
     double structure, scale, smooth_radius, background_fraction, background_blend;
 } SirilMultipointOptions;
 typedef struct {
@@ -145,6 +148,7 @@ typedef struct {
 SirilMultipointAnalysis *siril_multipoint_open(const char *sidecar, char *error, size_t capacity);
 void siril_multipoint_close(SirilMultipointAnalysis *analysis);
 int siril_multipoint_info(SirilMultipointAnalysis *analysis, SirilMultipointAnalysisInfo *info);
+int siril_multipoint_options(SirilMultipointAnalysis *analysis, SirilMultipointOptions *options);
 int siril_multipoint_point(SirilMultipointAnalysis *analysis, int index, SirilMultipointPoint *point);
 SirilImage *siril_multipoint_reference(SirilMultipointAnalysis *analysis, char *error, size_t capacity);
 /* In-memory AP edits using original helpers. Actions: add=0, move=1,

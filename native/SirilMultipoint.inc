@@ -21,12 +21,9 @@ static int embedded_mpp_restore_points(mpp_run_t *run, const SirilMultipointPoin
         if (p->x < 0 || p->x >= width || p->y < 0 || p->y >= height ||
                 p->box_width <= 0 || p->box_width > width || p->box_height <= 0 || p->box_height > height ||
                 p->box_x < 0 || p->box_x > width - p->box_width || p->box_y < 0 || p->box_y > height - p->box_height ||
-                p->patch_width < p->box_width || p->patch_width > width ||
-                p->patch_height < p->box_height || p->patch_height > height ||
+                p->patch_width <= 0 || p->patch_width > width ||
+                p->patch_height <= 0 || p->patch_height > height ||
                 p->patch_x < 0 || p->patch_x > width - p->patch_width || p->patch_y < 0 || p->patch_y > height - p->patch_height ||
-                p->patch_x > p->box_x || p->patch_y > p->box_y ||
-                p->patch_x + p->patch_width < p->box_x + p->box_width ||
-                p->patch_y + p->patch_height < p->box_y + p->box_height ||
                 p->x < p->box_x || p->x >= p->box_x + p->box_width ||
                 p->y < p->box_y || p->y >= p->box_y + p->box_height ||
                 !isfinite(p->structure) || p->structure < 0) return 0;
@@ -125,6 +122,28 @@ int siril_multipoint_info(SirilMultipointAnalysis *analysis, SirilMultipointAnal
         run->best_frame_indices != NULL && run->shifts != NULL};
     g_mutex_unlock(&engine_mutex);
     return 1;
+}
+int siril_multipoint_options(SirilMultipointAnalysis *analysis, SirilMultipointOptions *options) {
+    if (!analysis || !options) return 0;
+    g_mutex_lock(&engine_mutex);
+    const mpp_config_t *c = analysis->run->cfg;
+    if (c) *options = (SirilMultipointOptions){
+        .alignment = c->align_frames_mode, .half_box = c->alignment_points_half_box_width,
+        .search = c->alignment_points_search_width, .register_percent = c->alignment_points_frame_percent,
+        .stack_percent = c->stack_frame_percent, .normalize = c->frames_normalization,
+        .refine = c->alignment_points_refine_reference, .dewarp = c->alignment_points_de_warp,
+        .skip_failed = c->stack_skip_failed_aps, .float_output = c->output_32bit,
+        .global_search = c->align_frames_search_width, .reference_percent = c->align_frames_average_frame_percent,
+        .brightness = c->alignment_points_brightness_threshold, .contrast = c->alignment_points_contrast_threshold,
+        .grid_step = c->alignment_points_step, .reference_frames = c->alignment_points_reference_frames,
+        .debayer = c->debayer_method, .avi_bayer = c->avi_bayer_pattern, .zero_mean = c->alignment_points_zero_mean,
+        .fast_changing = c->align_frames_fast_changing_object, .seed = c->align_frames_seed_from_regdata,
+        .stack_frames = c->stack_frame_number, .stack_method = c->stack_method,
+        .structure = c->alignment_points_structure_threshold, .scale = c->output_scale,
+        .smooth_radius = c->alignment_points_smooth_radius, .background_fraction = c->stack_frames_background_fraction,
+        .background_blend = c->stack_frames_background_blend_threshold};
+    g_mutex_unlock(&engine_mutex);
+    return c != NULL;
 }
 int siril_multipoint_point(SirilMultipointAnalysis *analysis, int index, SirilMultipointPoint *point) {
     if (!analysis || !point) return 0;
@@ -253,6 +272,12 @@ static SirilImage *embedded_multipoint_process(const char *directory, const char
             options->half_box * 2 > MIN(seq->rx, seq->ry) || options->search < 1 || options->search > 64 ||
             options->register_percent < 1 || options->register_percent > 100 || options->stack_percent < 1 ||
             options->stack_percent > options->register_percent || !isfinite(options->structure) ||
+            options->global_search < 4 || options->global_search > 64 ||
+            options->reference_percent < 1 || options->reference_percent > 100 ||
+            options->brightness < 0 || options->brightness > 100 || options->contrast < 0 || options->contrast > 100 ||
+            options->grid_step < 0 || options->grid_step > 500 || options->reference_frames < 0 || options->reference_frames > 500 ||
+            options->debayer < 0 || options->debayer > BAYER_RCD || options->avi_bayer < 0 || options->avi_bayer > MPP_AVI_BAYER_GRBG ||
+            options->stack_frames < -1 || options->stack_frames > 10000 || options->stack_method < 0 || options->stack_method > 1 ||
             options->structure < 0 || options->structure > 1 || !isfinite(options->scale) ||
             options->scale < 1 || options->scale > 3 || !isfinite(options->smooth_radius) ||
             options->smooth_radius < 0 || options->smooth_radius > 10 || !isfinite(options->background_fraction) ||
@@ -273,11 +298,24 @@ static SirilImage *embedded_multipoint_process(const char *directory, const char
     if (options) {
     args.config.bitdepth = mpp_bitdepth_from_fits_bitpix(seq->bitpix);
     args.config.align_frames_mode = options->alignment;
+    args.config.align_frames_search_width = options->global_search;
+    args.config.align_frames_average_frame_percent = options->reference_percent;
+    args.config.align_frames_fast_changing_object = !!options->fast_changing;
+    args.config.align_frames_seed_from_regdata = !!options->seed;
     args.config.alignment_points_half_box_width = options->half_box;
     args.config.alignment_points_search_width = options->search;
     args.config.alignment_points_structure_threshold = options->structure;
+    args.config.alignment_points_brightness_threshold = options->brightness;
+    args.config.alignment_points_contrast_threshold = options->contrast;
+    args.config.alignment_points_step = options->grid_step;
+    args.config.alignment_points_reference_frames = options->reference_frames;
+    args.config.alignment_points_zero_mean = !!options->zero_mean;
+    args.config.debayer_method = options->debayer;
+    args.config.avi_bayer_pattern = options->avi_bayer;
     args.config.alignment_points_frame_percent = options->register_percent;
     args.config.stack_frame_percent = options->stack_percent;
+    args.config.stack_frame_number = options->stack_frames;
+    args.config.stack_method = options->stack_method;
     args.config.frames_normalization = !!options->normalize;
     // The pinned streaming correlator always fits subpixel peaks.
     args.config.alignment_points_refine_reference = !!options->refine;
