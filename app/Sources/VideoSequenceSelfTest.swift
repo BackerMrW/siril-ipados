@@ -29,17 +29,21 @@ extension SirilEngine {
                     siril_sequence_frame(directory, $0, Int32(frame), &error, capacity)
                 } }) else { throw EngineError.failed(String(cString: error)) }
                 var worst: Float = 0
+                var firstMismatch = ""
                 for y in 0..<49 { for x in 0..<65 {
                     var values = [Float](repeating: 0, count: 3)
                     let channels = Int(siril_image_pixel(image, Int32(x), Int32(y), &values))
                     if channels != (rgb ? 3 : 1) { worst = 1 }
                     for channel in 0..<channels {
                         let expected = Float(20 + frame * 7 + y * 2 + x % 13 + channel * 35) / 255
+                        if firstMismatch.isEmpty && abs(values[channel] - expected) >= 1e-7 {
+                            firstMismatch = "frame=\(frame), x=\(x), y=\(y), channel=\(channel), actual=\(values[channel]), expected=\(expected)"
+                        }
                         worst = max(worst, abs(values[channel] - expected))
                     }
                 } }
                 siril_image_free(image)
-                try require(worst < 1e-7, "independent video pixels, row padding/orientation/order, fixture=\(name), error=\(worst)")
+                try require(worst < 1e-7, "independent video pixels, row padding/orientation/order, fixture=\(name), error=\(worst), \(firstMismatch)")
             }
             try editSequence(location, selection: SequenceSelection(included: [true, false, true], reference: 2))
             try require(try inspectSequence(location).selection == SequenceSelection(included: [true, false, true], reference: 2),

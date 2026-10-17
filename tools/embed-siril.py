@@ -946,6 +946,15 @@ text = text.replace(needle, needle + '\n\tfit->top_down = FALSE;\n\tg_strlcpy(fi
 needle = '\tFFMS_DestroyVideoSource(film->videosource);'
 assert text.count(needle) == 1
 text = text.replace(needle, '\tif (film->videosource) FFMS_DestroyVideoSource(film->videosource);\n\tmemset(film, 0, sizeof *film);')
+# Palette/RGB-encoded gray capture must keep its exact sample values. Switching
+# FFMS output to gray after frame zero applies a different luma rounding path.
+# Keep the original RGB decoder and consistently extract R for detected mono.
+needle = '\tif (convert_rgb_to_gray)\n\t\tfilm->nb_layers = 1;'
+assert text.count(needle) == 1
+text = text.replace(needle, needle + '\n\tif (film->nb_layers == 1 && frame->ConvertedPixelFormat == pixfmt_rgb) convert_rgb_to_gray = 1;')
+start = text.index('/* Heuristic-detected mono in an RGB-encoded AVI:')
+end = text.index('\n\treturn FILM_SUCCESS;', start)
+text = text[:start] + '/* Preserve exact mono capture values by retaining the RGB decode format. */\n' + text[end:]
 films.write_text(text)
 
 # Compact AVIF uses an mif3 major brand plus an avif subtype. Otherwise the
