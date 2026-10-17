@@ -71,6 +71,41 @@ extension SirilEngine {
             } }
             siril_image_free(image)
             try require(worst < 4.0 / 65535, "independent identical-frame pixels, channels=\(channels), error=\(worst)")
+            let savedRuns = try multipointRuns(source)
+            try require(savedRuns.count == 1 && savedRuns[0].id == result.deletingLastPathComponent().lastPathComponent,
+                "saved analysis discovery")
+            let reopened = try multipointAnalysis(source, runID: savedRuns[0].id, display: NativeDisplaySettings())
+            try require(reopened.width == 256 && reopened.height == 256 && reopened.frames == 3 && reopened.included == 2 &&
+                reopened.registered && reopened.points.count == summary.points && !reopened.preview.data.isEmpty,
+                "reopened reference, metadata, points and native preview")
+            try require(reopened.points.allSatisfy { point in
+                point.x >= 0 && point.x < 256 && point.y >= 0 && point.y < 256 && point.structure.isFinite &&
+                point.box.x >= 0 && point.box.y >= 0 && point.box.width > 0 && point.box.height > 0 &&
+                point.box.x + point.box.width <= 256 && point.box.y + point.box.height <= 256 &&
+                point.x >= point.box.x && point.x <= point.box.x + point.box.width &&
+                point.y >= point.box.y && point.y <= point.box.y + point.box.height
+            }, "displayed AP centres and boxes")
+            if channels == 1 {
+                let sidecar = result.deletingLastPathComponent().appendingPathComponent("analysis.mpp")
+                guard let analysis = sidecar.path.withCString({ siril_multipoint_open($0, &error, capacity) }) else { throw EngineError.failed(String(cString: error)) }
+                guard let reference = siril_multipoint_reference(analysis, &error, capacity) else {
+                    siril_multipoint_close(analysis); throw EngineError.failed(String(cString: error))
+                }
+                siril_multipoint_close(analysis)
+                var referenceError: Float = 0
+                for y in 0..<256 { for x in 0..<256 {
+                    var pixel = [Float](repeating: 0, count: 3)
+                    if siril_image_pixel(reference, Int32(x), Int32(y), &pixel) != 1 { referenceError = 1 }
+                    referenceError = max(referenceError, abs(pixel[0] - Float(expected(x, y, 0)) / 65535))
+                } }
+                siril_image_free(reference)
+                try require(referenceError < 2.0 / 65535, "independent saved mean-frame pixels after analysis handle closed")
+                try Data(contentsOf: sidecar).write(to: documents.appendingPathComponent("native-multipoint-analysis.mpp"), options: .atomic)
+            }
+            var wrongSourceRejected = false
+            do { _ = try multipointAnalysis(SequenceLocation(job: source.job, name: "unrelated.seq"), runID: savedRuns[0].id, display: NativeDisplaySettings()) }
+            catch { wrongSourceRejected = true }
+            try require(wrongSourceRejected, "opened analysis belonging to another sequence")
             if channels == 3 { for planet in [true, false] {
                 var local = settings; local.dewarp = true; local.planet = planet
                 let warped = try stackMultipoint(source, settings: local)

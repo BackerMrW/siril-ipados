@@ -59,6 +59,7 @@ struct SequenceWorkspace: View {
     @State private var showPhotometry = false
     @State private var showComet = false
     @State private var showMultipoint = false
+    @State private var showMultipointAnalysis = false
     @State private var multipointSettings = SequenceMultipointSettings()
     @State private var cometSource: SequenceLocation?
     @State private var backgroundRuns: [SequenceBackgroundRun] = []
@@ -213,6 +214,7 @@ struct SequenceWorkspace: View {
                 Section("行星多点配准") {
                     Button("多点分析、局部对齐与叠加") { showMultipoint = true }
                         .disabled(snapshot.info.included < 2 || snapshot.info.drizzle != 0)
+                    Button("打开保存的参考图与对齐点") { showMultipointAnalysis = true }
                     Text("适合行星整盘或表面纹理；沿用原版自动对齐点和专用叠加流程。")
                         .font(.caption).foregroundStyle(.secondary)
                 }.id("sequence-multipoint")
@@ -363,6 +365,9 @@ struct SequenceWorkspace: View {
                     options.drizzleOptions.enabled = true; options.scale = 2; showApply = true
                 } else if section == "multipoint" {
                     showMultipoint = true
+                } else if section == "multipoint-points" {
+                    showMultipointAnalysis = true
+                    return
                 }
                 try? await Task.sleep(for: .milliseconds(400))
                 let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -404,6 +409,9 @@ struct SequenceWorkspace: View {
                 do { _ = try await engine.recordSequenceResult(entry: location, source: cometSource ?? currentLocation, output: output) }
                 catch { throw EngineError.failed("新序列已保存，但结果历史保存失败：" + error.localizedDescription) }
             }
+        }
+        .fullScreenCover(isPresented: $showMultipointAnalysis) {
+            SequenceMultipointAnalysisView(location: currentLocation, engine: engine)
         }
         .sheet(isPresented: $showApply) {
             SequenceApplyView(options: $options, flatID: $flatID, flats: flats) {

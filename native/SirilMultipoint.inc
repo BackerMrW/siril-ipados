@@ -5,6 +5,78 @@
 #include "registration/mpp/mpp_shift.h"
 #include "registration/mpp/mpp_sidecar.h"
 
+struct SirilMultipointAnalysis { mpp_run_t *run; };
+SirilMultipointAnalysis *siril_multipoint_open(const char *sidecar, char *error, size_t capacity) {
+    if (error && capacity) error[0] = 0;
+    g_mutex_lock(&engine_mutex); initialize();
+    SirilMultipointAnalysis *analysis = NULL;
+    mpp_run_t *run = NULL;
+    if (sidecar && g_path_is_absolute(sidecar) && g_str_has_suffix(sidecar, ".mpp") &&
+            mpp_sidecar_read(sidecar, &run) == MPP_OK && run && run->aps && run->mean_frame_data &&
+            run->mean_frame_rows > 0 && run->mean_frame_cols > 0) {
+        analysis = g_try_new0(SirilMultipointAnalysis, 1);
+        if (analysis) { analysis->run = run; run = NULL; }
+    }
+    if (run) mpp_run_free(run);
+    if (!analysis && error && capacity) snprintf(error, capacity, "Cannot open original multipoint analysis");
+    g_mutex_unlock(&engine_mutex);
+    return analysis;
+}
+void siril_multipoint_close(SirilMultipointAnalysis *analysis) {
+    if (!analysis) return;
+    g_mutex_lock(&engine_mutex);
+    mpp_run_free(analysis->run); g_free(analysis);
+    g_mutex_unlock(&engine_mutex);
+}
+int siril_multipoint_info(SirilMultipointAnalysis *analysis, SirilMultipointAnalysisInfo *info) {
+    if (!analysis || !info) return 0;
+    g_mutex_lock(&engine_mutex);
+    mpp_run_t *run = analysis->run;
+    int included = 0;
+    for (int i = 0; i < run->num_frames; i++) if (run->included[i]) included++;
+    *info = (SirilMultipointAnalysisInfo){run->mean_frame_cols, run->mean_frame_rows,
+        run->num_frames, included, run->aps->count, run->best_frame_idx,
+        run->best_frame_indices != NULL && run->shifts != NULL};
+    g_mutex_unlock(&engine_mutex);
+    return 1;
+}
+int siril_multipoint_point(SirilMultipointAnalysis *analysis, int index, SirilMultipointPoint *point) {
+    if (!analysis || !point) return 0;
+    g_mutex_lock(&engine_mutex);
+    mpp_run_t *run = analysis->run;
+    int ok = index >= 0 && index < run->aps->count;
+    if (ok) {
+        const mpp_ap_record_t *p = &run->aps->records[index];
+        *point = (SirilMultipointPoint){p->x, run->mean_frame_rows - 1 - p->y,
+            p->box_x_low, run->mean_frame_rows - p->box_y_high,
+            p->box_x_high - p->box_x_low, p->box_y_high - p->box_y_low,
+            p->patch_x_low, run->mean_frame_rows - p->patch_y_high,
+            p->patch_x_high - p->patch_x_low, p->patch_y_high - p->patch_y_low, p->structure};
+    }
+    g_mutex_unlock(&engine_mutex);
+    return ok;
+}
+SirilImage *siril_multipoint_reference(SirilMultipointAnalysis *analysis, char *error, size_t capacity) {
+    if (error && capacity) error[0] = 0;
+    if (!analysis) return NULL;
+    g_mutex_lock(&engine_mutex);
+    mpp_run_t *run = analysis->run;
+    SirilImage *image = NULL;
+    size_t pixels = (size_t)run->mean_frame_cols * run->mean_frame_rows;
+    if ((double)pixels * sizeof(float) <= (double)get_available_memory() * .8) {
+        image = g_try_new0(SirilImage, 1);
+        fits *fit = image ? &image->fit : NULL;
+        if (!image || new_fit_image(&fit, run->mean_frame_cols, run->mean_frame_rows, 1, DATA_FLOAT)) {
+            g_free(image); image = NULL;
+        } else {
+            for (size_t i = 0; i < pixels; i++) fit->fdata[i] = (float)run->mean_frame_data[i] / 65535.f;
+        }
+    }
+    if (!image && error && capacity) snprintf(error, capacity, "Cannot allocate multipoint reference preview");
+    g_mutex_unlock(&engine_mutex);
+    return image;
+}
+
 struct embedded_multipoint_args {
     sequence *seq;
     mpp_config_t config;

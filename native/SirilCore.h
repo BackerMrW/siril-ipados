@@ -132,6 +132,21 @@ typedef struct {
 SirilImage *siril_sequence_multipoint_stack(const char *directory, const char *name,
     const char *sidecar, const SirilMultipointOptions *options, SirilMultipointInfo *info,
     char *error, size_t capacity);
+typedef struct SirilMultipointAnalysis SirilMultipointAnalysis;
+typedef struct {
+    int32_t width, height, frames, included, points, reference, registered;
+} SirilMultipointAnalysisInfo;
+/* AP centres and half-open box/patch bounds in displayed reference pixels. */
+typedef struct {
+    int32_t x, y, box_x, box_y, box_width, box_height;
+    int32_t patch_x, patch_y, patch_width, patch_height;
+    double structure;
+} SirilMultipointPoint;
+SirilMultipointAnalysis *siril_multipoint_open(const char *sidecar, char *error, size_t capacity);
+void siril_multipoint_close(SirilMultipointAnalysis *analysis);
+int siril_multipoint_info(SirilMultipointAnalysis *analysis, SirilMultipointAnalysisInfo *info);
+int siril_multipoint_point(SirilMultipointAnalysis *analysis, int index, SirilMultipointPoint *point);
+SirilImage *siril_multipoint_reference(SirilMultipointAnalysis *analysis, char *error, size_t capacity);
 typedef struct {
     uint64_t total, good;
     double mean, median, sigma, average_deviation, mad, sqrt_bwmv, minimum, maximum, norm;
