@@ -82,7 +82,9 @@ extension SirilEngine {
         guard ["multipoint-points", "multipoint-edit", "multipoint-shifts"].contains(ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] ?? "") else {
             throw EngineError.failed("当前未运行多点分析页面检查。")
         }
-        return try readMultipointAnalysis(owned("native-multipoint-analysis.mpp", under: documents), display: display, frame: frame)
+        let file = ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] == "multipoint-shifts" ?
+            "native-multipoint-warp-analysis.mpp" : "native-multipoint-analysis.mpp"
+        return try readMultipointAnalysis(owned(file, under: documents), display: display, frame: frame)
     }
     private func readMultipointAnalysis(_ path: URL, points override: [SequenceMultipointPoint]? = nil, display: NativeDisplaySettings, frame: Int = 0) throws -> SequenceMultipointAnalysisSnapshot {
         var error = [CChar](repeating: 0, count: 1024); let capacity = error.count

@@ -86,5 +86,10 @@ extension SirilEngine {
         for (index, input) in inputs.enumerated() {
             try require(try Data(contentsOf: input.url) == originalBytes[index], "changed source pixels")
         }
+        try Data(contentsOf: registration).write(to: documents.appendingPathComponent("native-multipoint-warp-analysis.mpp"), options: .atomic)
+        let magnitude0 = first.shifts.reduce(0) { $0 + hypot($1.dx, $1.dy) }
+        let magnitude1 = second.shifts.reduce(0) { $0 + hypot($1.dx, $1.dy) }
+        try JSONEncoder().encode(magnitude1 > magnitude0 ? 1 : 0)
+            .write(to: documents.appendingPathComponent("native-multipoint-warp-frame.json"), options: .atomic)
     }
 }

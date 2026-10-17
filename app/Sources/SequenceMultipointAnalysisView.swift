@@ -175,7 +175,11 @@ struct SequenceMultipointAnalysisView: View {
     }
     @MainActor private func open() async {
         do {
-            if fixtureSection == "multipoint-shifts" { showShifts = true; shiftScale = 20 }
+            if fixtureSection == "multipoint-shifts" {
+                showShifts = true; shiftScale = 20
+                let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                diagnosticFrame = try JSONDecoder().decode(Int.self, from: Data(contentsOf: root.appendingPathComponent("native-multipoint-warp-frame.json")))
+            }
             if !fixture { runs = try await engine.multipointRuns(location); runID = runs.first?.id }
             await refresh()
             if fixture, snapshot != nil {
