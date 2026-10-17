@@ -79,6 +79,7 @@ extension SirilEngine {
                 throw EngineError.failed(String(cString: error))
             }
             let points = try readPoints()
+            try restoreMultipoint(analysis, points: points)
             if points == history.current { return runID }
             history.past.append(history.current); history.past = Array(history.past.suffix(30))
             history.future = []; history.current = points

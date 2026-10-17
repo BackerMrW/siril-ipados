@@ -55,6 +55,18 @@ extension SirilEngine {
         var edited = try editMultipoint(source, runID: analysis.deletingLastPathComponent().lastPathComponent, edit: .clear)
         edited = try editMultipoint(source, runID: edited, edit: .add(x: 128, y: 64, halfBox: 16))
         edited = try editMultipoint(source, runID: edited, edit: .add(x: 128, y: 192, halfBox: 16))
+        let beforeEdge = try multipointAnalysis(source, runID: edited, display: NativeDisplaySettings())
+        edited = try editMultipoint(source, runID: edited,
+            edit: .move(index: 0, x: beforeEdge.width - 1, y: beforeEdge.height - 1))
+        let edge = try multipointAnalysis(source, runID: edited, display: NativeDisplaySettings())
+        try require(edge.points[0].box.x + edge.points[0].box.width <= edge.width &&
+            edge.points[0].box.y + edge.points[0].box.height <= edge.height &&
+            edge.points[0].patch.x + edge.points[0].patch.width <= edge.width &&
+            edge.points[0].patch.y + edge.points[0].patch.height <= edge.height,
+            "edge AP bounds used source dimensions instead of cropped reference")
+        edited = try editMultipoint(source, runID: edited, edit: .undo)
+        let restored = try multipointAnalysis(source, runID: edited, display: NativeDisplaySettings())
+        try require(restored.points == beforeEdge.points, "edge move undo changed original point bounds")
         let registration = try resumeMultipoint(source, runID: edited, phase: 2)
         let id = registration.deletingLastPathComponent().lastPathComponent
         let first = try multipointAnalysis(source, runID: id, display: NativeDisplaySettings(), frame: 0)

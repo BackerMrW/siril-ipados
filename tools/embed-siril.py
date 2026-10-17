@@ -864,3 +864,15 @@ extern "C" mpp_status_t embedded_mpp_ap_replace(mpp_run_t *run) {
     }
 }
 ''')
+
+# AP editor coordinates index the cropped mean reference, rather than the
+# uncropped source frames. Keep the original box construction and clamp it
+# against that same image, including the no-size-change resize fast path.
+text = mpp.read_text()
+start = text.index('extern "C" mpp_status_t mpp_ap_add(')
+end = text.index('extern "C" mpp_status_t mpp_ap_resize(', start)
+body = text[start:end]
+needle = "run->frame_rows, run->frame_cols"
+assert body.count(needle) == 2
+body = body.replace(needle, "run->mean_frame_rows, run->mean_frame_cols")
+mpp.write_text(text[:start] + body + text[end:])
