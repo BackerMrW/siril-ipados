@@ -9,6 +9,13 @@ struct SampleMarker: Identifiable, Sendable {
     let size: Double
     let median: [Double]
 }
+struct DisplacementMarker: Sendable {
+    let x: Double
+    let y: Double
+    let dx: Double
+    let dy: Double
+    let success: Bool
+}
 
 struct ImageSelection: Equatable, Sendable, Codable {
     var x: Int
@@ -33,6 +40,7 @@ struct ZoomableImageCanvas: UIViewRepresentable {
     var imageHeight: Double = 1
     var selected: Int? = nil
     var region: ImageSelection? = nil
+    var displacements: [DisplacementMarker] = []
     var selecting = false
     var movingSamples = false
     var onSampleMove: ((Int, Double, Double) -> Void)? = nil
@@ -79,6 +87,7 @@ struct ZoomableImageCanvas: UIViewRepresentable {
             scroll.markers = parent.samples
             scroll.sourceSize = CGSize(width: parent.imageWidth, height: parent.imageHeight)
             scroll.selected = parent.selected; scroll.region = parent.region
+            scroll.displacements = parent.displacements
             selectGesture?.isEnabled = parent.selecting
             moveGesture?.isEnabled = parent.movingSamples && !parent.selecting
             scroll.panGestureRecognizer.minimumNumberOfTouches = parent.selecting || parent.movingSamples ? 2 : 1
@@ -171,10 +180,13 @@ final class CanvasScrollView: UIScrollView {
     private let boxes = CAShapeLayer()
     private let highlight = CAShapeLayer()
     private let selectionBox = CAShapeLayer()
+    private let converged = CAShapeLayer()
+    private let failed = CAShapeLayer()
     var markers: [SampleMarker] = []
     var sourceSize = CGSize(width: 1, height: 1)
     var selected: Int?
     var region: ImageSelection?
+    var displacements: [DisplacementMarker] = []
     private var lastBounds = CGSize.zero
     private var lastImageSize = CGSize.zero
 
@@ -183,13 +195,15 @@ final class CanvasScrollView: UIScrollView {
         addSubview(canvas)
         canvas.addSubview(picture)
         picture.contentMode = .scaleToFill
-        for layer in [boxes, highlight, selectionBox] {
+        for layer in [boxes, highlight, selectionBox, converged, failed] {
             layer.fillColor = UIColor.clear.cgColor
             canvas.layer.addSublayer(layer)
         }
         boxes.strokeColor = UIColor.systemGreen.cgColor
         highlight.strokeColor = UIColor.systemYellow.cgColor
         selectionBox.strokeColor = UIColor.systemCyan.cgColor
+        converged.strokeColor = UIColor.systemGreen.cgColor
+        failed.strokeColor = UIColor.systemRed.cgColor
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
     override func layoutSubviews() {
@@ -227,6 +241,25 @@ final class CanvasScrollView: UIScrollView {
                 width: Double(region.width) * sx, height: Double(region.height) * sy)).cgPath
         } else { selectionBox.path = nil }
         selectionBox.lineWidth = 1.5 / zoomScale
+        let goodPath = UIBezierPath(), failedPath = UIBezierPath()
+        let sx = canvas.bounds.width / max(1, sourceSize.width), sy = canvas.bounds.height / max(1, sourceSize.height)
+        for vector in displacements {
+            let path = vector.success ? goodPath : failedPath
+            let start = CGPoint(x: vector.x * sx, y: vector.y * sy)
+            let end = CGPoint(x: (vector.x + vector.dx) * sx, y: (vector.y + vector.dy) * sy)
+            path.move(to: start); path.addLine(to: end)
+            let radius = 2.5 / zoomScale
+            path.append(UIBezierPath(ovalIn: CGRect(x: start.x - radius, y: start.y - radius, width: 2 * radius, height: 2 * radius)))
+            let length = hypot(end.x - start.x, end.y - start.y)
+            if length > 1.5 / zoomScale {
+                let ux = (end.x - start.x) / length, uy = (end.y - start.y) / length, head = 7 / zoomScale
+                path.move(to: CGPoint(x: end.x - head * ux - head * uy / 2, y: end.y - head * uy + head * ux / 2))
+                path.addLine(to: end)
+                path.addLine(to: CGPoint(x: end.x - head * ux + head * uy / 2, y: end.y - head * uy - head * ux / 2))
+            }
+        }
+        converged.path = goodPath.cgPath; failed.path = failedPath.cgPath
+        converged.lineWidth = 1.2 / zoomScale; failed.lineWidth = 1.2 / zoomScale
         CATransaction.commit()
     }
 }

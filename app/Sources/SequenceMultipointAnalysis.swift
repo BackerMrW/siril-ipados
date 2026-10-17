@@ -39,6 +39,20 @@ struct SequenceMultipointAnalysisSnapshot: Sendable {
     let registered: Bool
     let points: [SequenceMultipointPoint]
     let preview: PreviewBytes
+    let shifts: [SequenceMultipointShift]
+}
+struct SequenceMultipointShift: Identifiable, Sendable {
+    let id: Int
+    let dx: Double
+    let dy: Double
+    let globalDX: Double
+    let globalDY: Double
+    let success: Bool
+    let included: Bool
+    init(id: Int, native: SirilMultipointShift) {
+        self.id = id; dx = native.dx; dy = native.dy; globalDX = native.global_dx; globalDY = native.global_dy
+        success = native.success != 0; included = native.included != 0
+    }
 }
 extension SirilEngine {
     func multipointRuns(_ location: SequenceLocation) throws -> [SequenceMultipointRun] {
@@ -55,22 +69,22 @@ extension SirilEngine {
                 state: state.state == "运行中" ? "处理被中断" : state.state)
         }.sorted { $0.created > $1.created }
     }
-    func multipointAnalysis(_ location: SequenceLocation, runID: String, display: NativeDisplaySettings) throws -> SequenceMultipointAnalysisSnapshot {
+    func multipointAnalysis(_ location: SequenceLocation, runID: String, display: NativeDisplaySettings, frame: Int = 0) throws -> SequenceMultipointAnalysisSnapshot {
         guard UUID(uuidString: runID) != nil else { throw EngineError.failed("多点分析编号无效。") }
         let runs = try owned("SequenceRuns", under: sequenceFolder(location).deletingLastPathComponent())
         let folder = try owned(runID, under: runs)
         let source = try JSONDecoder().decode(SequenceLocation.self, from: Data(contentsOf: owned("source-location.json", under: folder)))
         guard source == location else { throw EngineError.failed("该分析记录不属于当前序列。") }
         let history = try multipointHistory(folder)
-        return try readMultipointAnalysis(owned("analysis.mpp", under: folder), points: history?.current, display: display)
+        return try readMultipointAnalysis(owned("analysis.mpp", under: folder), points: history?.current, display: display, frame: frame)
     }
-    func multipointAnalysisFixture(display: NativeDisplaySettings) throws -> SequenceMultipointAnalysisSnapshot {
-        guard ["multipoint-points", "multipoint-edit"].contains(ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] ?? "") else {
+    func multipointAnalysisFixture(display: NativeDisplaySettings, frame: Int = 0) throws -> SequenceMultipointAnalysisSnapshot {
+        guard ["multipoint-points", "multipoint-edit", "multipoint-shifts"].contains(ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] ?? "") else {
             throw EngineError.failed("当前未运行多点分析页面检查。")
         }
-        return try readMultipointAnalysis(owned("native-multipoint-analysis.mpp", under: documents), display: display)
+        return try readMultipointAnalysis(owned("native-multipoint-analysis.mpp", under: documents), display: display, frame: frame)
     }
-    private func readMultipointAnalysis(_ path: URL, points override: [SequenceMultipointPoint]? = nil, display: NativeDisplaySettings) throws -> SequenceMultipointAnalysisSnapshot {
+    private func readMultipointAnalysis(_ path: URL, points override: [SequenceMultipointPoint]? = nil, display: NativeDisplaySettings, frame: Int = 0) throws -> SequenceMultipointAnalysisSnapshot {
         var error = [CChar](repeating: 0, count: 1024); let capacity = error.count
         guard let analysis = path.path.withCString({ siril_multipoint_open($0, &error, capacity) }) else {
             throw EngineError.failed(String(cString: error))
@@ -79,11 +93,20 @@ extension SirilEngine {
         if let override { try restoreMultipoint(analysis, points: override) }
         var info = SirilMultipointAnalysisInfo()
         guard siril_multipoint_info(analysis, &info) != 0, info.points >= 0 else { throw EngineError.failed("无法读取多点分析。") }
+        guard frame >= 0, frame < Int(info.frames) else { throw EngineError.failed("位移诊断帧号无效。") }
         var points: [SequenceMultipointPoint] = []
+        var shifts: [SequenceMultipointShift] = []
         for index in 0..<Int(info.points) {
             var point = SirilMultipointPoint()
             guard siril_multipoint_point(analysis, Int32(index), &point) != 0 else { throw EngineError.failed("无法读取对齐点。") }
             points.append(SequenceMultipointPoint(id: index, native: point))
+            if info.registered != 0 {
+                var shift = SirilMultipointShift()
+                guard siril_multipoint_shift(analysis, Int32(frame), Int32(index), &shift) != 0 else {
+                    throw EngineError.failed("局部位移无效，请重新配准。")
+                }
+                shifts.append(SequenceMultipointShift(id: index, native: shift))
+            }
         }
         guard let image = siril_multipoint_reference(analysis, &error, capacity) else { throw EngineError.failed(String(cString: error)) }
         defer { siril_image_free(image) }
@@ -93,6 +116,6 @@ extension SirilEngine {
         defer { siril_preview_free(&preview) }
         let rendered = PreviewBytes(data: Data(bytes: bytes, count: Int(preview.width) * Int(preview.height) * 4), width: Int(preview.width), height: Int(preview.height))
         return SequenceMultipointAnalysisSnapshot(width: Int(info.width), height: Int(info.height), frames: Int(info.frames),
-            included: Int(info.included), reference: Int(info.reference), registered: info.registered != 0, points: points, preview: rendered)
+            included: Int(info.included), reference: Int(info.reference), registered: info.registered != 0, points: points, preview: rendered, shifts: shifts)
     }
 }

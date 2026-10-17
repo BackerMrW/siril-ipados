@@ -365,7 +365,7 @@ struct SequenceWorkspace: View {
                     options.drizzleOptions.enabled = true; options.scale = 2; showApply = true
                 } else if section == "multipoint" {
                     showMultipoint = true
-                } else if section == "multipoint-points" || section == "multipoint-edit" {
+                } else if ["multipoint-points", "multipoint-edit", "multipoint-shifts"].contains(section) {
                     showMultipointAnalysis = true
                     return
                 }

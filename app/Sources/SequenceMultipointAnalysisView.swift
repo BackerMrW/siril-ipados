@@ -15,9 +15,21 @@ struct SequenceMultipointAnalysisView: View {
     @State private var adding = false
     @State private var moving = false
     @State private var halfBox = 16
+    @State private var diagnosticFrame = 0
+    @State private var showShifts = false
+    @State private var shiftScale = 1.0
     private var fixtureSection: String { ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] ?? "" }
-    private var fixture: Bool { ["multipoint-points", "multipoint-edit"].contains(fixtureSection) }
+    private var fixture: Bool { ["multipoint-points", "multipoint-edit", "multipoint-shifts"].contains(fixtureSection) }
     private var point: SequenceMultipointPoint? { snapshot?.points.first { $0.id == selected } }
+    private var selectedShift: SequenceMultipointShift? { snapshot?.shifts.first { $0.id == selected } }
+    private var displacementMarkers: [DisplacementMarker] {
+        guard showShifts, let snapshot else { return [] }
+        return snapshot.shifts.compactMap { shift in
+            guard shift.included, snapshot.points.indices.contains(shift.id) else { return nil }
+            let point = snapshot.points[shift.id]
+            return DisplacementMarker(x: Double(point.x), y: Double(point.y), dx: shift.dx * shiftScale, dy: shift.dy * shiftScale, success: shift.success)
+        }
+    }
     var body: some View {
         NavigationStack {
             GeometryReader { geometry in
@@ -29,7 +41,8 @@ struct SequenceMultipointAnalysisView: View {
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar { Button("关闭") { dismiss() } }
             .task { await open() }
-            .onChange(of: runID) { _, _ in selected = nil; if !loading { Task { await refresh() } } }
+            .onChange(of: runID) { _, _ in selected = nil; diagnosticFrame = 0; if !loading { Task { await refresh() } } }
+            .onChange(of: diagnosticFrame) { _, _ in if !loading { Task { await refresh() } } }
             .onChange(of: display) { _, _ in display.save(); Task { await refresh() } }
         }
     }
@@ -39,6 +52,7 @@ struct SequenceMultipointAnalysisView: View {
                 ZoomableImageCanvas(image: image,
                     samples: snapshot.points.map { SampleMarker(id: $0.id, x: Double($0.x), y: Double($0.y), size: 8, median: []) },
                     imageWidth: Double(snapshot.width), imageHeight: Double(snapshot.height), selected: selected, region: point?.box,
+                    displacements: displacementMarkers,
                     movingSamples: moving && !loading && !fixture,
                     onSampleMove: { index, x, y in Task { await edit(.move(index: index, x: Int(x.rounded()), y: Int(y.rounded()))) } },
                     onTap: { x, y in
@@ -73,6 +87,26 @@ struct SequenceMultipointAnalysisView: View {
                     LabeledContent("参考帧", value: "\(snapshot.reference + 1)")
                     LabeledContent("对齐点", value: "\(snapshot.points.count)")
                     LabeledContent("局部配准", value: snapshot.registered ? "已保存" : "尚待计算")
+                }
+                if snapshot.registered && (!fixture || fixtureSection == "multipoint-shifts") {
+                    Section("局部位移诊断") {
+                        Toggle("在参考图上显示位移", isOn: $showShifts)
+                        Stepper("帧：\(diagnosticFrame + 1) / \(snapshot.frames)", value: $diagnosticFrame, in: 0...max(0, snapshot.frames - 1))
+                            .disabled(loading)
+                        Slider(value: $shiftScale, in: 1...200, step: 1)
+                        Text("箭头放大 \(Int(shiftScale)) 倍；绿：收敛，红：失败。方向按图像 X 向右、Y 向下。")
+                            .font(.caption)
+                        if let first = snapshot.shifts.first {
+                            if first.included {
+                                LabeledContent("收敛对齐点", value: "\(snapshot.shifts.filter { $0.success }.count) / \(snapshot.shifts.count)")
+                                LabeledContent("全局位移", value: displacementText(first.globalDX, first.globalDY))
+                            } else { Text("该帧未参与分析与配准，不显示位移箭头。") }
+                        }
+                        if let selectedShift, selectedShift.included {
+                            LabeledContent("选中点局部位移", value: displacementText(selectedShift.dx, selectedShift.dy))
+                            LabeledContent("选中点状态", value: selectedShift.success ? "收敛" : "失败")
+                        }
+                    }
                 }
                 if !fixture || fixtureSection == "multipoint-edit" {
                     Section("编辑对齐点") {
@@ -121,6 +155,7 @@ struct SequenceMultipointAnalysisView: View {
     }
     @MainActor private func open() async {
         do {
+            if fixtureSection == "multipoint-shifts" { showShifts = true; shiftScale = 20 }
             if !fixture { runs = try await engine.multipointRuns(location); runID = runs.first?.id }
             await refresh()
             if fixture, snapshot != nil {
@@ -133,19 +168,22 @@ struct SequenceMultipointAnalysisView: View {
     }
     @MainActor private func refresh() async {
         guard fixture || runID != nil else { return }
-        let current = runID, settings = display; loading = true
+        let current = runID, settings = display, frame = diagnosticFrame; loading = true
         defer { loading = false }
         do {
             let value: SequenceMultipointAnalysisSnapshot
-            if fixture { value = try await engine.multipointAnalysisFixture(display: settings) }
-            else if let current { value = try await engine.multipointAnalysis(location, runID: current, display: settings) }
+            if fixture { value = try await engine.multipointAnalysisFixture(display: settings, frame: frame) }
+            else if let current { value = try await engine.multipointAnalysis(location, runID: current, display: settings, frame: frame) }
             else { return }
-            if current == runID && settings == display {
+            if current == runID && settings == display && frame == diagnosticFrame {
                 snapshot = value
                 if !value.points.contains(where: { $0.id == selected }) { selected = value.points.first?.id }
                 message = ""
             }
         } catch { if current == runID { message = error.localizedDescription; snapshot = nil } }
+    }
+    private func displacementText(_ dx: Double, _ dy: Double) -> String {
+        String(format: "X %.4f，Y %.4f px", locale: Locale(identifier: "en_US_POSIX"), dx, dy)
     }
     @MainActor private func edit(_ change: SequenceMultipointEdit) async {
         guard let runID, !loading else { return }

@@ -145,6 +145,24 @@ int siril_multipoint_options(SirilMultipointAnalysis *analysis, SirilMultipointO
     g_mutex_unlock(&engine_mutex);
     return c != NULL;
 }
+int siril_multipoint_shift(SirilMultipointAnalysis *analysis, int frame, int point, SirilMultipointShift *shift) {
+    if (!analysis || !shift) return 0;
+    g_mutex_lock(&engine_mutex);
+    mpp_run_t *run = analysis->run;
+    mpp_shifts_t *s = run->shifts;
+    int ok = s && s->shifts && s->success && run->global_shifts && run->included &&
+        s->num_aps == run->aps->count && s->num_frames == run->num_frames &&
+        frame >= 0 && frame < s->num_frames && point >= 0 && point < s->num_aps;
+    if (ok) {
+        size_t k = (size_t)frame * s->num_aps + point;
+        *shift = (SirilMultipointShift){s->shifts[2*k+1], -s->shifts[2*k],
+            run->global_shifts[2*frame+1], -run->global_shifts[2*frame],
+            !!s->success[k], !!run->included[frame]};
+        ok = isfinite(shift->dx) && isfinite(shift->dy) && isfinite(shift->global_dx) && isfinite(shift->global_dy);
+    }
+    g_mutex_unlock(&engine_mutex);
+    return ok;
+}
 int siril_multipoint_point(SirilMultipointAnalysis *analysis, int index, SirilMultipointPoint *point) {
     if (!analysis || !point) return 0;
     g_mutex_lock(&engine_mutex);

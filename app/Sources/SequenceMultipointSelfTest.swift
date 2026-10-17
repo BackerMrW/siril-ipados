@@ -82,6 +82,17 @@ extension SirilEngine {
             try require(reopened.width == 256 && reopened.height == 256 && reopened.frames == 3 && reopened.included == 2 &&
                 reopened.registered && reopened.points.count == summary.points && !reopened.preview.data.isEmpty,
                 "reopened reference, metadata, points and native preview")
+            try require(reopened.shifts.count == reopened.points.count && reopened.shifts.allSatisfy {
+                $0.included && $0.success && abs($0.dx) < 1e-9 && abs($0.dy) < 1e-9 &&
+                abs($0.globalDX) < 1e-9 && abs($0.globalDY) < 1e-9
+            }, "identity global/local shifts and convergence flags")
+            let excludedShifts = try multipointAnalysis(source, runID: savedRuns[0].id, display: NativeDisplaySettings(), frame: 1)
+            try require(excludedShifts.shifts.count == reopened.points.count && excludedShifts.shifts.allSatisfy { !$0.included && !$0.success },
+                "excluded frame must not be reported as measured")
+            var invalidFrameRejected = false
+            do { _ = try multipointAnalysis(source, runID: savedRuns[0].id, display: NativeDisplaySettings(), frame: 3) }
+            catch { invalidFrameRejected = true }
+            try require(invalidFrameRejected, "out-of-range shift frame accepted")
             try require(reopened.points.allSatisfy { point in
                 point.x >= 0 && point.x < 256 && point.y >= 0 && point.y < 256 && point.structure.isFinite &&
                 point.box.x >= 0 && point.box.y >= 0 && point.box.width > 0 && point.box.height > 0 &&
@@ -95,6 +106,10 @@ extension SirilEngine {
                 guard let reference = siril_multipoint_reference(analysis, &error, capacity) else {
                     siril_multipoint_close(analysis); throw EngineError.failed(String(cString: error))
                 }
+                var invalidShift = SirilMultipointShift()
+                try require(siril_multipoint_shift(analysis, -1, 0, &invalidShift) == 0 &&
+                    siril_multipoint_shift(analysis, 0, Int32(summary.points), &invalidShift) == 0,
+                    "native shift query bounds")
                 siril_multipoint_close(analysis)
                 var referenceError: Float = 0
                 for y in 0..<256 { for x in 0..<256 {
@@ -110,7 +125,7 @@ extension SirilEngine {
                 let editFolder = try multipointFolder(source, runID: editedID)
                 try require(editedID != savedRuns[0].id, "editing must fork completed analysis")
                 var edited = try multipointAnalysis(source, runID: editedID, display: NativeDisplaySettings())
-                try require(edited.points.isEmpty && !edited.registered, "clear must invalidate registered shifts")
+                try require(edited.points.isEmpty && !edited.registered && edited.shifts.isEmpty, "clear must invalidate registered shifts")
                 var emptyRejected = false
                 do { _ = try resumeMultipoint(source, runID: editedID) } catch { emptyRejected = true }
                 try require(emptyRejected, "restack accepted empty edited AP set")

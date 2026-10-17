@@ -149,6 +149,12 @@ SirilMultipointAnalysis *siril_multipoint_open(const char *sidecar, char *error,
 void siril_multipoint_close(SirilMultipointAnalysis *analysis);
 int siril_multipoint_info(SirilMultipointAnalysis *analysis, SirilMultipointAnalysisInfo *info);
 int siril_multipoint_options(SirilMultipointAnalysis *analysis, SirilMultipointOptions *options);
+typedef struct {
+    double dx, dy; /* Local displacement in displayed top-left coordinates. */
+    double global_dx, global_dy;
+    int32_t success, included;
+} SirilMultipointShift;
+int siril_multipoint_shift(SirilMultipointAnalysis *analysis, int frame, int point, SirilMultipointShift *shift);
 int siril_multipoint_point(SirilMultipointAnalysis *analysis, int index, SirilMultipointPoint *point);
 SirilImage *siril_multipoint_reference(SirilMultipointAnalysis *analysis, char *error, size_t capacity);
 /* In-memory AP edits using original helpers. Actions: add=0, move=1,
