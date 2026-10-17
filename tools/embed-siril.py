@@ -927,6 +927,16 @@ assert text.count(needle) == 1
 text = text.replace(needle, '\tif (film->videosource) FFMS_DestroyVideoSource(film->videosource);\n\tmemset(film, 0, sizeof *film);')
 films.write_text(text)
 
+# Compact AVIF uses an mif3 major brand plus an avif subtype. Otherwise the
+# generic ftyp video branch takes over when FFMS2 is enabled, rejecting images
+# that the existing libheif reader already decodes.
+utils = source / "src/core/utils.c"
+text = utils.read_text()
+needle = '\tif (bytes_read >= 12 && memcmp(magic + 4, "ftypavif", 8) == 0)'
+assert text.count(needle) == 1
+text = text.replace(needle, '\tif ((bytes_read >= 12 && memcmp(magic + 4, "ftypavif", 8) == 0) ||\n\t\t\t(bytes_read >= 16 && memcmp(magic + 4, "ftypmif3avif", 12) == 0))')
+utils.write_text(text)
+
 # Raw SER reads flip rows after loading the stored mosaic. Analysis must use
 # that in-memory Bayer orientation; the stack debayer runs before the flip.
 text = mpp.read_text()
