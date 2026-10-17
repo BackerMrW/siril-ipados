@@ -466,6 +466,7 @@ destination = source / "src/ipados"
 destination.mkdir(exist_ok=True)
 for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "SirilDisplay.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc", "heif-runtime-tests.inc", "keyword-runtime-tests.inc", "display-runtime-tests.inc", "icc-runtime-tests.inc", "display-icc-tests.inc", "display-overlay-tests.inc", "display-proof-tests.inc", "cmyk-proof-fixture.inc", "noise-runtime-tests.inc", "large-image-runtime-tests.inc", "SirilPatternRegistration.inc", "SirilCometRegistration.inc", "SirilMultipoint.inc"):
     shutil.copy2(root / "native" / name, destination / name)
+shutil.copy2(root / "native/SirilVideo.inc", destination / "SirilVideo.inc")
 # Reuse the pinned desktop LUT arithmetic without GTK state or its UI cache.
 # The iPad bridge owns the image, level bounds, destination and STF parameters.
 text = (source / "src/gui-gtk4/image_display.c").read_text()
@@ -894,6 +895,37 @@ needle = '\tfits_flip_top_to_bottom(fit);\n\tfit->top_down = TRUE;\n\tsnprintf(f
 assert text.count(needle) == 1
 text = text.replace(needle, needle.replace('= TRUE;', '= FALSE;').replace('"TOP-DOWN"', '"BOTTOM-UP"'))
 ser.write_text(text)
+
+# FFMS output rows can be padded. Sample and copy actual row strides, then
+# describe the flipped FITS buffer consistently when saving converted frames.
+films = source / "src/io/films.c"
+text = films.read_text()
+needle = '\tconst FFMS_Frame *propframe = FFMS_GetFrame(film->videosource, 0, &film->errinfo);'
+assert text.count(needle) == 1
+text = text.replace(needle, needle + '\n\tif (!propframe) { film_close_file(film); return FILM_ERROR; }')
+start = text.index('int film_open_file(')
+end = text.index('static int randPixel(', start)
+body = text[start:end]
+needle = '\t\tfprintf(stderr, "FILM error: %s\\n", film->errmsg);\n\t\treturn FILM_ERROR;'
+assert body.count(needle) == 2
+body = body.replace(needle, needle.replace('\t\treturn', '\t\tFFMS_DestroyIndex(index);\n\t\treturn'))
+text = text[:start] + body + text[end:]
+needle = '\t\t\t\tpx = px - (px % 3);'
+assert text.count(needle) == 1
+text = text.replace(needle, needle + '\n\t\t\t\tpx = (px / 3 / film->width) * frame->Linesize[0] + (px / 3 % film->width) * 3;')
+needle = '\t\t\tfit->pdata[RLAYER][i] = frame->Data[0][j];'
+assert text.count(needle) == 1
+text = text.replace(needle, '\t\t\tj = (i / film->width) * frame->Linesize[0] + (i % film->width) * (convert_rgb_to_gray ? 3 : 1);\n' + needle)
+needle = '\t\t\tfit->pdata[RLAYER][i] = frame->Data[0][j++];'
+assert text.count(needle) == 1
+text = text.replace(needle, '\t\t\tj = (i / film->width) * frame->Linesize[0] + (i % film->width) * 3;\n' + needle)
+needle = '\tfits_flip_top_to_bottom(fit);'
+assert text.count(needle) == 1
+text = text.replace(needle, needle + '\n\tfit->top_down = FALSE;\n\tg_strlcpy(fit->keywords.row_order, "BOTTOM-UP", FLEN_VALUE);')
+needle = '\tFFMS_DestroyVideoSource(film->videosource);'
+assert text.count(needle) == 1
+text = text.replace(needle, '\tif (film->videosource) FFMS_DestroyVideoSource(film->videosource);\n\tmemset(film, 0, sizeof *film);')
+films.write_text(text)
 
 # Raw SER reads flip rows after loading the stored mosaic. Analysis must use
 # that in-memory Bayer orientation; the stack debayer runs before the flip.

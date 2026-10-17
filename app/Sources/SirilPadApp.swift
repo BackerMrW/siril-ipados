@@ -541,6 +541,9 @@ struct ContentView: View {
             checkpoint("START: original comet registration and independent moving-object alignment checks")
             try await engine.cometRegistrationSelfTest()
             checkpoint("PASS: original comet velocity/matrix composition, mono/RGB FITSEQ and 8/16-bit mono/RGB/BGR SER actual aligned pixels, source preservation, persistent anchors, undo/redo and output recovery")
+            checkpoint("START: original video decoder, streaming SER and independent odd-width pixel checks")
+            try await engine.videoSequenceSelfTest()
+            checkpoint("PASS: original video decoder converted odd-width mono/RGB AVI to streaming SER; independent pixels, source preservation, invalid input cleanup and task restore")
             checkpoint("START: sequence registration/crop/storage checks")
             try await engine.sequenceRegistrationSelfTest()
             checkpoint("START: sequence background checks")
@@ -631,14 +634,18 @@ struct ContentView: View {
     private var importMenu: some View {
         Menu("导入", systemImage: "plus") {
             Button("导入图像 / SER 拆帧") { nativeSERImport = false; showImporter = true }
-            Button("打开原生 SER 序列") { nativeSERImport = true; showImporter = true }
+            Button("打开 SER / 视频序列") { nativeSERImport = true; showImporter = true }
         }.disabled(busy)
     }
     @MainActor private func importSERContainer(_ urls: [URL]) async {
         guard let url = urls.first else { return }
-        busy = true; progress = "复制并索引 SER 序列"
+        busy = true; progress = "解码并索引原生序列"
         defer { busy = false; progress = "" }
-        do { sequenceDemo = try await engine.importSERSequence(url); showSequences = true }
+        do {
+            sequenceDemo = url.pathExtension.lowercased() == "ser" ?
+                try await engine.importSERSequence(url) : try await engine.importVideoSequence(url)
+            showSequences = true
+        }
         catch { errors = error.localizedDescription }
     }
     @MainActor private func importFiles(_ urls: [URL]) async {

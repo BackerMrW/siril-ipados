@@ -16,6 +16,8 @@ uint32_t siril_ser_count(const SirilSER *session);
 int siril_ser_complete(const SirilSER *session);
 SirilImage *siril_ser_read(SirilSER *session, uint32_t index, char *error, size_t capacity);
 void siril_ser_close(SirilSER *session);
+/* Probe a private video copy with the original FFMS2 reader, including frame 0. */
+int32_t siril_video_count(const char *path, char *error, size_t capacity);
 typedef struct SirilBackground SirilBackground;
 typedef struct {
     int32_t count, included, layers, reference, width, height, drizzle, type;

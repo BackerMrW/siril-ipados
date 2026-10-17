@@ -12,3 +12,4 @@ app/TestAssets/xisf-*.xisf
 app/TestAssets/ser-*.ser
 
 app/TestAssets/heif-*
+app/TestAssets/video-*.avi

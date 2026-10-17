@@ -1322,3 +1322,4 @@ SirilImage *siril_image_mask_copy(SirilImage *image) {
 #include "SirilDisplay.inc"
 #include "SirilAdvanced.inc"
 #include "SirilSER.inc"
+#include "SirilVideo.inc"

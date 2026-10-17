@@ -155,3 +155,46 @@ for target, name, digest in heif_fixtures:
     output.write_bytes(body)
 Path("app/TestAssets/heif-invalid.heic").write_bytes(b"not a HEIF image")
 print("PASS: verified pinned HEIC/AVIF/16-bit HEIF codec fixtures, padding and alpha")
+
+# Independent uncompressed AVI: odd RGB/gray row widths exercise both DIB
+# padding and FFMS2's aligned output stride without a host video encoder.
+def avi_fixture(name, rgb, frames=3):
+    width, height = 65, 49
+    channels = 3 if rgb else 1
+    pitch = (width * channels + 3) // 4 * 4
+    frame_size = pitch * height
+
+    def chunk(tag, payload):
+        return tag + struct.pack("<I", len(payload)) + payload + (b"\0" if len(payload) % 2 else b"")
+
+    avih = struct.pack("<14I", 33333, frame_size * 30, 0, 0x10, frames, 0, 1,
+                       frame_size, width, height, 0, 0, 0, 0)
+    strh = struct.pack("<4s4sIHH8I4h", b"vids", b"DIB ", 0, 0, 0,
+                       0, 1, 30, 0, frames, frame_size, 0xffffffff, 0, 0, 0, width, height)
+    strf = struct.pack("<IiiHHIIiiII", 40, width, height, 1, channels * 8, 0,
+                       frame_size, 0, 0, 0 if rgb else 256, 0)
+    if not rgb:
+        strf += b"".join(bytes((v, v, v, 0)) for v in range(256))
+    hdrl = chunk(b"LIST", b"hdrl" + chunk(b"avih", avih) +
+                 chunk(b"LIST", b"strl" + chunk(b"strh", strh) + chunk(b"strf", strf)))
+    movi, index, offset = bytearray(), bytearray(), 4
+    for frame in range(frames):
+        pixels = bytearray()
+        for y in reversed(range(height)):
+            for x in range(width):
+                for channel in ((2, 1, 0) if rgb else (0,)):
+                    pixels.append(20 + frame * 7 + y * 2 + x % 13 + channel * 35)
+            pixels.extend(b"\xd5" * (pitch - width * channels))
+        packet = chunk(b"00db", pixels)
+        index.extend(struct.pack("<4sIII", b"00db", 0x10, offset, len(pixels)))
+        movi.extend(packet)
+        offset += len(packet)
+    body = b"AVI " + hdrl + chunk(b"LIST", b"movi" + movi) + chunk(b"idx1", index)
+    Path("app/TestAssets", name + ".avi").write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
+
+
+avi_fixture("video-rgb", True)
+avi_fixture("video-mono", False)
+avi_fixture("video-single", True, 1)
+Path("app/TestAssets/video-invalid.avi").write_bytes(b"not a video")
+print("PASS: independent odd-width RGB/gray AVI, single-frame and invalid video fixtures")
