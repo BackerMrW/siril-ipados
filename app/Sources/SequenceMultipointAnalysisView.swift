@@ -12,6 +12,9 @@ struct SequenceMultipointAnalysisView: View {
     @State private var display = NativeDisplaySettings.load()
     @State private var message = ""
     @State private var loading = false
+    @State private var adding = false
+    @State private var moving = false
+    @State private var halfBox = 16
     private var fixture: Bool { ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] == "multipoint-points" }
     private var point: SequenceMultipointPoint? { snapshot?.points.first { $0.id == selected } }
     var body: some View {
@@ -25,7 +28,7 @@ struct SequenceMultipointAnalysisView: View {
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar { Button("关闭") { dismiss() } }
             .task { await open() }
-            .onChange(of: runID) { _, _ in Task { await refresh() } }
+            .onChange(of: runID) { _, _ in selected = nil; if !loading { Task { await refresh() } } }
             .onChange(of: display) { _, _ in display.save(); Task { await refresh() } }
         }
     }
@@ -35,7 +38,12 @@ struct SequenceMultipointAnalysisView: View {
                 ZoomableImageCanvas(image: image,
                     samples: snapshot.points.map { SampleMarker(id: $0.id, x: Double($0.x), y: Double($0.y), size: 8, median: []) },
                     imageWidth: Double(snapshot.width), imageHeight: Double(snapshot.height), selected: selected, region: point?.box,
+                    movingSamples: moving && !loading && !fixture,
+                    onSampleMove: { index, x, y in Task { await edit(.move(index: index, x: Int(x.rounded()), y: Int(y.rounded()))) } },
                     onTap: { x, y in
+                        if adding && !loading && !fixture {
+                            Task { await edit(.add(x: Int(x.rounded()), y: Int(y.rounded()), halfBox: halfBox)) }; return
+                        }
                         selected = snapshot.points.min { a, b in
                             pow(Double(a.x) - x, 2) + pow(Double(a.y) - y, 2) < pow(Double(b.x) - x, 2) + pow(Double(b.y) - y, 2)
                         }?.id
@@ -63,6 +71,27 @@ struct SequenceMultipointAnalysisView: View {
                     LabeledContent("参考帧", value: "\(snapshot.reference + 1)")
                     LabeledContent("对齐点", value: "\(snapshot.points.count)")
                     LabeledContent("局部配准", value: snapshot.registered ? "已保存" : "尚待计算")
+                }
+                if !fixture {
+                    Section("编辑对齐点") {
+                        Text("首次编辑创建副本。原分析与原叠加结果保留；编辑后需重新计算局部配准。")
+                            .font(.caption)
+                        Toggle("点击添加对齐点", isOn: $adding)
+                        Toggle("拖动移动对齐点", isOn: $moving)
+                        Stepper("框半宽：\(halfBox) px", value: $halfBox, in: 8...128)
+                        if let point {
+                            Button("应用框大小到选中点") { Task { await edit(.resize(index: point.id, halfBox: halfBox)) } }
+                            Button("删除选中点") { Task { await edit(.remove(index: point.id)) } }
+                        }
+                        HStack {
+                            Button("撤销") { Task { await edit(.undo) } }
+                            Button("重做") { Task { await edit(.redo) } }
+                        }
+                        Button("按原参数重新自动布点") { Task { await edit(.auto) } }
+                        Button("清空对齐点") { Task { await edit(.clear) } }
+                        Button("重新配准并叠加为新结果") { Task { await restack() } }
+                            .disabled(snapshot.points.isEmpty)
+                    }.disabled(loading)
                 }
                 if let point {
                     Section("对齐点 \(point.id + 1)") {
@@ -101,7 +130,31 @@ struct SequenceMultipointAnalysisView: View {
             if fixture { value = try await engine.multipointAnalysisFixture(display: settings) }
             else if let current { value = try await engine.multipointAnalysis(location, runID: current, display: settings) }
             else { return }
-            if current == runID && settings == display { snapshot = value; selected = value.points.first?.id; message = "" }
+            if current == runID && settings == display {
+                snapshot = value
+                if !value.points.contains(where: { $0.id == selected }) { selected = value.points.first?.id }
+                message = ""
+            }
         } catch { if current == runID { message = error.localizedDescription; snapshot = nil } }
+    }
+    @MainActor private func edit(_ change: SequenceMultipointEdit) async {
+        guard let runID, !loading else { return }
+        loading = true
+        do {
+            let edited = try await engine.editMultipoint(location, runID: runID, edit: change)
+            runs = try await engine.multipointRuns(location); self.runID = edited
+            await refresh()
+        } catch { message = error.localizedDescription }
+        loading = false
+    }
+    @MainActor private func restack() async {
+        guard let runID, !loading else { return }
+        loading = true
+        do {
+            let output = try await engine.resumeMultipoint(location, runID: runID)
+            runs = try await engine.multipointRuns(location); self.runID = output.deletingLastPathComponent().lastPathComponent
+            await refresh()
+        } catch { message = error.localizedDescription }
+        loading = false
     }
 }

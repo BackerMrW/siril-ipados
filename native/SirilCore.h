@@ -147,6 +147,16 @@ void siril_multipoint_close(SirilMultipointAnalysis *analysis);
 int siril_multipoint_info(SirilMultipointAnalysis *analysis, SirilMultipointAnalysisInfo *info);
 int siril_multipoint_point(SirilMultipointAnalysis *analysis, int index, SirilMultipointPoint *point);
 SirilImage *siril_multipoint_reference(SirilMultipointAnalysis *analysis, char *error, size_t capacity);
+/* In-memory AP edits using original helpers. Actions: add=0, move=1,
+ * remove=2, set half-box=3, clear=4, auto-place=5. Coordinates are displayed. */
+int siril_multipoint_edit(SirilMultipointAnalysis *analysis, int action, int index,
+    int x, int y, int half_box, char *error, size_t capacity);
+int siril_multipoint_restore_points(SirilMultipointAnalysis *analysis,
+    const SirilMultipointPoint *points, int count, char *error, size_t capacity);
+/* count=-1 preserves the saved APs; otherwise use the supplied display-coordinate snapshot. */
+SirilImage *siril_sequence_multipoint_resume(const char *directory, const char *name,
+        const char *input, const SirilMultipointPoint *points, int count,
+        const char *sidecar, SirilMultipointInfo *info, char *error, size_t capacity);
 typedef struct {
     uint64_t total, good;
     double mean, median, sigma, average_deviation, mad, sqrt_bwmv, minimum, maximum, norm;

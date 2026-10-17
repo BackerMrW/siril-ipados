@@ -53,7 +53,12 @@ struct SequenceMultipointSummary: Codable, Sendable {
     }
 }
 extension SirilEngine {
-    func stackMultipoint(_ location: SequenceLocation, settings: SequenceMultipointSettings) throws -> URL {
+    func resumeMultipoint(_ location: SequenceLocation, runID: String) throws -> URL {
+        let folder = try multipointFolder(location, runID: runID)
+        let settings = try JSONDecoder().decode(SequenceMultipointSettings.self, from: Data(contentsOf: owned("multipoint.json", under: folder)))
+        return try stackMultipoint(location, settings: settings, resuming: runID)
+    }
+    func stackMultipoint(_ location: SequenceLocation, settings: SequenceMultipointSettings, resuming runID: String? = nil) throws -> URL {
         let snapshot = try inspectSequence(location)
         guard snapshot.info.included >= 2, snapshot.info.drizzle == 0 else {
             throw EngineError.failed("多点配准需要至少两张参与帧，暂不接受 Drizzle 后的序列。")
@@ -61,12 +66,22 @@ extension SirilEngine {
         try settings.validate(width: Int(snapshot.info.width), height: Int(snapshot.info.height))
         let process = try sequenceFolder(location), job = process.deletingLastPathComponent()
         let source = try owned(location.name, under: process), sourceBytes = try Data(contentsOf: source)
+        let inputFolder = try runID.map { try multipointFolder(location, runID: $0) }
+        let inputAnalysis = try inputFolder.map { try owned("analysis.mpp", under: $0) }
+        let overrides = try inputFolder.flatMap { try multipointHistory($0)?.current }
+        if let inputFolder {
+            guard try Data(contentsOf: owned("source.seq", under: inputFolder)) == sourceBytes else {
+                throw EngineError.failed("序列选择或参考帧已变化，请重新生成多点分析。")
+            }
+        }
+        let nativePoints = try overrides?.map { try $0.nativePoint() }
         let folder = try owned(UUID().uuidString, under: try owned("SequenceRuns", under: job))
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let sidecar = try owned("analysis.mpp", under: folder), output = try owned("result.fits", under: folder)
         try sourceBytes.write(to: folder.appendingPathComponent("source.seq"), options: .atomic)
         try JSONEncoder().encode(location).write(to: folder.appendingPathComponent("source-location.json"), options: .atomic)
         try JSONEncoder().encode(settings).write(to: folder.appendingPathComponent("multipoint.json"), options: .atomic)
+        if let runID { try JSONEncoder().encode(runID).write(to: folder.appendingPathComponent("parent-analysis.json"), options: .atomic) }
         try JSONEncoder().encode(JobState(created: Date(), updated: Date(), state: "运行中", inputCount: Int(snapshot.info.included), message: "原版多点配准与叠加"))
             .write(to: folder.appendingPathComponent("job.json"), options: .atomic)
         activeJobIDs.insert(location.job); defer { activeJobIDs.remove(location.job) }
@@ -74,7 +89,18 @@ extension SirilEngine {
             var error = [CChar](repeating: 0, count: 4096), options = settings.native, info = SirilMultipointInfo()
             let capacity = error.count
             let image = process.path.withCString { directory in location.name.withCString { name in sidecar.path.withCString {
-                siril_sequence_multipoint_stack(directory, name, $0, &options, &info, &error, capacity)
+                if let inputAnalysis {
+                    let target = $0
+                    return inputAnalysis.path.withCString { input in
+                        if let nativePoints {
+                            return nativePoints.withUnsafeBufferPointer {
+                                siril_sequence_multipoint_resume(directory, name, input, $0.baseAddress, Int32($0.count), target, &info, &error, capacity)
+                            }
+                        }
+                        return siril_sequence_multipoint_resume(directory, name, input, nil, -1, target, &info, &error, capacity)
+                    }
+                }
+                return siril_sequence_multipoint_stack(directory, name, $0, &options, &info, &error, capacity)
             } } }
             try? Self.processingLog().write(to: folder.appendingPathComponent("processing.log"), atomically: true, encoding: .utf8)
             guard let image else { throw EngineError.failed(String(cString: error)) }

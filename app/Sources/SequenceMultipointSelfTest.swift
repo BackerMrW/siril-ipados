@@ -101,6 +101,68 @@ extension SirilEngine {
                 siril_image_free(reference)
                 try require(referenceError < 2.0 / 65535, "independent saved mean-frame pixels after analysis handle closed")
                 try Data(contentsOf: sidecar).write(to: documents.appendingPathComponent("native-multipoint-analysis.mpp"), options: .atomic)
+                let originalAnalysis = try Data(contentsOf: sidecar), originalResult = try Data(contentsOf: result)
+                var editedID = try editMultipoint(source, runID: savedRuns[0].id, edit: .clear)
+                let editFolder = try multipointFolder(source, runID: editedID)
+                try require(editedID != savedRuns[0].id, "editing must fork completed analysis")
+                var edited = try multipointAnalysis(source, runID: editedID, display: NativeDisplaySettings())
+                try require(edited.points.isEmpty && !edited.registered, "clear must invalidate registered shifts")
+                var emptyRejected = false
+                do { _ = try resumeMultipoint(source, runID: editedID) } catch { emptyRejected = true }
+                try require(emptyRejected, "restack accepted empty edited AP set")
+                editedID = try editMultipoint(source, runID: editedID, edit: .add(x: 128, y: 128, halfBox: 16))
+                editedID = try editMultipoint(source, runID: editedID, edit: .resize(index: 0, halfBox: 20))
+                editedID = try editMultipoint(source, runID: editedID, edit: .move(index: 0, x: 130, y: 126))
+                edited = try multipointAnalysis(source, runID: editedID, display: NativeDisplaySettings())
+                try require(edited.points.count == 1 && edited.points[0].x == 130 && edited.points[0].y == 126 &&
+                    edited.points[0].box.width == 40 && edited.points[0].box.height == 40, "native add/resize/move and top-left coordinate roundtrip")
+                let movedPoints = edited.points
+                editedID = try editMultipoint(source, runID: editedID, edit: .remove(index: 0))
+                editedID = try editMultipoint(source, runID: editedID, edit: .undo)
+                edited = try multipointAnalysis(source, runID: editedID, display: NativeDisplaySettings())
+                try require(edited.points == movedPoints, "undo must restore exact bounds and structure")
+                editedID = try editMultipoint(source, runID: editedID, edit: .redo)
+                edited = try multipointAnalysis(source, runID: editedID, display: NativeDisplaySettings())
+                try require(edited.points.isEmpty, "redo must restore removal")
+                let historyPath = editFolder.appendingPathComponent("multipoint-edit.json")
+                let beforeFailure = try Data(contentsOf: historyPath)
+                var editRejected = false
+                do { _ = try editMultipoint(source, runID: editedID, edit: .add(x: -1, y: 128, halfBox: 16)) }
+                catch { editRejected = true }
+                try require(editRejected && (try Data(contentsOf: historyPath)) == beforeFailure, "failed edit changed persisted history")
+                editedID = try editMultipoint(source, runID: editedID, edit: .auto)
+                edited = try multipointAnalysis(source, runID: editedID, display: NativeDisplaySettings())
+                try require(edited.points.count == summary.points, "original auto-placement after empty AP set")
+                editedID = try editMultipoint(source, runID: editedID, edit: .remove(index: 0))
+                let resumed = try resumeMultipoint(source, runID: editedID)
+                let resumedSummary = try JSONDecoder().decode(SequenceMultipointSummary.self,
+                    from: Data(contentsOf: resumed.deletingLastPathComponent().appendingPathComponent("multipoint-summary.json")))
+                try require(resumedSummary.points == summary.points - 1 && resumedSummary.included == 2,
+                    "resume regenerated automatic grid instead of consuming edited APs")
+                guard let resumedImage = resumed.path.withCString({ siril_image_read($0, &error, capacity) }) else {
+                    throw EngineError.failed(String(cString: error))
+                }
+                var resumeError: Float = 0
+                for y in 116..<140 { for x in 116..<140 {
+                    var pixel = [Float](repeating: 0, count: 3)
+                    if siril_image_pixel(resumedImage, Int32(x), Int32(y), &pixel) != 1 { resumeError = 1 }
+                    resumeError = max(resumeError, abs(pixel[0] - Float(expected(x, y, 0)) / 65535))
+                } }
+                siril_image_free(resumedImage)
+                try require(resumeError < 4.0 / 65535, "edited AP restack changed independent identity pixels: \(resumeError)")
+                try require(try Data(contentsOf: sidecar) == originalAnalysis && Data(contentsOf: result) == originalResult,
+                    "editing/restack changed original analysis or result")
+                try require(try Data(contentsOf: editFolder.appendingPathComponent("analysis.mpp")) == originalAnalysis,
+                    "undo history duplicated or rewrote base mean frame")
+                for step in 0..<32 {
+                    editedID = try editMultipoint(source, runID: editedID, edit: .move(index: 0, x: 120 + step % 2, y: 128))
+                }
+                let limited = try multipointHistory(editFolder)
+                try require(limited?.past.count == 30 && limited?.future.isEmpty == true, "history must keep at most 30 snapshots")
+                editedID = try editMultipoint(source, runID: editedID, edit: .undo)
+                editedID = try editMultipoint(source, runID: editedID, edit: .resize(index: 0, halfBox: 18))
+                let branched = try multipointHistory(editFolder)
+                try require(branched?.future.isEmpty == true, "editing after undo must discard redo branch")
             }
             var wrongSourceRejected = false
             do { _ = try multipointAnalysis(SequenceLocation(job: source.job, name: "unrelated.seq"), runID: savedRuns[0].id, display: NativeDisplaySettings()) }
@@ -108,6 +170,7 @@ extension SirilEngine {
             try require(wrongSourceRejected, "opened analysis belonging to another sequence")
             if channels == 3 { for planet in [true, false] {
                 var local = settings; local.dewarp = true; local.planet = planet
+                if planet { local.refine = true; local.smoothRadius = 2.5 }
                 let warped = try stackMultipoint(source, settings: local)
                 guard let aligned = warped.path.withCString({ siril_image_read($0, &error, capacity) }) else { throw EngineError.failed(String(cString: error)) }
                 var alignedInfo = SirilImageInfo()

@@ -850,3 +850,17 @@ needle = "\tfree(err);\n\treturn ret;"
 assert body.count(needle) == 1
 body = body.replace(needle, "\tfree(err);\n\tfree(snr_opt);\n\treturn ret;")
 photometry.write_text(text[:start] + body + text[end:])
+
+# Auto-placement is called directly by the native AP editor, outside the
+# original GUI worker. Keep C++ allocation/OpenCV failures behind the C ABI.
+mpp = source / "src/registration/mpp.cpp"
+with mpp.open("a") as output:
+    output.write('''
+extern "C" mpp_status_t embedded_mpp_ap_replace(mpp_run_t *run) {
+    try { return mpp_ap_replace(run, run->cfg); }
+    catch (const std::exception &e) {
+        siril_log_message("AP placement failed: %s\\n", e.what());
+        return MPP_ENOMEM;
+    }
+}
+''')
