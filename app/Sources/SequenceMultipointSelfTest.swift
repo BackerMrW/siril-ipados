@@ -290,5 +290,6 @@ extension SirilEngine {
             do { _ = try stackMultipoint(source, settings: invalid) } catch { rejected = true }
             try require(rejected, "invalid frame selection accepted")
         }
+        try multipointWarpSelfTest()
     }
 }
