@@ -82,9 +82,10 @@ struct SequenceMultipointStackAdvancedControls: View {
                 Picker("叠加方式", selection: $settings.stackMethod) {
                     Text("局部图块融合").tag(0); Text("稠密形变（实验性）").tag(1)
                 }
-                Picker("CFA 去马赛克", selection: $settings.debayer) {
+                Picker("SER CFA 去马赛克", selection: $settings.debayer) {
                     ForEach(debayerNames.indices, id: \.self) { Text(debayerNames[$0]).tag($0) }
                 }
+                Text("此选项用于原生 SER 序列。").font(.caption).foregroundStyle(.secondary)
         }
     }
 }

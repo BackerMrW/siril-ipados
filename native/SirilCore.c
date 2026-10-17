@@ -6,6 +6,7 @@
 #include "core/arithm.h"
 #include "core/masks.h"
 #include "io/image_format_fits.h"
+#include "io/ser.h"
 #include "filters/mtf.h"
 #include "filters/deconvolution/deconvolution.h"
 #include "algos/siril_random.h"
@@ -114,12 +115,20 @@ static sequence *embedded_sequence(const char *directory, const char *name, char
         if (error && capacity) snprintf(error, capacity, "Cannot open sequence directory");
         return NULL;
     }
+    gboolean previous_debayer = com.pref.debayer.open_debayer;
+    com.pref.debayer.open_debayer = FALSE;
     sequence *seq = readseqfile(name);
-    if (!seq) { if (error && capacity) snprintf(error, capacity, "Cannot read sequence %s", name); return NULL; }
+    if (!seq) {
+        com.pref.debayer.open_debayer = previous_debayer;
+        if (error && capacity) snprintf(error, capacity, "Cannot read sequence %s", name);
+        return NULL;
+    }
     gchar *base = g_strndup(name, strlen(name) - 4);
     gboolean matching = seq->seqname && !strcmp(seq->seqname, base);
     g_free(base);
-    if (!matching || seq->number < 1 || seq_check_basic_data(seq, FALSE) < 0 || seq->nb_layers < 1 || seq->nb_layers > 3) {
+    int invalid = !matching || seq->number < 1 || seq_check_basic_data(seq, FALSE) < 0 || seq->nb_layers < 1 || seq->nb_layers > 3;
+    com.pref.debayer.open_debayer = previous_debayer;
+    if (invalid) {
         if (error && capacity) snprintf(error, capacity, "Invalid or unavailable sequence data");
         free_sequence(seq, TRUE);
         return NULL;
@@ -131,7 +140,10 @@ int siril_sequence_discover(const char *directory, char *error, size_t error_siz
     initialize();
     if (error && error_size) error[0] = 0;
     gchar *message = NULL;
+    gboolean previous_debayer = com.pref.debayer.open_debayer;
+    com.pref.debayer.open_debayer = FALSE;
     int ok = directory && !siril_change_dir(directory, &message) && !check_seq();
+    com.pref.debayer.open_debayer = previous_debayer;
     if (!ok && error && error_size) snprintf(error, error_size, "Cannot index converted sequence frames");
     g_mutex_unlock(&engine_mutex);
     return ok;
@@ -190,7 +202,11 @@ SirilImage *siril_sequence_frame(const char *directory, const char *name, int in
     if (!seq) goto done;
     if (index >= 0 && index < seq->number) {
         image = g_try_new0(SirilImage, 1);
-        if (image && seq_read_frame(seq, index, &image->fit, TRUE, -1)) {
+        gboolean previous_debayer = com.pref.debayer.open_debayer;
+        if (seq->type == SEQ_SER) com.pref.debayer.open_debayer = FALSE;
+        int failed = image && seq_read_frame(seq, index, &image->fit, TRUE, -1);
+        com.pref.debayer.open_debayer = previous_debayer;
+        if (failed) {
             clearfits(&image->fit); g_free(image); image = NULL;
         }
     }
@@ -198,6 +214,18 @@ SirilImage *siril_sequence_frame(const char *directory, const char *name, int in
     /* FITSEQ attaches a borrowed HDU handle; the returned image owns pixels
      * and metadata, while the sequence reader is closed below. */
     if (image) image->fit.fptr = NULL;
+    if (image && seq->type == SEQ_SER) {
+        import_metadata_from_serfile(seq->ser_file, &image->fit);
+        // Upstream SER reads flip raster rows but keep TOP-DOWN metadata.
+        // Use the same displayed-pixel boundary as standalone SER import.
+        image->fit.top_down = FALSE;
+        if (image->fit.keywords.bayer_pattern[0]) {
+            sensor_pattern pattern = get_cfa_pattern_index_from_string(image->fit.keywords.bayer_pattern);
+            adjust_Bayer_pattern_orientation(&pattern, image->fit.ry, TRUE);
+            g_strlcpy(image->fit.keywords.bayer_pattern, filter_pattern[pattern], FLEN_VALUE);
+        }
+        g_strlcpy(image->fit.keywords.row_order, "BOTTOM-UP", FLEN_VALUE);
+    }
     free_sequence(seq, TRUE);
 done:
     g_mutex_unlock(&engine_mutex);

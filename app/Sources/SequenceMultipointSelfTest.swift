@@ -313,5 +313,6 @@ extension SirilEngine {
             try require(rejected, "invalid frame selection accepted")
         }
         try multipointWarpSelfTest()
+        try serSequenceSelfTest()
     }
 }

@@ -148,6 +148,7 @@ struct ContentView: View {
     private let engine = SirilEngine()
     @State private var files: [FITSRecord] = []
     @State private var showImporter = false
+    @State private var nativeSERImport = false
     @State private var busy = false
     @State private var importTask: Task<Void, Never>?
     @State private var progress = ""
@@ -228,11 +229,11 @@ struct ContentView: View {
             }
             .navigationTitle("Siril iPad")
             .toolbar {
-                Button("导入", systemImage: "plus") { showImporter = true }.disabled(busy)
+                importMenu
                 Button("处理", systemImage: "slider.horizontal.3") { showProcessing = true }.disabled(busy)
                 Button("记录", systemImage: "clock.arrow.circlepath") { showHistory = true }.disabled(busy)
                 Menu("选择", systemImage: "checklist") {
-                    Button("原版序列工作区") { showSequences = true }
+                    Button("原版序列工作区") { sequenceDemo = nil; showSequences = true }
                     Button("选中拍摄帧") { selected = Set(files.filter { $0.role != .results }.map(\.id)) }
                     Button("取消全选") { selected.removeAll() }
                     Button("删除勾选的图像", role: .destructive) { deleteIDs = selected; confirmDelete = true }.disabled(selected.isEmpty)
@@ -278,7 +279,7 @@ struct ContentView: View {
             }
             .navigationTitle(activeFile?.displayName ?? "图像工作区")
             .toolbar {
-                Button("导入", systemImage: "plus") { showImporter = true }.disabled(busy)
+                importMenu
                 Button("处理", systemImage: "slider.horizontal.3") { showProcessing = true }.disabled(busy)
                 Button("记录", systemImage: "clock.arrow.circlepath") { showHistory = true }.disabled(busy)
                 Button("删除与存储", systemImage: "trash") { showStorage = true }.disabled(busy)
@@ -346,9 +347,12 @@ struct ContentView: View {
         .confirmationDialog("删除 \(deleteIDs.count) 张图像？可在最近删除中恢复。", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("移入最近删除", role: .destructive) { Task { await deleteSelected() } }
         }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.item], allowsMultipleSelection: !nativeSERImport) { result in
             switch result {
-            case .success(let urls): importTask = Task { await importFiles(urls); importTask = nil }
+            case .success(let urls): importTask = Task {
+                if nativeSERImport { await importSERContainer(urls) } else { await importFiles(urls) }
+                importTask = nil
+            }
             case .failure(let error): errors = error.localizedDescription
             }
         }
@@ -411,7 +415,9 @@ struct ContentView: View {
                 }
                 if ProcessInfo.processInfo.environment["SIRIL_BATCH_VIEW_CHECK"] == "1" { showProcessing = true }
                 if ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_VIEW_CHECK"] == "1" {
-                    let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-sequence-location.json")
+                    let file = ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] == "ser" ?
+                        "simulator-ser-sequence-location.json" : "simulator-sequence-location.json"
+                    let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(file)
                     sequenceDemo = try? JSONDecoder().decode(SequenceLocation.self, from: Data(contentsOf: url))
                     showSequences = sequenceDemo != nil
                 }
@@ -621,6 +627,19 @@ struct ContentView: View {
         }
     }
 
+    private var importMenu: some View {
+        Menu("导入", systemImage: "plus") {
+            Button("导入图像 / SER 拆帧") { nativeSERImport = false; showImporter = true }
+            Button("打开原生 SER 序列") { nativeSERImport = true; showImporter = true }
+        }.disabled(busy)
+    }
+    @MainActor private func importSERContainer(_ urls: [URL]) async {
+        guard let url = urls.first else { return }
+        busy = true; progress = "复制并索引 SER 序列"
+        defer { busy = false; progress = "" }
+        do { sequenceDemo = try await engine.importSERSequence(url); showSequences = true }
+        catch { errors = error.localizedDescription }
+    }
     @MainActor private func importFiles(_ urls: [URL]) async {
         busy = true
         defer { busy = false; progress = "" }
