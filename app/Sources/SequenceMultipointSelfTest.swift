@@ -71,6 +71,25 @@ extension SirilEngine {
             } }
             siril_image_free(image)
             try require(worst < 4.0 / 65535, "independent identical-frame pixels, channels=\(channels), error=\(worst)")
+            if channels == 3 {
+                var local = settings; local.dewarp = true
+                let warped = try stackMultipoint(source, settings: local)
+                guard let aligned = warped.path.withCString({ siril_image_read($0, &error, capacity) }) else { throw EngineError.failed(String(cString: error)) }
+                var alignedInfo = SirilImageInfo()
+                try require(siril_image_info(aligned, &alignedInfo) != 0 && alignedInfo.channels == 3 &&
+                    alignedInfo.width > 200 && alignedInfo.width <= 256 && alignedInfo.height > 200 && alignedInfo.height <= 256,
+                    "original locally aligned common-area geometry")
+                var colorError: Float = 0, peak: Float = 0
+                for y in 0..<Int(alignedInfo.height) { for x in 0..<Int(alignedInfo.width) {
+                    var pixel = [Float](repeating: 0, count: 3)
+                    if siril_image_pixel(aligned, Int32(x), Int32(y), &pixel) != 3 { colorError = 1 }
+                    peak = max(peak, pixel[0])
+                    colorError = max(colorError, max(abs(pixel[1] - 0.8 * pixel[0]), abs(pixel[2] - 0.6 * pixel[0])))
+                } }
+                siril_image_free(aligned)
+                try require(peak > 0.3 && colorError < 4.0 / 65535,
+                    "independent RGB linearity under original local warps and excluded bright-frame isolation, error=\(colorError)")
+            }
             try require(try Data(contentsOf: process.appendingPathComponent(source.name)) == metadata, "changed source sequence metadata")
             for (i, input) in inputs.enumerated() { try require(try Data(contentsOf: input.url) == sourceBytes[i], "changed source FITS pixels") }
             var invalid = settings; invalid.stackPercent = 101

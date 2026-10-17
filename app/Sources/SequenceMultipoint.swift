@@ -9,7 +9,6 @@ struct SequenceMultipointSettings: Codable, Equatable, Sendable {
     var registerPercent = 100
     var stackPercent = 100
     var normalize = true
-    var subpixel = false
     var refine = true
     var dewarp = true
     var skipFailed = false
@@ -23,7 +22,7 @@ struct SequenceMultipointSettings: Codable, Equatable, Sendable {
         var value = SirilMultipointOptions()
         value.alignment = planet ? 1 : 0; value.half_box = Int32(halfBox); value.search = Int32(search)
         value.register_percent = Int32(registerPercent); value.stack_percent = Int32(stackPercent)
-        value.normalize = normalize ? 1 : 0; value.subpixel = subpixel ? 1 : 0
+        value.normalize = normalize ? 1 : 0
         value.refine = refine ? 1 : 0; value.dewarp = dewarp ? 1 : 0
         value.skip_failed = skipFailed ? 1 : 0; value.float_output = floatOutput ? 1 : 0
         value.structure = structure; value.scale = scale; value.smooth_radius = smoothRadius

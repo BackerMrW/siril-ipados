@@ -121,7 +121,7 @@ int siril_sequence_manual_stars_register(const char *directory, const char *name
     char *error, size_t capacity);
 typedef struct {
     int32_t alignment, half_box, search, register_percent, stack_percent;
-    int32_t normalize, subpixel, refine, dewarp, skip_failed, float_output;
+    int32_t normalize, refine, dewarp, skip_failed, float_output;
     double structure, scale, smooth_radius, background_fraction, background_blend;
 } SirilMultipointOptions;
 typedef struct {

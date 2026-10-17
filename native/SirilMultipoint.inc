@@ -18,7 +18,25 @@ static gpointer embedded_multipoint_thread(gpointer pointer) {
     int result = mpp_analyze(args->seq, &args->config, &run);
     if (!result && (!run || !run->aps || run->aps->count < 1)) result = MPP_ENODATA;
     if (!result) result = mpp_recompute_qualities(args->seq, run);
-    if (!result) result = mpp_compute_shifts(args->seq, run->cfg, run);
+    if (!result && args->config.alignment_points_de_warp) {
+        result = mpp_compute_shifts(args->seq, run->cfg, run);
+    } else if (!result) {
+        // Pinned MPP exposes de_warp in its GUI/config but never reads it.
+        // A global-only stack uses the original AP merge with zero local
+        // displacement; the global subpixel offsets remain in the run.
+        size_t count = (size_t)run->num_frames * run->aps->count;
+        run->shifts = calloc(1, sizeof *run->shifts);
+        if (!run->shifts) result = MPP_ENOMEM;
+        else {
+            run->shifts->num_frames = run->num_frames;
+            run->shifts->num_aps = run->aps->count;
+            run->shifts->shifts = calloc(count * 2, sizeof(double));
+            run->shifts->success = calloc(count, sizeof(uint8_t));
+            if (!run->shifts->shifts || !run->shifts->success) result = MPP_ENOMEM;
+            else for (int i = 0; i < run->num_frames; i++) if (run->included[i])
+                memset(run->shifts->success + (size_t)i * run->aps->count, 1, run->aps->count);
+        }
+    }
     if (!result) result = mpp_sidecar_write(args->sidecar, run);
     if (!result) {
         args->info = (SirilMultipointInfo){run->num_frames, args->seq->selnum,
@@ -73,7 +91,7 @@ SirilImage *siril_sequence_multipoint_stack(const char *directory, const char *n
     args.config.alignment_points_frame_percent = options->register_percent;
     args.config.stack_frame_percent = options->stack_percent;
     args.config.frames_normalization = !!options->normalize;
-    args.config.alignment_points_local_search_subpixel = !!options->subpixel;
+    // The pinned streaming correlator always fits subpixel peaks.
     args.config.alignment_points_refine_reference = !!options->refine;
     args.config.alignment_points_de_warp = !!options->dewarp;
     args.config.alignment_points_smooth_radius = options->smooth_radius;

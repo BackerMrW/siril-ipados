@@ -13,7 +13,7 @@ struct SequenceMultipointControls: View {
             Stepper("局部搜索：\(settings.search) px", value: $settings.search, in: 1...64)
             BatchNumber(title: "结构阈值", value: $settings.structure)
             Stepper("参与局部配准：\(settings.registerPercent)%", value: $settings.registerPercent, in: 1...100)
-            Toggle("局部亚像素测量", isOn: $settings.subpixel)
+            Text("局部位移使用亚像素测量。").font(.caption).foregroundStyle(.secondary)
             Toggle("细化局部参考图", isOn: $settings.refine)
             Toggle("局部形变校正", isOn: $settings.dewarp)
             BatchNumber(title: "位移平滑半径（网格间距）", value: $settings.smoothRadius)
