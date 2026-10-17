@@ -14,6 +14,12 @@ static int cfa_format_color_checks(const char *directory) {
             image = siril_ser_read(session, 0, error, sizeof error); siril_ser_close(session);
         } else image = siril_image_read_any(path, error, sizeof error);
         CHECK(image);
+        if (k == 2) {
+            SirilChannelStatistics direct[3];
+            CHECK(siril_image_statistics(image, NULL, 1, direct) == 3);
+            const double expected[] = {10000. / 65535, 20000. / 65535, 40000. / 65535};
+            for (int c = 0; c < 3; c++) CHECK(fabs(direct[c].mean - expected[c]) < 1e-6);
+        }
         snprintf(output, sizeof output, "%s/colored-cfa-%d.fits", directory, k);
         CHECK(siril_image_write(image, output)); siril_image_free(image);
         fits fit = {0}; CHECK(readfits(output, &fit, NULL, TRUE) == 0);

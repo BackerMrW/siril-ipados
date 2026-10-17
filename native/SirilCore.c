@@ -223,6 +223,7 @@ SirilImage *siril_sequence_frame(const char *directory, const char *name, int in
             sensor_pattern pattern = get_cfa_pattern_index_from_string(image->fit.keywords.bayer_pattern);
             adjust_Bayer_pattern_orientation(&pattern, image->fit.ry, TRUE);
             g_strlcpy(image->fit.keywords.bayer_pattern, filter_pattern[pattern], FLEN_VALUE);
+            image->fit.debayer_checked = FALSE;
         }
         g_strlcpy(image->fit.keywords.row_order, "BOTTOM-UP", FLEN_VALUE);
     }
