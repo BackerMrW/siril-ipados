@@ -3,6 +3,7 @@
 from pathlib import Path
 import struct
 import zlib
+import json
 from datetime import datetime
 
 size = 256
@@ -198,3 +199,12 @@ avi_fixture("video-mono", False)
 avi_fixture("video-single", True, 1)
 Path("app/TestAssets/video-invalid.avi").write_bytes(b"not a video")
 print("PASS: independent odd-width RGB/gray AVI, single-frame and invalid video fixtures")
+
+# Compressed fixtures are committed synthetic data. A host encoder is needed
+# only to regenerate them; normal Apple builds verify the recorded bytes.
+video_manifest = json.loads(Path("app/TestAssets/video-codecs.json").read_text(encoding="utf-8"))
+for name, entry in video_manifest["files"].items():
+    body = Path("app/TestAssets", name).read_bytes()
+    if hashlib.sha256(body).hexdigest() != entry["sha256"]:
+        raise RuntimeError("Compressed video fixture checksum mismatch: " + name)
+print("PASS: verified synthetic lossless PNG MOV, H.264 RGB MP4 and VP9 RGB WebM fixtures")

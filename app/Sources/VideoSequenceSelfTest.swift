@@ -8,9 +8,11 @@ extension SirilEngine {
         func require(_ value: Bool, _ message: String) throws {
             if !value { throw EngineError.failed("Video sequence: " + message) }
         }
-        for rgb in [false, true] {
-            guard let source = Bundle.main.url(forResource: rgb ? "video-rgb" : "video-mono", withExtension: "avi") else {
-                throw EngineError.failed("Missing independent AVI fixture")
+        let fixtures = [("video-mono", "avi", false), ("video-rgb", "avi", true),
+                        ("video-png", "mov", true), ("video-h264", "mp4", true), ("video-vp9", "webm", true)]
+        for (name, ext, rgb) in fixtures {
+            guard let source = Bundle.main.url(forResource: name, withExtension: ext) else {
+                throw EngineError.failed("Missing independent video fixture: " + name)
             }
             let original = try Data(contentsOf: source)
             let location = try importVideoSequence(source), process = try sequenceFolder(location)
@@ -37,7 +39,7 @@ extension SirilEngine {
                     }
                 } }
                 siril_image_free(image)
-                try require(worst < 1e-7, "independent AVI pixels, row padding/orientation/order, RGB=\(rgb), error=\(worst)")
+                try require(worst < 1e-7, "independent video pixels, row padding/orientation/order, fixture=\(name), error=\(worst)")
             }
             try editSequence(location, selection: SequenceSelection(included: [true, false, true], reference: 2))
             try require(try inspectSequence(location).selection == SequenceSelection(included: [true, false, true], reference: 2),
@@ -48,7 +50,7 @@ extension SirilEngine {
             try trashJob(job)
             guard let entry = trashEntries().first(where: { $0.jobName == location.job }) else { throw EngineError.failed("Video trash missing") }
             _ = try restoreTrash(entry.id)
-            try require(try Data(contentsOf: root.appendingPathComponent("video/capture.avi")) == original &&
+            try require(try Data(contentsOf: root.appendingPathComponent("video/capture." + ext)) == original &&
                 Data(contentsOf: source) == original && Data(contentsOf: process.appendingPathComponent("capture.ser")) == converted &&
                 inspectSequence(location).info.count == 3, "original video/SER/index lost or modified through task restore")
         }

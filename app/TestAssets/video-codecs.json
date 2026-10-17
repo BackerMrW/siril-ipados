@@ -1,0 +1,43 @@
+{
+  "source": "RGB24 top-down, 65x49, 3 frames at 30 fps; pixel = 20 + frame*7 + y*2 + x%13 + channel*35",
+  "encoder": "ffmpeg version 7.1-essentials_build-www.gyan.dev Copyright (c) 2000-2024 the FFmpeg developers",
+  "files": {
+    "video-png.mov": {
+      "sha256": "ac0c4ef64721e029d0d6ab62c132895a83b5be22632461dd932a9ff0ebef3a45",
+      "options": [
+        "-c:v",
+        "png",
+        "-pix_fmt",
+        "rgb24"
+      ]
+    },
+    "video-h264.mp4": {
+      "sha256": "c79351470e60244a472954f136a95a2b9f49591025682f5d390f7fa269226fe3",
+      "options": [
+        "-c:v",
+        "libx264rgb",
+        "-crf",
+        "0",
+        "-preset",
+        "medium",
+        "-pix_fmt",
+        "rgb24"
+      ]
+    },
+    "video-vp9.webm": {
+      "sha256": "ce404283a656484ee8f29ae07158163baa468e30484435fccf59c62cad31f3ec",
+      "options": [
+        "-c:v",
+        "libvpx-vp9",
+        "-lossless",
+        "1",
+        "-pix_fmt",
+        "gbrp",
+        "-colorspace",
+        "rgb",
+        "-color_range",
+        "pc"
+      ]
+    }
+  }
+}

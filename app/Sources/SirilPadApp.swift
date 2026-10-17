@@ -543,7 +543,7 @@ struct ContentView: View {
             checkpoint("PASS: original comet velocity/matrix composition, mono/RGB FITSEQ and 8/16-bit mono/RGB/BGR SER actual aligned pixels, source preservation, persistent anchors, undo/redo and output recovery")
             checkpoint("START: original video decoder, streaming SER and independent odd-width pixel checks")
             try await engine.videoSequenceSelfTest()
-            checkpoint("PASS: original video decoder converted odd-width mono/RGB AVI to streaming SER; independent pixels, source preservation, invalid input cleanup and task restore")
+            checkpoint("PASS: original video decoder converted odd-width mono/RGB AVI, PNG MOV, H.264 RGB MP4 and VP9 RGB WebM to streaming SER; independent pixels, source preservation, invalid input cleanup, partial conversion failure and task restore")
             checkpoint("START: sequence registration/crop/storage checks")
             try await engine.sequenceRegistrationSelfTest()
             checkpoint("START: sequence background checks")
