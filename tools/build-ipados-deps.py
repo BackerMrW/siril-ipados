@@ -321,8 +321,10 @@ def video_dependencies():
         env = dict(ENV, CC=cc, CXX=cpp, CFLAGS=flags, CXXFLAGS=flags,
                    CPPFLAGS=f"-I{STAGE}/include", LDFLAGS=f"{flags} -L{STAGE}/lib",
                    AR="/usr/bin/ar", RANLIB="/usr/bin/ranlib", PKG_CONFIG="pkg-config --static")
+        # Upstream's AC_ARG_ENABLE action sets yes even for --disable-avisynth;
+        # omission selects its actual default (no desktop AviSynth plugin).
         run([source / "configure", f"--prefix={STAGE}", "--host=aarch64-apple-darwin",
-             "--disable-shared", "--enable-static", "--disable-avisynth"],
+             "--disable-shared", "--enable-static"],
             "ffms2-configure", cwd=build, env=env)
         run(["make", "-j3", "src/core/libffms2.la"], "ffms2-build", cwd=build, env=env)
         run(["make", "install-libLTLIBRARIES", "install-includeHEADERS", "install-pkgconfigDATA"],
