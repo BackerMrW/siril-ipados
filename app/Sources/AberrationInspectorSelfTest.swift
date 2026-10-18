@@ -10,7 +10,7 @@ extension SirilEngine {
         let original = try Data(contentsOf: source), analysis = ImageAnalysisEngine()
         let details = try await analysis.open(source)
         try require(details.width == 512 && details.height == 512, "independent field unavailable")
-        for mode in [0, 5] {
+        for mode in [NativeDisplayMode.linear, .automatic] {
             var display = NativeDisplaySettings(); display.mode = mode
             let whole = try await analysis.preview(channel: -1, settings: display)
             let reference = [UInt8](whole.data)

@@ -41,10 +41,10 @@ struct AberrationInspectorView: View {
                                             .frame(width: CGFloat(window / 3), height: CGFloat(window / 3)).background(.black)
                                         Text(titles[index]).font(.caption)
                                         Text(panels[index].region.description).font(.caption2.monospaced()).lineLimit(2)
-                                    }
+                                    }.frame(width: CGFloat(window / 3), height: CGFloat(window / 3 + 52), alignment: .top)
                                 }
                             }.frame(width: CGFloat(window / 3 * 3 + 12))
-                        }
+                        }.frame(height: CGFloat((window / 3 + 52) * 3 + 12))
                     }
                 }
                 Section {
