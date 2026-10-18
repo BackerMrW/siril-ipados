@@ -2,7 +2,9 @@
 import SwiftUI
 
 struct AberrationInspectorView: View {
-    let file: FITSRecord
+    let source: CCDImageSource
+    init(file: FITSRecord) { source = .file(file) }
+    init(source: CCDImageSource) { self.source = source }
     @Environment(\.dismiss) private var dismiss
     @State private var engine = ImageAnalysisEngine()
     @AppStorage("aberrationSamplingPixels") private var sampling = 256
@@ -20,11 +22,12 @@ struct AberrationInspectorView: View {
         NavigationStack {
             Form {
                 Section("原版像差九宫格") {
+                    Text(source.details.title).font(.caption).textSelection(.enabled)
                     Stepper("采样区域边长：\(sampling) px", value: $sampling, in: 127...1024, step: 16)
                     Stepper("显示宽度设置：\(window) px", value: $window, in: 300...1600, step: 30)
                     Picker("通道", selection: $channel) {
                         Text("RGB / 灰度").tag(-1)
-                        if file.channels == 3 { Text("R").tag(0); Text("G").tag(1); Text("B").tag(2) }
+                        if source.details.channels == 3 { Text("R").tag(0); Text("G").tag(1); Text("B").tag(2) }
                     }
                     NativeDisplayControls(settings: $display)
                     Button("恢复原版面板尺寸") { sampling = 256; window = 381 }
@@ -56,8 +59,8 @@ struct AberrationInspectorView: View {
             .toolbar { Button("关闭") { dismiss() }.disabled(busy) }
             .task {
                 do {
-                    _ = try await engine.open(file.url); try Task.checkCancellation(); opened = true
-                    if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1" {
+                    _ = try await engine.openCCDSource(source); try Task.checkCancellation(); opened = true
+                    if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1" || ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_VIEW_CHECK"] == "1" {
                         sampling = 256; window = 381; channel = -1; display = NativeDisplaySettings()
                     }
                     if !(127...1024).contains(sampling) { sampling = 256 }
@@ -85,9 +88,13 @@ struct AberrationInspectorView: View {
                 let rendered = result.compactMap { $0.bytes.uiImage }
                 guard rendered.count == 9 else { throw EngineError.failed("像差面板显示数据不完整。") }
                 panels = result; images = rendered; busy = false
-                if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1" {
-                    let marker = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-analysis-ready.txt")
-                    try "PASS: native aberration inspector loaded all nine original pixel regions with one global display transform.\n"
+                let environment = ProcessInfo.processInfo.environment
+                let sequenceCheck = environment["SIRIL_SEQUENCE_VIEW_CHECK"] == "1" && environment["SIRIL_SEQUENCE_SECTION"] == "inspector"
+                if environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1" || sequenceCheck {
+                    let name = sequenceCheck ? "simulator-sequence-inspector-ready.txt" : "simulator-analysis-ready.txt"
+                    let marker = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(name)
+                    let prefix = sequenceCheck ? "PASS: native sequence inspector" : "PASS: native analysis workspace tab 5"
+                    try (prefix + " loaded all nine original pixel regions with one global display transform.\n")
                         .write(to: marker, atomically: true, encoding: .utf8)
                 }
             } catch is CancellationError { }

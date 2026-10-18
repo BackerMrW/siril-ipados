@@ -57,6 +57,8 @@ struct SequenceWorkspace: View {
     @State private var showApply = false
     @State private var showBackground = false
     @State private var showPhotometry = false
+    @State private var ccdSource: CCDImageSource?
+    @State private var ccdTilt = true
     @State private var showComet = false
     @State private var showMultipoint = false
     @State private var showMultipointAnalysis = false
@@ -103,7 +105,15 @@ struct SequenceWorkspace: View {
                 if let note = resultStatus?.note, !note.isEmpty { Text(note).font(.caption) }
             }.id("sequence-results")
             if let snapshot {
-                Section("PSF 与测光") { Button("选星、序列 PSF 与光变") { showPhotometry = true } }
+                Section("PSF、测光与光学分析") {
+                    Button("选星、序列 PSF 与光变") { showPhotometry = true }
+                    Button("当前帧传感器倾斜") {
+                        perform { ccdTilt = true; ccdSource = try await engine.ccdFrameSource(currentLocation, index: index) }
+                    }
+                    Button("当前帧像差九宫格") {
+                        perform { ccdTilt = false; ccdSource = try await engine.ccdFrameSource(currentLocation, index: index) }
+                    }
+                }
 
                 Section("序列") {
                     Text(currentLocation.name).font(.headline)
@@ -310,6 +320,14 @@ struct SequenceWorkspace: View {
                 for _ in 0..<60 where image == nil { try? await Task.sleep(for: .milliseconds(50)) }
                 guard image != nil else { return }
                 let section = ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] ?? "frames"
+                if ["tilt", "inspector"].contains(section) {
+                    do {
+                        ccdTilt = section == "tilt"
+                        index = 1
+                        ccdSource = try await engine.ccdFrameSource(currentLocation, index: index)
+                    } catch { message = error.localizedDescription }
+                    return
+                }
                 if section == "comet" { cometSource = currentLocation; showComet = true; return }
                 if section == "crop", let snapshot {
                     cropRegion = ImageSelection(x: Int(snapshot.info.width) / 4, y: Int(snapshot.info.height) / 4,
@@ -412,6 +430,10 @@ struct SequenceWorkspace: View {
         }
         .fullScreenCover(isPresented: $showMultipointAnalysis) {
             SequenceMultipointAnalysisView(location: currentLocation, engine: engine)
+        }
+        .fullScreenCover(item: $ccdSource) { source in
+            if ccdTilt { SensorTiltView(source: source) }
+            else { AberrationInspectorView(source: source) }
         }
         .sheet(isPresented: $showApply) {
             SequenceApplyView(options: $options, flatID: $flatID, flats: flats) {

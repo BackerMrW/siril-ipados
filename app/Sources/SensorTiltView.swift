@@ -2,7 +2,7 @@
 import SwiftUI
 
 struct SensorTiltView: View {
-    let file: FITSRecord
+    let source: CCDImageSource
     @Environment(\.dismiss) private var dismiss
     @State private var engine = ImageAnalysisEngine()
     @State private var image: UIImage?
@@ -12,13 +12,17 @@ struct SensorTiltView: View {
     @State private var busy = false
     @State private var message = ""
     init(file: FITSRecord) {
-        self.file = file
-        var defaults = StarSettings(); defaults.channel = file.channels == 3 ? 1 : 0; defaults.maximum = 2000
+        self.init(source: .file(file))
+    }
+    init(source: CCDImageSource) {
+        self.source = source
+        let channels = source.details.channels
+        var defaults = StarSettings(); defaults.channel = channels == 3 ? 1 : 0; defaults.maximum = 2000
         var stored = UserDefaults.standard.data(forKey: "sensorTiltSettings").flatMap { try? JSONDecoder().decode(StarSettings.self, from: $0) } ?? defaults
-        if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1" {
+        if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1" || ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_VIEW_CHECK"] == "1" {
             stored = defaults; stored.radius = 12
         }
-        if !(0..<file.channels).contains(stored.channel) { stored.channel = defaults.channel }
+        if !(0..<channels).contains(stored.channel) { stored.channel = defaults.channel }
         _settings = State(initialValue: stored)
     }
     var body: some View {
@@ -42,7 +46,7 @@ struct SensorTiltView: View {
     private var picture: some View {
         VStack {
             if let image {
-                ZoomableImageCanvas(image: image, samples: [], imageWidth: Double(file.width), imageHeight: Double(file.height),
+                ZoomableImageCanvas(image: image, samples: [], imageWidth: Double(source.details.width), imageHeight: Double(source.details.height),
                     sensorTilt: result, onTap: nil).background(.black)
             } else { ProgressView("读取原始图像").frame(maxWidth: .infinity, maxHeight: .infinity) }
             NativeDisplayControls(settings: $display).disabled(busy).padding(.horizontal)
@@ -53,9 +57,10 @@ struct SensorTiltView: View {
     private var controls: some View {
         Form {
             Section {
+                Text(source.details.title).font(.caption).textSelection(.enabled)
                 Button("检测星点并计算倾斜") { Task { await calculate() } }.disabled(busy || image == nil)
                 Button("恢复原版检测默认值") {
-                    var value = StarSettings(); value.channel = file.channels == 3 ? 1 : 0; value.maximum = 2000
+                    var value = StarSettings(); value.channel = source.details.channels == 3 ? 1 : 0; value.maximum = 2000
                     settings = value
                 }.disabled(busy)
                 if busy { ProgressView("原版星点拟合与分区统计") }
@@ -78,7 +83,7 @@ struct SensorTiltView: View {
                 Text("沿用原版 25% 截尾平均值；倾斜为四象限最大与最小 FWHM 之差，相对四象限均值计算比例。中心与外围采用对角半径的 25% 和 75% 分界，需要各区都有有效星点。修改检测参数后需重新计算。")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            StarSettingsControls(settings: $settings, channels: file.channels, detectionOnly: true).disabled(busy)
+            StarSettingsControls(settings: $settings, channels: source.details.channels, detectionOnly: true).disabled(busy)
         }
     }
     private func metric(_ name: String, _ value: Double) -> some View {
@@ -87,12 +92,16 @@ struct SensorTiltView: View {
     @MainActor private func open() async {
         busy = true; defer { busy = false }
         do {
-            _ = try await engine.open(file.url)
+            _ = try await engine.openCCDSource(source)
             image = try await engine.preview(channel: settings.channel, settings: display).uiImage
             result = try await engine.sensorTilt(settings: settings)
-            if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1", image != nil, result != nil {
-                let marker = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-analysis-ready.txt")
-                try "PASS: native sensor tilt view loaded original star fit, original polygon and quadrant/central/outer FWHM values.\n"
+            let environment = ProcessInfo.processInfo.environment
+            let sequenceCheck = environment["SIRIL_SEQUENCE_VIEW_CHECK"] == "1" && environment["SIRIL_SEQUENCE_SECTION"] == "tilt"
+            if (environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1" || sequenceCheck), image != nil, result != nil {
+                let name = sequenceCheck ? "simulator-sequence-tilt-ready.txt" : "simulator-analysis-ready.txt"
+                let marker = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(name)
+                let prefix = sequenceCheck ? "PASS: native sequence tilt" : "PASS: native analysis workspace tab 4"
+                try (prefix + " loaded original star fit, original polygon and quadrant/central/outer FWHM values.\n")
                     .write(to: marker, atomically: true, encoding: .utf8)
             }
         } catch { result = nil; message = error.localizedDescription }

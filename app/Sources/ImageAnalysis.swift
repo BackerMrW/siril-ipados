@@ -43,6 +43,10 @@ actor ImageAnalysisEngine {
         do { try attachSavedDisplayMask(image, url: url) }
         catch { siril_image_free(image); throw error }
         self.image = image
+        return try imageDetails()
+    }
+    func imageDetails() throws -> ImageDetails {
+        guard let image else { throw EngineError.failed("尚未打开图像") }
         var info = SirilImageInfo()
         guard siril_image_info(image, &info) != 0 else { throw EngineError.failed("无法读取图像信息") }
         let object = withUnsafePointer(to: &info.object) { String(cString: UnsafeRawPointer($0).assumingMemoryBound(to: CChar.self)) }
