@@ -25,6 +25,12 @@ struct AnalysisSnapshot: Sendable {
 struct PixelReading: Sendable {
     let x: Int, y: Int
     let values: [Float]
+    let sky: SkyCoordinate?
+}
+
+struct SkyCoordinate: Equatable, Sendable {
+    let ra: Double, dec: Double
+    var description: String { String(format: "图像 WCS · RA %.8f° · Dec %+.8f°", ra, dec) }
 }
 
 // Own one full-resolution image for the entire workspace session. Repeated
@@ -99,7 +105,10 @@ actor ImageAnalysisEngine {
         var values = [Float](repeating: 0, count: 3)
         let channels = siril_image_pixel(image, Int32(x), Int32(y), &values)
         guard channels > 0 else { throw EngineError.failed("像素坐标超出图像范围") }
-        return PixelReading(x: x, y: y, values: Array(values.prefix(Int(channels))))
+        var ra = Double.nan, dec = Double.nan
+        let sky = siril_image_pixel_to_sky(image, Double(x) + 0.5, Double(y) + 0.5, &ra, &dec) != 0 ?
+            SkyCoordinate(ra: ra, dec: dec) : nil
+        return PixelReading(x: x, y: y, values: Array(values.prefix(Int(channels))), sky: sky)
     }
 }
 
@@ -191,6 +200,9 @@ struct ImageAnalysisView: View {
                     "\(pixel.values.count == 1 ? "灰度" : ["R", "G", "B"][i])=\(String(format: "%.7g", v))"
                 }.joined(separator: "  "))
                 .font(.caption.monospaced()).textSelection(.enabled)
+                if let sky = pixel.sky {
+                    Text(sky.description).font(.caption.monospaced()).textSelection(.enabled)
+                }
             }
             Text("像素读数使用原始浮点值；显示模式只改变预览。")
                 .font(.caption2).foregroundStyle(.secondary).padding(.bottom, 8)
@@ -323,6 +335,9 @@ struct ImageAnalysisView: View {
             if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1" {
                 selecting = true
                 pixel = try await engine.pixel(x: selection?.x ?? file.width / 2, y: selection?.y ?? file.height / 2)
+                if ProcessInfo.processInfo.environment["SIRIL_WCS_VIEW_CHECK"] == "1", pixel?.sky == nil {
+                    throw EngineError.failed("WCS pixel readout did not load")
+                }
                 let report = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-analysis-ready.txt")
                 guard image != nil, snapshot != nil else { throw EngineError.failed("Analysis view did not load") }
                 guard snapshot!.statistics.allSatisfy({ $0.values.count == statNames.count && $0.values[8].isFinite && $0.values[8] >= 0 }) else {

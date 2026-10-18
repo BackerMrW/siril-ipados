@@ -4,6 +4,47 @@
 #include "algos/star_finder.h"
 #include "algos/siril_wcs.h"
 
+static wcsprm_t *native_equatorial_wcs(SirilImage *image) {
+    wcsprm_t *wcs = image ? image->fit.keywords.wcslib : NULL;
+    return wcs && wcs->naxis == 2 && !strncmp(wcs->ctype[0], "RA--", 4) &&
+        !strncmp(wcs->ctype[1], "DEC-", 4) ? wcs : NULL;
+}
+int siril_image_pixel_to_sky(SirilImage *image, double x, double y, double *ra, double *dec) {
+    if (ra) *ra = NAN;
+    if (dec) *dec = NAN;
+    if (!image || !ra || !dec || !isfinite(x) || !isfinite(y)) return 0;
+    int ok = 0;
+    g_mutex_lock(&engine_mutex);
+    wcsprm_t *wcs = native_equatorial_wcs(image);
+    if (wcs) {
+        double sx, sy, img[2], phi, theta, world[2]; int stat = 0;
+        display_to_siril(x, image->fit.top_down ? image->fit.ry - y : y, &sx, &sy, image->fit.ry);
+        double pixel[] = {sx + .5, sy + .5};
+        // Same WCSLIB projection and half-pixel convention as pix2wcs2,
+        // retaining its status instead of confusing a failure with (0,0).
+        if (!wcsp2s(wcs, 1, 2, pixel, img, &phi, &theta, world, &stat) && !stat &&
+                isfinite(world[0]) && isfinite(world[1])) {
+            *ra = fmod(fmod(world[0], 360) + 360, 360); *dec = world[1]; ok = 1;
+        }
+    }
+    g_mutex_unlock(&engine_mutex); return ok;
+}
+int siril_image_sky_to_pixel(SirilImage *image, double ra, double dec, double *x, double *y) {
+    if (x) *x = NAN;
+    if (y) *y = NAN;
+    if (!image || !x || !y || !isfinite(ra) || !isfinite(dec) || dec < -90 || dec > 90) return 0;
+    int ok = 0;
+    g_mutex_lock(&engine_mutex);
+    wcsprm_t *wcs = native_equatorial_wcs(image);
+    double sx, sy;
+    if (wcs && !wcs2pix2(wcs, fmod(fmod(ra, 360) + 360, 360), dec, &sx, &sy) && isfinite(sx) && isfinite(sy)) {
+        siril_to_display(sx, sy, x, y, image->fit.ry);
+        if (image->fit.top_down) *y = image->fit.ry - *y;
+        ok = 1;
+    }
+    g_mutex_unlock(&engine_mutex); return ok;
+}
+
 const char *siril_psf_error_message(int code) { return code >= 0 && code < PSF_ERR_MAX_VALUE ? psf_error_to_string((psf_error)code) : "Sequence worker did not retain the per-frame error code"; }
 
 static int native_star_settings(const SirilStarFinder *input, fits *fit, star_finder_params *sf) {

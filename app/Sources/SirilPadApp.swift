@@ -391,7 +391,11 @@ struct ContentView: View {
                 if let current = files.first(where: { $0.id == history.current }) { await loadPreview(current, navigation: false) }
                 if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1", let file = files.last {
                     analysisTab = Int(ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_TAB"] ?? "0") ?? 0
-                    if analysisTab == 3, let source = Bundle.main.url(forResource: "psf-gaussian", withExtension: "fits"),
+                    if ProcessInfo.processInfo.environment["SIRIL_WCS_VIEW_CHECK"] == "1",
+                       let wcsFile = try? await engine.importFile(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-wcs-source.fits")) {
+                        files.append(wcsFile); await loadPreview(wcsFile)
+                        imageSelection = ImageSelection(x: 63, y: 48, width: 32, height: 24)
+                    } else if analysisTab == 3, let source = Bundle.main.url(forResource: "psf-gaussian", withExtension: "fits"),
                        let starFile = try? await engine.importFile(source) {
                         files.append(starFile); await loadPreview(starFile)
                         imageSelection = ImageSelection(x: 6, y: 10, width: 71, height: 71)
@@ -563,6 +567,8 @@ struct ContentView: View {
             try await engine.nativeToolSelfTest()
             checkpoint("START: PSF/photometry checks")
             try await engine.starAnalysisSelfTest()
+            try await engine.wcsSelfTest()
+            checkpoint("PASS: pixel-centre sky readout matched independent skewed TAN/RA wrap and raw pixels; absent WCS stayed absent and source bytes unchanged")
             checkpoint("START: original CCD-inspector quadrant and sensor tilt checks")
             try await engine.sensorTiltSelfTest()
             checkpoint("PASS: original sensor tilt matched independent Gaussian FWHM, four displayed quadrants, central/outer zones, RGB channel choice, both FITS row orders and source preservation; missing zones rejected")

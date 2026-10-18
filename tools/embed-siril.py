@@ -469,6 +469,7 @@ for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolut
 shutil.copy2(root / "native/SirilVideo.inc", destination / "SirilVideo.inc")
 shutil.copy2(root / "native/SirilCCD.inc", destination / "SirilCCD.inc")
 shutil.copy2(root / "native/ccd-runtime-tests.inc", destination / "ccd-runtime-tests.inc")
+shutil.copy2(root / "native/wcs-runtime-tests.inc", destination / "wcs-runtime-tests.inc")
 shutil.copy2(root / "native/video-runtime-tests.inc", destination / "video-runtime-tests.inc")
 # Reuse the pinned desktop LUT arithmetic without GTK state or its UI cache.
 # The iPad bridge owns the image, level bounds, destination and STF parameters.

@@ -245,6 +245,11 @@ int siril_image_statistics(SirilImage *image, const SirilRegion *region, int per
 int siril_image_histogram(SirilImage *image, const SirilRegion *region, int channel,
     double *counts, size_t buckets);
 int siril_image_pixel(SirilImage *image, int32_t x, int32_t y, float values[3]);
+/* Equatorial WCS, degrees. Display coordinates are continuous pixel edges:
+ * pixel (i,j) has centre (i+.5,j+.5). Both directions permit off-image points.
+ * Returns zero with NaN outputs for absent/unsupported WCS or failed projection. */
+int siril_image_pixel_to_sky(SirilImage *image, double x, double y, double *ra, double *dec);
+int siril_image_sky_to_pixel(SirilImage *image, double ra, double dec, double *x, double *y);
 /* Required UTF-8 buffer size including NUL; a short buffer is never partially filled. */
 size_t siril_image_copy_header(SirilImage *image, char *buffer, size_t capacity);
 /* Returns an independent edited image. action: 0 set, 1 delete, 2 rename,
