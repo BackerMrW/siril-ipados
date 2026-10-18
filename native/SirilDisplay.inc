@@ -14,7 +14,16 @@ static void display_tint_pixel(BYTE rgb[3], BYTE mask) {
     rgb[1] = (rgb[1] * mask) >> 8;
     rgb[2] = (rgb[2] * mask) >> 8;
 }
-static int preview_mode_locked(fits *fit, uint32_t maximum, int selected, const SirilDisplayOptions *options, SirilPreview *preview) {
+static size_t display_region_source(fits *fit, const SirilRegion *region,
+        uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+    int64_t sx = (region ? region->x : 0) + (int64_t)x * (region ? region->width : fit->rx) / width;
+    int64_t sy = (region ? region->y : 0) + (int64_t)y * (region ? region->height : fit->ry) / height;
+    if (sx < 0 || sy < 0 || sx >= fit->rx || sy >= fit->ry) return SIZE_MAX;
+    if (!fit->top_down) sy = fit->ry - 1 - sy;
+    return (size_t)sy * fit->rx + sx;
+}
+static int preview_mode_region_locked(fits *fit, uint32_t maximum, int selected, const SirilDisplayOptions *options,
+        SirilPreview *preview, const SirilRegion *region) {
     if (!fit || !preview || !options || !maximum || maximum > 2048 || selected < -1 || selected >= fit->naxes[2] ||
         options->mode < 0 || options->mode > 6 || !isfinite(options->low) || !isfinite(options->high) ||
         options->low < 0 || options->high > 1 || options->high <= options->low ||
@@ -91,19 +100,18 @@ static int preview_mode_locked(fits *fit, uint32_t maximum, int selected, const 
             g_free(input);
         }
     }
-    double scale = fmin(1, (double)maximum / fmax(fit->rx, fit->ry));
-    uint32_t width = fmax(1, floor(fit->rx * scale)), height = fmax(1, floor(fit->ry * scale));
+    int span_width = region ? region->width : fit->rx, span_height = region ? region->height : fit->ry;
+    double scale = fmin(1, (double)maximum / fmax(span_width, span_height));
+    uint32_t width = fmax(1, floor(span_width * scale)), height = fmax(1, floor(span_height * scale));
     BYTE *pixels = g_try_malloc_n((size_t)width * height, 4); if (!pixels) goto done;
     row = g_try_malloc_n(width, 3); converted_row = g_try_malloc_n(width, 3);
     if (!row || !converted_row) { g_free(pixels); goto done; }
     for (uint32_t y = 0; y < height; y++) {
       for (uint32_t x = 0; x < width; x++) {
-        uint32_t source_y = (uint64_t)y * fit->ry / height;
-        if (!fit->top_down) source_y = fit->ry - 1 - source_y;
-        size_t source = (size_t)source_y * fit->rx + (uint64_t)x * fit->rx / width;
+        size_t source = display_region_source(fit, region, x, y, width, height);
         for (int c = 0; c < 3; c++) {
             int channel = fit->naxes[2] == 1 ? 0 : c;
-            float value = fit->fpdata[channel][source]; BYTE display = 0;
+            float value = source == SIZE_MAX ? 0 : fit->fpdata[channel][source]; BYTE display = 0;
             if (isfinite(value)) {
                 if (options->mode == STF_DISPLAY) display = roundf_to_BYTE(MTFp(value, stf[channel]) * 255);
                 else {
@@ -114,7 +122,7 @@ static int preview_mode_locked(fits *fit, uint32_t maximum, int selected, const 
             }
             row[(size_t)c * width + x] = options->inverted ? 255 - display : display;
         }
-        if (tint_before) {
+        if (tint_before && source != SIZE_MAX) {
             BYTE rgb[3] = {row[x], row[width + x], row[2 * width + x]};
             display_tint_pixel(rgb, display_mask_byte(fit, source));
             for (int c = 0; c < 3; c++) row[(size_t)c * width + x] = rgb[c];
@@ -129,10 +137,9 @@ static int preview_mode_locked(fits *fit, uint32_t maximum, int selected, const 
             BYTE value = converted_row[(size_t)channel * width + x];
             pixels[target + c] = rainbow ? palette[value][c] : value;
         }
-        if (overlay && !tint_before) {
-            uint32_t source_y = (uint64_t)y * fit->ry / height;
-            if (!fit->top_down) source_y = fit->ry - 1 - source_y;
-            size_t source = (size_t)source_y * fit->rx + (uint64_t)x * fit->rx / width;
+        size_t source = display_region_source(fit, region, x, y, width, height);
+        if (source == SIZE_MAX) memset(pixels + target, 0, 3);
+        else if (overlay && !tint_before) {
             display_tint_pixel(pixels + target, display_mask_byte(fit, source));
         }
         pixels[target + 3] = 255;
@@ -145,9 +152,25 @@ done:
     if (proof) cmsCloseProfile(proof);
     g_free(float_lut); g_free(row); g_free(converted_row); g_free(luts); return ok;
 }
+static int preview_mode_locked(fits *fit, uint32_t maximum, int selected, const SirilDisplayOptions *options, SirilPreview *preview) {
+    return preview_mode_region_locked(fit, maximum, selected, options, preview, NULL);
+}
 int siril_image_preview_mode(SirilImage *image, uint32_t maximum, int channel, const SirilDisplayOptions *options, SirilPreview *preview) {
     if (!image) return 0;
     g_mutex_lock(&engine_mutex);
     int ok = preview_mode_locked(&image->fit, maximum, channel, options, preview);
+    g_mutex_unlock(&engine_mutex); return ok;
+}
+int siril_image_aberration_panel(SirilImage *image, int panel, int window, int index, int channel,
+        const SirilDisplayOptions *options, SirilRegion *region, SirilPreview *preview) {
+    if (preview) memset(preview, 0, sizeof *preview);
+    if (!image || !preview || !region || panel < 127 || panel > 1024 || window < 300 || window > 1600 || index < 0 || index > 8) return 0;
+    g_mutex_lock(&engine_mutex);
+    int width = image->fit.rx, height = image->fit.ry;
+    int side = max(panel, window / 3), col = index % 3, row_index = index / 3;
+    *region = (SirilRegion){.x = col == 0 ? 0 : col == 1 ? (width - side) / 2 : width - side,
+        .y = row_index == 0 ? 0 : row_index == 1 ? (height - side) / 2 : height - side,
+        .width = side, .height = side};
+    int ok = preview_mode_region_locked(&image->fit, side, channel, options, preview, region);
     g_mutex_unlock(&engine_mutex); return ok;
 }

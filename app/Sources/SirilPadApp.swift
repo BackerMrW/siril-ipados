@@ -304,6 +304,7 @@ struct ContentView: View {
                     }, selection: $imageSelection)
                 }
                 else if analysisTab == 4 { SensorTiltView(file: file) }
+                else if analysisTab == 5 { AberrationInspectorView(file: file) }
                 else { ImageAnalysisView(file: file, processingEngine: engine, onHeaderOutput: { result in
                     showAnalysis = false; importResult(result, parent: file.id)
                 }, selection: $imageSelection, initialTab: analysisTab) }
@@ -394,7 +395,7 @@ struct ContentView: View {
                        let starFile = try? await engine.importFile(source) {
                         files.append(starFile); await loadPreview(starFile)
                         imageSelection = ImageSelection(x: 6, y: 10, width: 71, height: 71)
-                    } else if analysisTab == 4,
+                    } else if [4, 5].contains(analysisTab),
                               let tiltFile = try? await engine.importFile(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-tilt-source.fits")) {
                         files.append(tiltFile); await loadPreview(tiltFile)
                     } else {
@@ -564,6 +565,8 @@ struct ContentView: View {
             checkpoint("START: original CCD-inspector quadrant and sensor tilt checks")
             try await engine.sensorTiltSelfTest()
             checkpoint("PASS: original sensor tilt matched independent Gaussian FWHM, four displayed quadrants, central/outer zones, RGB channel choice, both FITS row orders and source preservation; missing zones rejected")
+            try await engine.aberrationInspectorSelfTest()
+            checkpoint("PASS: native aberration inspector retained full-resolution corner/edge/central pixels and global linear/STF display, owned tile bytes, invalid-setting rejection and cancellation")
             checkpoint("START: remaining workspace/storage/analysis checks")
             guard processed.width == 2 && processed.height == 2 else { throw EngineError.failed("Batch output dimensions changed") }
             await loadPreview(processed)

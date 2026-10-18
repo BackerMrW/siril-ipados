@@ -265,6 +265,11 @@ int siril_image_load_mask(SirilImage *image, const char *path);
 int siril_image_preview(SirilImage *image, uint32_t max_dimension, SirilPreview *preview);
 int siril_image_preview_display(SirilImage *image, uint32_t max_dimension, int channel, int automatic, SirilPreview *preview);
 int siril_image_preview_mode(SirilImage *image, uint32_t max_dimension, int channel, const SirilDisplayOptions *options, SirilPreview *preview);
+/* Original nine-panel CCD-inspector sampling geometry, top-left reading order.
+ * panel: 127..1024 native pixels; window: 300..1600 display pixels; index: 0..8.
+ * Uses full-image display statistics, black-pads beyond the image and owns RGBA. */
+int siril_image_aberration_panel(SirilImage *image, int panel, int window, int index, int channel,
+    const SirilDisplayOptions *options, SirilRegion *region, SirilPreview *preview);
 void siril_preview_free(SirilPreview *preview);
 /* These call upstream Siril imoper/soper, not replacement arithmetic. */
 int siril_image_add(SirilImage *destination, const SirilImage *source);

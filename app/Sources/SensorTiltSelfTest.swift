@@ -55,16 +55,19 @@ extension SirilEngine {
             let result = try await analysis.sensorTilt(settings: settings)
             try require(result.stars == 16 && result.channel == settings.channel, "independent Gaussian star count/channel")
             for quadrant in 0..<4 {
-                let expected = gaussianFWHM * (1.5 + Double(quadrant) * 0.5)
+                // readfits presents FITS bottom-up regardless of ROWORDER;
+                // physically top-down file rows therefore swap displayed zones.
+                let storedQuadrant = topDown ? quadrant ^ 2 : quadrant
+                let expected = gaussianFWHM * (1.5 + Double(storedQuadrant) * 0.5)
                 try require(abs(result.quadrants[quadrant] - expected) < 0.06,
-                    "independent Gaussian FWHM / displayed quadrant \(quadrant), RGB=\(rgb), topDown=\(topDown)")
+                    "independent Gaussian FWHM / displayed quadrant \(quadrant), RGB=\(rgb), topDown=\(topDown), actual=\(result.quadrants[quadrant]), expected=\(expected)")
             }
             try require(abs(result.mean - gaussianFWHM * 2.25) < 0.06 &&
                 abs(result.centre - gaussianFWHM * 2.25) < 0.06 && abs(result.outer - gaussianFWHM * 2.25) < 0.06 &&
                 abs(result.difference - gaussianFWHM * 1.5) < 0.1 && result.percent == 67 && abs(result.offAxis) < 0.06,
                 "independent tilt, percentage, central/outer zones and off-axis difference")
             if topDown, let previous {
-                for i in 0..<4 { try require(abs(result.quadrants[i] - previous.quadrants[i]) < 0.02, "ROWORDER changed displayed tilt") }
+                for i in 0..<4 { try require(abs(result.quadrants[i] - previous.quadrants[i ^ 2]) < 0.02, "FITS storage rows changed the displayed quadrant mapping") }
             }
             previous = result
             let restored = try JSONDecoder().decode(SensorTiltResult.self, from: JSONEncoder().encode(result))

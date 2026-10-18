@@ -651,6 +651,7 @@ int main(int argc, char **argv) {
     CHECK(cfa_format_color_checks(argv[1]) == 0);
     CHECK(video_cancellation_checks(argv[1]) == 0);
     CHECK(ccd_numeric_checks() == 0);
+    CHECK(ccd_panel_checks(argv[1]) == 0);
     CHECK(jxl_reference_checks(argv[1]) == 0);
     CHECK(heif_reference_checks(argv[1]) == 0);
     CHECK(keyword_reference_checks(image, argv[1]) == 0);
