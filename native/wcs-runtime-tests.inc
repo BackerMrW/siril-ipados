@@ -10,7 +10,7 @@ static void wcs_tan_reference(double x, double y, double *ra, double *dec) {
     *dec = atan2(sin(dec0) + eta * cos(dec0), hypot(denominator, xi)) / radians;
 }
 static int wcs_coordinate_checks(const char *directory) {
-    for (int variant = 0; variant < 4; variant++) {
+    for (int variant = 0; variant < 5; variant++) {
         char path[4096], error[512]; fitsfile *file = NULL; int status = 0;
         snprintf(path, sizeof path, "%s/independent-wcs-%d.fits", directory, variant);
         long axes[] = {7, 5}; unsigned short values[35];
@@ -20,20 +20,40 @@ static int wcs_coordinate_checks(const char *directory) {
         fits_write_img(file, TUSHORT, 1, 35, values, &status);
         fits_update_key(file, TSTRING, "ROWORDER", variant == 1 ? "TOP-DOWN" : "BOTTOM-UP", NULL, &status);
         if (variant != 3) {
-            fits_update_key(file, TSTRING, "CTYPE1", variant == 2 ? "GLON-TAN" : "RA---TAN", NULL, &status);
-            fits_update_key(file, TSTRING, "CTYPE2", variant == 2 ? "GLAT-TAN" : "DEC--TAN", NULL, &status);
+            fits_update_key(file, TSTRING, "CTYPE1", variant == 2 ? "GLON-TAN" : variant == 4 ? "RA---TAN-SIP" : "RA---TAN", NULL, &status);
+            fits_update_key(file, TSTRING, "CTYPE2", variant == 2 ? "GLAT-TAN" : variant == 4 ? "DEC--TAN-SIP" : "DEC--TAN", NULL, &status);
             fits_update_key(file, TSTRING, "CUNIT1", "deg", NULL, &status);
             fits_update_key(file, TSTRING, "CUNIT2", "deg", NULL, &status);
             fits_update_key(file, TSTRING, "RADESYS", "ICRS", NULL, &status);
             const char *keys[] = {"CRPIX1", "CRPIX2", "CRVAL1", "CRVAL2", "CD1_1", "CD1_2", "CD2_1", "CD2_2"};
             double fields[] = {4, 3, 359.9998, -20.4, -.001, .0003, .0002, .0012};
             for (int i = 0; i < 8; i++) fits_update_key(file, TDOUBLE, keys[i], &fields[i], NULL, &status);
+            if (variant == 4) {
+                int order = 2;
+                fits_update_key(file, TINT, "A_ORDER", &order, NULL, &status);
+                fits_update_key(file, TINT, "B_ORDER", &order, NULL, &status);
+                const char *sip_keys[] = {"A_2_0", "A_1_1", "B_0_2", "B_1_1"};
+                double sip[] = {.001, .0002, -.0007, .0003};
+                for (int i = 0; i < 4; i++) fits_update_key(file, TDOUBLE, sip_keys[i], &sip[i], NULL, &status);
+            }
         }
         fits_close_file(file, &status); CHECK(!status);
         FILE *bytes = fopen(path, "rb"); CHECK(bytes);
         unsigned char before[5760], after[5760];
         CHECK(fread(before, 1, sizeof before, bytes) == sizeof before && fgetc(bytes) == EOF); fclose(bytes);
         SirilImage *image = siril_image_read(path, error, sizeof error); CHECK(image);
+        SirilDistortionVector vectors[400];
+        CHECK(siril_image_distortion_vectors(image, vectors, 399) == -1);
+        if (variant == 4) {
+            CHECK(siril_image_distortion_vectors(image, vectors, 400) == 400);
+            for (int i = 0; i < 20; i++) for (int j = 0; j < 20; j++) {
+                SirilDistortionVector v = vectors[i * 20 + j];
+                double u = .5 + i * 7 / 19. - 4, w = .5 + j * 5 / 19. - 3;
+                CHECK(fabs(v.x - i * 7 / 19.) < 1e-12 && fabs(v.y - (5 - j * 5 / 19.)) < 1e-12);
+                CHECK(fabs(v.dx - (.001 * u * u + .0002 * u * w)) < 1e-10);
+                CHECK(fabs(v.dy - (.0007 * w * w - .0003 * u * w)) < 1e-10);
+            }
+        } else CHECK(siril_image_distortion_vectors(image, vectors, 400) == 0);
         if (variant < 2) {
             const double points[][2] = {{.5, .5}, {3.5, 2.5}, {6.5, 4.5}, {-13.25, 12.75}};
             for (int i = 0; i < 4; i++) {
@@ -54,7 +74,7 @@ static int wcs_coordinate_checks(const char *directory) {
                 float pixel[3]; CHECK(siril_image_pixel(image, x, y, pixel) == 1);
                 CHECK(fabs(pixel[0] - (1000 + (4 - y) * 7 + x) / 65535.) < 1e-7);
             }
-        } else {
+        } else if (variant != 4) {
             double a = 1, b = 1;
             CHECK(!siril_image_pixel_to_sky(image, .5, .5, &a, &b) && isnan(a) && isnan(b));
             CHECK(!siril_image_sky_to_pixel(image, 0, 0, &a, &b) && isnan(a) && isnan(b));
@@ -65,5 +85,6 @@ static int wcs_coordinate_checks(const char *directory) {
         CHECK(!memcmp(before, after, sizeof before));
     }
     puts("PASS: image WCS matched independent skewed TAN projection, pixel-centre/display row mapping, RA wrap and off-image inverse; invalid/absent/non-equatorial coordinates rejected and source bytes/pixels preserved");
+    puts("PASS: original 20x20 WCS prior-distortion samples matched independent SIP quadratic coefficients and display vector signs at every point; absent models and short buffers handled without input writes");
     return 0;
 }

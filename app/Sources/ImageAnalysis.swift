@@ -110,6 +110,14 @@ actor ImageAnalysisEngine {
             SkyCoordinate(ra: ra, dec: dec) : nil
         return PixelReading(x: x, y: y, values: Array(values.prefix(Int(channels))), sky: sky)
     }
+    func distortionVectors() throws -> [DisplacementMarker] {
+        guard let image else { throw EngineError.failed("尚未打开图像") }
+        var vectors = [SirilDistortionVector](repeating: SirilDistortionVector(), count: 400)
+        let capacity = vectors.count
+        let count = siril_image_distortion_vectors(image, &vectors, capacity)
+        guard count >= 0 else { throw EngineError.failed("无法读取 WCS 畸变模型") }
+        return vectors.prefix(Int(count)).map { DisplacementMarker(x: $0.x, y: $0.y, dx: $0.dx, dy: $0.dy, success: true) }
+    }
 }
 
 struct ImageAnalysisView: View {
@@ -118,12 +126,15 @@ struct ImageAnalysisView: View {
     let onHeaderOutput: (URL) -> Void
     @Binding var selection: ImageSelection?
     var initialTab = 0
+    var initialDistortions = false
     @Environment(\.dismiss) private var dismiss
     @State private var engine = ImageAnalysisEngine()
     @State private var details: ImageDetails?
     @State private var image: UIImage?
     @State private var snapshot: AnalysisSnapshot?
     @State private var pixel: PixelReading?
+    @State private var distortions: [DisplacementMarker] = []
+    @State private var showDistortions = false
     @State private var selecting = false
     @State private var normalized = false // Original StatWindow defaults.
     @State private var perCFA = true
@@ -153,7 +164,9 @@ struct ImageAnalysisView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() }.disabled(busy) } }
             .task {
-                tab = ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_TAB"].flatMap { Int($0) } ?? initialTab
+                let requested = ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_TAB"].flatMap { Int($0) } ?? initialTab
+                tab = requested == 6 ? 0 : requested
+                showDistortions = initialDistortions || requested == 6
                 await open()
                 if ProcessInfo.processInfo.environment["SIRIL_KEYWORD_VIEW_CHECK"] == "1" { editingHeader = true }
             }
@@ -177,7 +190,7 @@ struct ImageAnalysisView: View {
             NativeDisplayControls(settings: $displaySettings).disabled(busy).padding(.horizontal)
             if let image {
                 ZoomableImageCanvas(image: image, samples: [], imageWidth: Double(file.width), imageHeight: Double(file.height),
-                    region: selection, selecting: selecting && !busy,
+                    region: selection, distortions: showDistortions ? distortions : [], selecting: selecting && !busy,
                     onSelection: { value in
                         selection = value
                         Task { await analyze() }
@@ -187,7 +200,7 @@ struct ImageAnalysisView: View {
                             do { pixel = try await engine.pixel(x: Int(floor(x)), y: Int(floor(y))) }
                             catch { message = error.localizedDescription }
                         }
-                    }).background(.black)
+                    }).background(.black, ignoresSafeAreaEdges: [])
             } else { ProgressView("读取原始图像").frame(maxWidth: .infinity, maxHeight: .infinity) }
             HStack {
                 Toggle("矩形选区", isOn: $selecting)
@@ -220,6 +233,12 @@ struct ImageAnalysisView: View {
             if tab == 0 { statisticsControls }
             if tab == 1 { histogramControls }
             if tab == 2 { headerControls }
+            Section("WCS 畸变显示") {
+                Toggle("显示原版畸变向量", isOn: $showDistortions).disabled(distortions.isEmpty)
+                Text(distortions.isEmpty ? "当前图像没有可用的 WCS 前置畸变模型。" :
+                    "\(distortions.count) 个原版采样点；红线按原版放大 5 倍，显示设置不改变畸变或原始像素。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if let details {
                 Section("文件信息") {
                     Text("\(details.width) × \(details.height) · \(details.channels) 通道 · 工作 BITPIX \(details.bitpix)")
@@ -330,6 +349,7 @@ struct ImageAnalysisView: View {
         defer { busy = false; UIApplication.shared.isIdleTimerDisabled = false }
         do {
             details = try await engine.open(file.url)
+            distortions = try await engine.distortionVectors()
             image = try await engine.preview(channel: channel, settings: displaySettings).uiImage
             snapshot = try await engine.analyze(region: selection, perCFA: perCFA)
             if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1" {
@@ -343,7 +363,11 @@ struct ImageAnalysisView: View {
                 guard snapshot!.statistics.allSatisfy({ $0.values.count == statNames.count && $0.values[8].isFinite && $0.values[8] >= 0 }) else {
                     throw EngineError.failed("Analysis background noise did not load")
                 }
-                try "PASS: native analysis workspace tab \(tab) loaded the image, original statistics, histogram and header.\n".write(to: report, atomically: true, encoding: .utf8)
+                let requested = ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_TAB"].flatMap { Int($0) } ?? tab
+                if requested == 6 && (!showDistortions || distortions.count != 400) {
+                    throw EngineError.failed("WCS distortion grid did not load")
+                }
+                try "PASS: native analysis workspace tab \(requested) loaded the image, original statistics, histogram and header.\n".write(to: report, atomically: true, encoding: .utf8)
             }
         } catch { message = error.localizedDescription }
     }

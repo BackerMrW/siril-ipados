@@ -42,6 +42,7 @@ struct ZoomableImageCanvas: UIViewRepresentable {
     var region: ImageSelection? = nil
     var displacements: [DisplacementMarker] = []
     var sensorTilt: SensorTiltResult? = nil
+    var distortions: [DisplacementMarker] = []
     var selecting = false
     var movingSamples = false
     var onSampleMove: ((Int, Double, Double) -> Void)? = nil
@@ -90,6 +91,7 @@ struct ZoomableImageCanvas: UIViewRepresentable {
             scroll.selected = parent.selected; scroll.region = parent.region
             scroll.displacements = parent.displacements
             scroll.sensorTilt = parent.sensorTilt
+            scroll.distortions = parent.distortions
             selectGesture?.isEnabled = parent.selecting
             moveGesture?.isEnabled = parent.movingSamples && !parent.selecting
             scroll.panGestureRecognizer.minimumNumberOfTouches = parent.selecting || parent.movingSamples ? 2 : 1
@@ -185,12 +187,14 @@ final class CanvasScrollView: UIScrollView {
     private let converged = CAShapeLayer()
     private let failed = CAShapeLayer()
     private let tiltOutline = CAShapeLayer()
+    private let distortionOutline = CAShapeLayer()
     var markers: [SampleMarker] = []
     var sourceSize = CGSize(width: 1, height: 1)
     var selected: Int?
     var region: ImageSelection?
     var displacements: [DisplacementMarker] = []
     var sensorTilt: SensorTiltResult?
+    var distortions: [DisplacementMarker] = []
     private var lastBounds = CGSize.zero
     private var lastImageSize = CGSize.zero
 
@@ -199,7 +203,7 @@ final class CanvasScrollView: UIScrollView {
         addSubview(canvas)
         canvas.addSubview(picture)
         picture.contentMode = .scaleToFill
-        for layer in [boxes, highlight, selectionBox, converged, failed, tiltOutline] {
+        for layer in [boxes, highlight, selectionBox, converged, failed, tiltOutline, distortionOutline] {
             layer.fillColor = UIColor.clear.cgColor
             canvas.layer.addSublayer(layer)
         }
@@ -209,6 +213,9 @@ final class CanvasScrollView: UIScrollView {
         converged.strokeColor = UIColor.systemGreen.cgColor
         failed.strokeColor = UIColor.systemRed.cgColor
         tiltOutline.strokeColor = UIColor.systemCyan.cgColor
+        distortionOutline.strokeColor = UIColor.systemRed.cgColor
+        distortionOutline.fillColor = UIColor.systemRed.cgColor
+        distortionOutline.masksToBounds = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
     override func layoutSubviews() {
@@ -275,6 +282,16 @@ final class CanvasScrollView: UIScrollView {
             }
         }
         tiltOutline.path = tiltPath.cgPath; tiltOutline.lineWidth = 1.5 / zoomScale
+        let distortionPath = UIBezierPath()
+        for vector in distortions {
+            let start = CGPoint(x: vector.x * sx, y: vector.y * sy)
+            let end = CGPoint(x: (vector.x + vector.dx * 5) * sx, y: (vector.y + vector.dy * 5) * sy)
+            let radius = 3 / max(1, zoomScale)
+            distortionPath.append(UIBezierPath(ovalIn: CGRect(x: start.x - radius, y: start.y - radius, width: radius * 2, height: radius * 2)))
+            distortionPath.move(to: start); distortionPath.addLine(to: end)
+        }
+        distortionOutline.frame = canvas.bounds
+        distortionOutline.path = distortionPath.cgPath; distortionOutline.lineWidth = 3 / zoomScale
         CATransaction.commit()
     }
 }

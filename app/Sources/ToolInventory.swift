@@ -14,6 +14,10 @@ struct UpstreamFeature: Decodable, Identifiable {
             return "原版计算、参数与独立结果已接入；真机未验收。"
         case "win.evaluate-noise":
             return "原版背景噪声已接入统计、选区/CFA与复制报告；真机未验收。"
+        case "win.ccd-inspector", "win.show-tilt":
+            return "单张和普通/FITSEQ/SER 当前帧已接入原版分析与来源保护；整段平均倾斜和真机未验收。"
+        case "win.show-disto":
+            return "已接入图像 WCS 前置畸变模型、原版采样网格与 5 倍向量；数值和页面验收待确认。"
         default: return status
         }
     }
@@ -52,6 +56,7 @@ struct ToolInventoryView: View {
                     Button("动态 PSF 与孔径测光") { dismiss(); onAnalysis(3) }.disabled(!canUseNativeTools)
                     Button("传感器倾斜 · Sensor Tilt") { dismiss(); onAnalysis(4) }.disabled(!canUseNativeTools)
                     Button("像差九宫格 · Aberration Inspector") { dismiss(); onAnalysis(5) }.disabled(!canUseNativeTools)
+                    Button("WCS 畸变显示 · Distortions") { dismiss(); onAnalysis(6) }.disabled(!canUseNativeTools)
                     Button("FITS 文件头 · FITS Header") { dismiss(); onAnalysis(2) }
                 }
                 ForEach(["拉伸", "颜色", "滤镜", "几何", "曲线与表达式", "频谱", "反卷积", "天文分析"], id: \.self) { group in
@@ -75,6 +80,8 @@ struct ToolInventoryView: View {
                                 Button(entry.title) { dismiss(); onAnalysis(4) }.disabled(!canUseNativeTools)
                             } else if entry.id == "win.ccd-inspector" {
                                 Button(entry.title) { dismiss(); onAnalysis(5) }.disabled(!canUseNativeTools)
+                            } else if entry.id == "win.show-disto" {
+                                Button(entry.title) { dismiss(); onAnalysis(6) }.disabled(!canUseNativeTools)
                             } else if entry.id == "win.evaluate-noise" {
                                 Button(entry.title) { dismiss(); onAnalysis(0) }.disabled(!canUseNativeTools)
                             } else { Text(entry.title).font(.headline) }

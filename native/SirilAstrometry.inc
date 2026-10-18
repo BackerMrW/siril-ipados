@@ -45,6 +45,29 @@ int siril_image_sky_to_pixel(SirilImage *image, double ra, double dec, double *x
     g_mutex_unlock(&engine_mutex); return ok;
 }
 
+int siril_image_distortion_vectors(SirilImage *image, SirilDistortionVector *vectors, size_t capacity) {
+    if (!image || !vectors || capacity < 400) return -1;
+    int count = 0;
+    g_mutex_lock(&engine_mutex);
+    wcsprm_t *wcs = native_equatorial_wcs(image);
+    if (wcs && wcs->lin.dispre) {
+        fits *fit = &image->fit;
+        // Same sample grid and disp2x call as draw_wcs_disto. Keep the actual
+        // displacement here so the UI can state its original 5x magnification.
+        double pace_x = fit->rx / 19., pace_y = fit->ry / 19.;
+        for (int i = 0; i < 20; i++) for (int j = 0; j < 20; j++) {
+            double raw[] = {.5 + i * pace_x, .5 + j * pace_y}, corrected[2];
+            if (!disp2x(wcs->lin.dispre, raw, corrected) && isfinite(corrected[0]) && isfinite(corrected[1])) {
+                SirilDistortionVector *v = &vectors[count++];
+                fits_to_display(raw[0], raw[1], &v->x, &v->y, fit->ry);
+                v->dx = corrected[0] - raw[0]; v->dy = raw[1] - corrected[1];
+                if (fit->top_down) { v->y = fit->ry - v->y; v->dy = -v->dy; }
+            }
+        }
+    }
+    g_mutex_unlock(&engine_mutex); return count;
+}
+
 const char *siril_psf_error_message(int code) { return code >= 0 && code < PSF_ERR_MAX_VALUE ? psf_error_to_string((psf_error)code) : "Sequence worker did not retain the per-frame error code"; }
 
 static int native_star_settings(const SirilStarFinder *input, fits *fit, star_finder_params *sf) {

@@ -307,7 +307,7 @@ struct ContentView: View {
                 else if analysisTab == 5 { AberrationInspectorView(file: file) }
                 else { ImageAnalysisView(file: file, processingEngine: engine, onHeaderOutput: { result in
                     showAnalysis = false; importResult(result, parent: file.id)
-                }, selection: $imageSelection, initialTab: analysisTab) }
+                }, selection: $imageSelection, initialTab: analysisTab == 6 ? 0 : analysisTab, initialDistortions: analysisTab == 6) }
             }
         }
         .sheet(isPresented: $showTools, onDismiss: {
@@ -391,8 +391,8 @@ struct ContentView: View {
                 if let current = files.first(where: { $0.id == history.current }) { await loadPreview(current, navigation: false) }
                 if ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1", let file = files.last {
                     analysisTab = Int(ProcessInfo.processInfo.environment["SIRIL_ANALYSIS_TAB"] ?? "0") ?? 0
-                    if ProcessInfo.processInfo.environment["SIRIL_WCS_VIEW_CHECK"] == "1",
-                       let wcsFile = try? await engine.importFile(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-wcs-source.fits")) {
+                    if (ProcessInfo.processInfo.environment["SIRIL_WCS_VIEW_CHECK"] == "1" || analysisTab == 6),
+                       let wcsFile = try? await engine.importFile(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(analysisTab == 6 ? "simulator-wcs-sip-source.fits" : "simulator-wcs-source.fits")) {
                         files.append(wcsFile); await loadPreview(wcsFile)
                         imageSelection = ImageSelection(x: 63, y: 48, width: 32, height: 24)
                     } else if analysisTab == 3, let source = Bundle.main.url(forResource: "psf-gaussian", withExtension: "fits"),
@@ -568,7 +568,7 @@ struct ContentView: View {
             checkpoint("START: PSF/photometry checks")
             try await engine.starAnalysisSelfTest()
             try await engine.wcsSelfTest()
-            checkpoint("PASS: pixel-centre sky readout matched independent skewed TAN/RA wrap and raw pixels; absent WCS stayed absent and source bytes unchanged")
+            checkpoint("PASS: pixel-centre sky readout matched independent skewed TAN/SIP/RA wrap and raw pixels; 400 original distortion samples matched independent SIP polynomials, absent models stayed absent and source bytes unchanged")
             checkpoint("START: original CCD-inspector quadrant and sensor tilt checks")
             try await engine.sensorTiltSelfTest()
             checkpoint("PASS: original sensor tilt matched independent Gaussian FWHM, four displayed quadrants, central/outer zones, RGB channel choice, both FITS row orders and source preservation; missing zones rejected")

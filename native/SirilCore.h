@@ -250,6 +250,11 @@ int siril_image_pixel(SirilImage *image, int32_t x, int32_t y, float values[3]);
  * Returns zero with NaN outputs for absent/unsupported WCS or failed projection. */
 int siril_image_pixel_to_sky(SirilImage *image, double x, double y, double *ra, double *dec);
 int siril_image_sky_to_pixel(SirilImage *image, double ra, double dec, double *x, double *y);
+typedef struct { double x, y, dx, dy; } SirilDistortionVector;
+/* Original 20x20 prior-distortion grid in display coordinates, unamplified.
+ * Returns valid vector count, zero for no prior distortion, -1 for bad buffer.
+ * Caller provides space for 400 vectors; no pixels or WCS coefficients change. */
+int siril_image_distortion_vectors(SirilImage *image, SirilDistortionVector *vectors, size_t capacity);
 /* Required UTF-8 buffer size including NUL; a short buffer is never partially filled. */
 size_t siril_image_copy_header(SirilImage *image, char *buffer, size_t capacity);
 /* Returns an independent edited image. action: 0 set, 1 delete, 2 rename,
