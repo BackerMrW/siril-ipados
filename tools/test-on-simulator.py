@@ -179,7 +179,7 @@ subprocess.run(["xcrun", "simctl", "io", udid, "screenshot",
 # Open the shared analysis workspace on the persisted gradient, with a visible
 # selection. This launch checks its real SwiftUI/Canvas layout separately from
 # the numerical actor checks above, without re-running the processing pipeline.
-for tab, screenshot in ((0, "native-analysis-simulator.png"), (1, "native-histogram-simulator.png"), (2, "native-header-simulator.png"), (3, "native-stars-simulator.png"), (2, "native-keyword-editor-simulator.png")):
+for tab, screenshot in ((0, "native-analysis-simulator.png"), (1, "native-histogram-simulator.png"), (2, "native-header-simulator.png"), (3, "native-stars-simulator.png"), (4, "native-sensor-tilt-simulator.png"), (2, "native-keyword-editor-simulator.png")):
     subprocess.run(["xcrun", "simctl", "terminate", udid, "com.backermrw.sirilpad"], check=True, timeout=30)
     editor_check = "keyword-editor" in screenshot
     ready = container / ("Documents/simulator-keyword-ready.txt" if editor_check else "Documents/simulator-analysis-ready.txt")

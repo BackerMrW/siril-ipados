@@ -41,6 +41,7 @@ struct ZoomableImageCanvas: UIViewRepresentable {
     var selected: Int? = nil
     var region: ImageSelection? = nil
     var displacements: [DisplacementMarker] = []
+    var sensorTilt: SensorTiltResult? = nil
     var selecting = false
     var movingSamples = false
     var onSampleMove: ((Int, Double, Double) -> Void)? = nil
@@ -88,6 +89,7 @@ struct ZoomableImageCanvas: UIViewRepresentable {
             scroll.sourceSize = CGSize(width: parent.imageWidth, height: parent.imageHeight)
             scroll.selected = parent.selected; scroll.region = parent.region
             scroll.displacements = parent.displacements
+            scroll.sensorTilt = parent.sensorTilt
             selectGesture?.isEnabled = parent.selecting
             moveGesture?.isEnabled = parent.movingSamples && !parent.selecting
             scroll.panGestureRecognizer.minimumNumberOfTouches = parent.selecting || parent.movingSamples ? 2 : 1
@@ -182,11 +184,13 @@ final class CanvasScrollView: UIScrollView {
     private let selectionBox = CAShapeLayer()
     private let converged = CAShapeLayer()
     private let failed = CAShapeLayer()
+    private let tiltOutline = CAShapeLayer()
     var markers: [SampleMarker] = []
     var sourceSize = CGSize(width: 1, height: 1)
     var selected: Int?
     var region: ImageSelection?
     var displacements: [DisplacementMarker] = []
+    var sensorTilt: SensorTiltResult?
     private var lastBounds = CGSize.zero
     private var lastImageSize = CGSize.zero
 
@@ -195,7 +199,7 @@ final class CanvasScrollView: UIScrollView {
         addSubview(canvas)
         canvas.addSubview(picture)
         picture.contentMode = .scaleToFill
-        for layer in [boxes, highlight, selectionBox, converged, failed] {
+        for layer in [boxes, highlight, selectionBox, converged, failed, tiltOutline] {
             layer.fillColor = UIColor.clear.cgColor
             canvas.layer.addSublayer(layer)
         }
@@ -204,6 +208,7 @@ final class CanvasScrollView: UIScrollView {
         selectionBox.strokeColor = UIColor.systemCyan.cgColor
         converged.strokeColor = UIColor.systemGreen.cgColor
         failed.strokeColor = UIColor.systemRed.cgColor
+        tiltOutline.strokeColor = UIColor.systemCyan.cgColor
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
     override func layoutSubviews() {
@@ -260,6 +265,16 @@ final class CanvasScrollView: UIScrollView {
         }
         converged.path = goodPath.cgPath; failed.path = failedPath.cgPath
         converged.lineWidth = 1.2 / zoomScale; failed.lineWidth = 1.2 / zoomScale
+        let tiltPath = UIBezierPath()
+        if let sensorTilt, sensorTilt.points.count == 4 {
+            // Same six edges as the original CCD-inspector overlay.
+            for edge in [(0, 1), (1, 2), (2, 3), (3, 1), (3, 0), (0, 2)] {
+                let a = sensorTilt.points[edge.0], b = sensorTilt.points[edge.1]
+                tiltPath.move(to: CGPoint(x: a.x * sx, y: a.y * sy))
+                tiltPath.addLine(to: CGPoint(x: b.x * sx, y: b.y * sy))
+            }
+        }
+        tiltOutline.path = tiltPath.cgPath; tiltOutline.lineWidth = 1.5 / zoomScale
         CATransaction.commit()
     }
 }

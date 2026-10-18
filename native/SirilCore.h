@@ -206,6 +206,15 @@ typedef struct {
     double x, y, background, amplitude, fwhm_x, fwhm_y, angular_x, angular_y;
     double angle, beta, rmse, magnitude, magnitude_error, snr, ra, dec;
 } SirilStarMeasurement;
+typedef struct {
+    int32_t stars, channel, width, height;
+    double mean, quadrant[4], centre, outer, difference, percent, off_axis;
+    double x[4], y[4];
+} SirilSensorTilt;
+/* Original CCD-inspector trimmed means and polygon; values stay in pixels.
+ * Quadrants/points are displayed TL, TR, BL, BR. No image pixels are changed. */
+int siril_image_sensor_tilt(SirilImage *image, const SirilStarFinder *finder,
+    SirilSensorTilt *result, char *error, size_t capacity);
 const char *siril_psf_error_message(int code);
 int siril_image_fit_star(SirilImage *image, const SirilRegion *region,
     const SirilStarFinder *finder, const SirilPhotometry *photometry,

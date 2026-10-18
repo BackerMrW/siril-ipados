@@ -775,6 +775,7 @@ static int displayed_region(fits *fit, const SirilRegion *input, rectangle *area
     return 1;
 }
 #include "SirilAstrometry.inc"
+#include "SirilCCD.inc"
 
 int siril_image_statistics(SirilImage *image, const SirilRegion *region, int per_cfa,
         SirilChannelStatistics results[3]) {

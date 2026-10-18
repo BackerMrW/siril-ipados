@@ -467,6 +467,8 @@ destination.mkdir(exist_ok=True)
 for name in ("SirilCore.c", "SirilCore.h", "SirilAdvanced.inc", "SirilDeconvolution.inc", "SirilAstrometry.inc", "SirilSER.inc", "SirilDisplay.inc", "core-link-probe.c", "core-runtime-tests.c", "xisf-runtime-tests.inc", "photometry-runtime-tests.inc", "ser-runtime-tests.inc", "jxl-runtime-tests.inc", "cfa-format-tests.inc", "heif-runtime-tests.inc", "keyword-runtime-tests.inc", "display-runtime-tests.inc", "icc-runtime-tests.inc", "display-icc-tests.inc", "display-overlay-tests.inc", "display-proof-tests.inc", "cmyk-proof-fixture.inc", "noise-runtime-tests.inc", "large-image-runtime-tests.inc", "SirilPatternRegistration.inc", "SirilCometRegistration.inc", "SirilMultipoint.inc"):
     shutil.copy2(root / "native" / name, destination / name)
 shutil.copy2(root / "native/SirilVideo.inc", destination / "SirilVideo.inc")
+shutil.copy2(root / "native/SirilCCD.inc", destination / "SirilCCD.inc")
+shutil.copy2(root / "native/ccd-runtime-tests.inc", destination / "ccd-runtime-tests.inc")
 shutil.copy2(root / "native/video-runtime-tests.inc", destination / "video-runtime-tests.inc")
 # Reuse the pinned desktop LUT arithmetic without GTK state or its UI cache.
 # The iPad bridge owns the image, level bounds, destination and STF parameters.
@@ -956,6 +958,25 @@ start = text.index('/* Heuristic-detected mono in an RGB-encoded AVI:')
 end = text.index('\n\treturn FILM_SUCCESS;', start)
 text = text[:start] + '/* Preserve exact mono capture values by retaining the RGB decode format. */\n' + text[end:]
 films.write_text(text)
+
+# Keep the original CCD-inspector statistics and polygon arithmetic, returning
+# owned values while restoring the desktop overlay pointer after the call.
+ccd = source / "src/algos/ccd-inspector.c"
+with ccd.open("a") as output:
+    output.write('''
+int siril_ipados_tilt_values(fits *fit, int count, psf_star **stars, float values[7], sensor_tilt *polygon) {
+    if (!fit || !stars || count < 1 || !values || !polygon ||
+        compute_tilt_values(fit, count, stars, &values[0], &values[1], &values[2],
+            &values[3], &values[4], &values[5], &values[6])) return 0;
+    sensor_tilt *previous = com.tilt;
+    com.tilt = NULL;
+    draw_polygon(fit->rx, fit->ry, values[1], values[2], values[3], values[4], values[5]);
+    int ok = com.tilt != NULL;
+    if (ok) *polygon = *com.tilt;
+    clear_sensor_tilt(); com.tilt = previous;
+    return ok;
+}
+''')
 
 # Compact AVIF uses an mif3 major brand plus an avif subtype. Otherwise the
 # generic ftyp video branch takes over when FFMS2 is enabled, rejecting images

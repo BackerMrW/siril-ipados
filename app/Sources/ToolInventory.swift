@@ -50,6 +50,7 @@ struct ToolInventoryView: View {
                     Button("背景噪声估计 · Noise Estimation") { dismiss(); onAnalysis(0) }.disabled(!canUseNativeTools)
                     Button("直方图与像素读数") { dismiss(); onAnalysis(1) }
                     Button("动态 PSF 与孔径测光") { dismiss(); onAnalysis(3) }.disabled(!canUseNativeTools)
+                    Button("传感器倾斜 · Sensor Tilt") { dismiss(); onAnalysis(4) }.disabled(!canUseNativeTools)
                     Button("FITS 文件头 · FITS Header") { dismiss(); onAnalysis(2) }
                 }
                 ForEach(["拉伸", "颜色", "滤镜", "几何", "曲线与表达式", "频谱", "反卷积", "天文分析"], id: \.self) { group in
@@ -69,6 +70,8 @@ struct ToolInventoryView: View {
                                 Button(entry.title) { dismiss(); onNativeTool(tool) }.disabled(!canUseNativeTools)
                             } else if ["win.psf", "win.dyn-psf", "win.photometry"].contains(entry.id) {
                                 Button(entry.title) { dismiss(); onAnalysis(3) }.disabled(!canUseNativeTools)
+                            } else if entry.id == "win.show-tilt" {
+                                Button(entry.title) { dismiss(); onAnalysis(4) }.disabled(!canUseNativeTools)
                             } else if entry.id == "win.evaluate-noise" {
                                 Button(entry.title) { dismiss(); onAnalysis(0) }.disabled(!canUseNativeTools)
                             } else { Text(entry.title).font(.headline) }

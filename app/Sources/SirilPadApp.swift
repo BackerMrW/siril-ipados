@@ -303,6 +303,7 @@ struct ContentView: View {
                         importResult(result, parent: file.id)
                     }, selection: $imageSelection)
                 }
+                else if analysisTab == 4 { SensorTiltView(file: file) }
                 else { ImageAnalysisView(file: file, processingEngine: engine, onHeaderOutput: { result in
                     showAnalysis = false; importResult(result, parent: file.id)
                 }, selection: $imageSelection, initialTab: analysisTab) }
@@ -393,6 +394,9 @@ struct ContentView: View {
                        let starFile = try? await engine.importFile(source) {
                         files.append(starFile); await loadPreview(starFile)
                         imageSelection = ImageSelection(x: 6, y: 10, width: 71, height: 71)
+                    } else if analysisTab == 4,
+                              let tiltFile = try? await engine.importFile(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-tilt-source.fits")) {
+                        files.append(tiltFile); await loadPreview(tiltFile)
                     } else {
                         await loadPreview(file)
                         imageSelection = ImageSelection(x: 24, y: 32, width: 80, height: 64)
@@ -557,6 +561,9 @@ struct ContentView: View {
             try await engine.nativeToolSelfTest()
             checkpoint("START: PSF/photometry checks")
             try await engine.starAnalysisSelfTest()
+            checkpoint("START: original CCD-inspector quadrant and sensor tilt checks")
+            try await engine.sensorTiltSelfTest()
+            checkpoint("PASS: original sensor tilt matched independent Gaussian FWHM, four displayed quadrants, central/outer zones, RGB channel choice, both FITS row orders and source preservation; missing zones rejected")
             checkpoint("START: remaining workspace/storage/analysis checks")
             guard processed.width == 2 && processed.height == 2 else { throw EngineError.failed("Batch output dimensions changed") }
             await loadPreview(processed)
