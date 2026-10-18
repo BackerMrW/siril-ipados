@@ -47,7 +47,7 @@ struct SensorTiltView: View {
         VStack {
             if let image {
                 ZoomableImageCanvas(image: image, samples: [], imageWidth: Double(source.details.width), imageHeight: Double(source.details.height),
-                    sensorTilt: result, onTap: nil).background(.black)
+                    sensorTilt: result, onTap: nil).background(.black, ignoresSafeAreaEdges: [])
             } else { ProgressView("读取原始图像").frame(maxWidth: .infinity, maxHeight: .infinity) }
             NativeDisplayControls(settings: $display).disabled(busy).padding(.horizontal)
             Text("双指缩放和平移；图形与数值均使用原图像素坐标。")
