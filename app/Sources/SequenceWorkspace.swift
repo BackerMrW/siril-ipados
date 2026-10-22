@@ -56,6 +56,8 @@ struct SequenceWorkspace: View {
     @State private var showStack = false
     @State private var showApply = false
     @State private var showBackground = false
+    @State private var showStretch = false
+    @State private var stretchSource: SequenceLocation?
     @State private var showPhotometry = false
     @State private var ccdSource: CCDImageSource?
     @State private var ccdTilt = true
@@ -243,6 +245,8 @@ struct SequenceWorkspace: View {
                         .font(.caption).foregroundStyle(.secondary)
                     Button("序列背景提取", systemImage: "square.3.layers.3d") { backgroundSource = currentLocation; showBackground = true }
                         .disabled(snapshot.info.included < 1)
+                    Button("序列拉伸 · MTF / GHS / 修正 Asinh") { stretchSource = currentLocation; showStretch = true }
+                        .disabled(snapshot.info.included < 1)
                     Button("应用配准 / Drizzle 参数", systemImage: "arrow.triangle.branch") { showApply = true }
                         .disabled(snapshot.info.included < 2 || !snapshot.frames.filter(\.included).allSatisfy { $0.native.has_registration != 0 })
                     if let generated {
@@ -323,6 +327,7 @@ struct SequenceWorkspace: View {
                 for _ in 0..<60 where image == nil { try? await Task.sleep(for: .milliseconds(50)) }
                 guard image != nil else { return }
                 let section = ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] ?? "frames"
+                if section == "stretch" { stretchSource = currentLocation; showStretch = true; return }
                 if ["tilt", "tilt-average", "inspector"].contains(section) {
                     do {
                         ccdTilt = section != "inspector"
@@ -420,6 +425,12 @@ struct SequenceWorkspace: View {
             Button("取消", role: .cancel) { }
         } message: { Text("该任务中的所有序列和结果都将移入最近删除，可在存储管理中恢复。") }
         .fullScreenCover(isPresented: $showPhotometry) { SequencePhotometryView(location: currentLocation, engine: engine) }
+        .fullScreenCover(isPresented: $showStretch, onDismiss: { perform { let status = try await engine.sequenceResultStatus(location); await adopt(status) } }) {
+            SequenceStretchView(location: stretchSource ?? currentLocation, engine: engine) { output in
+                generated = output
+                _ = try await engine.recordSequenceResult(entry: location, source: stretchSource ?? currentLocation, output: output)
+            }
+        }
         .fullScreenCover(isPresented: $showBackground, onDismiss: { perform { let status = try await engine.sequenceResultStatus(location); await adopt(status) } }) {
             SequenceBackgroundView(location: backgroundSource ?? currentLocation, engine: engine) { output in
                 generated = output
