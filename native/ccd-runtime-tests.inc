@@ -15,6 +15,9 @@ static int ccd_numeric_checks(void) {
         measured[index].fwhmx = measured[index].fwhmy = k == 0 ? .01 : k == 7 ? 40 : 2 + q;
     }
     float values[7]; sensor_tilt polygon;
+    sensor_tilt *saved_overlay = com.tilt;
+    sensor_tilt existing_overlay = {.fwhm_centre = 123};
+    com.tilt = &existing_overlay;
     sensor_tilt *previous = com.tilt;
     CHECK(siril_ipados_tilt_values(&shape, 32, stars, values, &polygon));
     CHECK(com.tilt == previous);
@@ -31,6 +34,23 @@ static int ccd_numeric_checks(void) {
     CHECK(!siril_ipados_tilt_values(&shape, 8, stars, values, &polygon));
     CHECK(com.tilt == previous);
     puts("PASS: original CCD-inspector 25-percent trimmed quadrant/central/outer FWHM means and polygon matched independent outlier arithmetic; incomplete zones rejected and existing overlay preserved");
+    SirilSensorTilt frames[2] = {
+        {.stars=15, .channel=1, .width=200, .height=160, .mean=3.5, .quadrant={2,3,4,5}, .centre=3, .outer=4},
+        {.stars=18, .channel=1, .width=200, .height=160, .mean=4.5, .quadrant={6,5,4,3}, .centre=5, .outer=6}
+    }, average;
+    CHECK(siril_sensor_tilt_average(frames, 2, &average));
+    CHECK(average.stars == 16 && average.channel == 1 && average.mean == 4 && average.centre == 4 && average.outer == 5);
+    CHECK(average.difference == 0 && average.percent == 0 && average.off_axis == 1);
+    for (int q = 0; q < 4; q++) CHECK(average.quadrant[q] == 4);
+    CHECK(com.tilt == previous);
+    CHECK(!siril_sensor_tilt_average(frames, 0, &average));
+    frames[1].width = 199; CHECK(!siril_sensor_tilt_average(frames, 2, &average)); frames[1].width = 200;
+    frames[1].channel = 0; CHECK(!siril_sensor_tilt_average(frames, 2, &average)); frames[1].channel = 1;
+    frames[1].quadrant[2] = NAN; CHECK(!siril_sensor_tilt_average(frames, 2, &average));
+    frames[1].quadrant[2] = 0; CHECK(!siril_sensor_tilt_average(frames, 2, &average));
+    CHECK(com.tilt == &existing_overlay && existing_overlay.fwhm_centre == 123);
+    com.tilt = saved_overlay;
+    puts("PASS: sequence tilt equal-frame float means and integer mean star count matched independent arithmetic; incomplete/nonfinite/mismatched inputs rejected and previous overlay preserved");
     return 0;
 }
 

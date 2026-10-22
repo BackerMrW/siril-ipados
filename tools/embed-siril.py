@@ -965,17 +965,20 @@ films.write_text(text)
 ccd = source / "src/algos/ccd-inspector.c"
 with ccd.open("a") as output:
     output.write('''
-int siril_ipados_tilt_values(fits *fit, int count, psf_star **stars, float values[7], sensor_tilt *polygon) {
-    if (!fit || !stars || count < 1 || !values || !polygon ||
-        compute_tilt_values(fit, count, stars, &values[0], &values[1], &values[2],
-            &values[3], &values[4], &values[5], &values[6])) return 0;
+int siril_ipados_tilt_polygon(int width, int height, const float values[7], sensor_tilt *polygon) {
     sensor_tilt *previous = com.tilt;
     com.tilt = NULL;
-    draw_polygon(fit->rx, fit->ry, values[1], values[2], values[3], values[4], values[5]);
+    draw_polygon(width, height, values[1], values[2], values[3], values[4], values[5]);
     int ok = com.tilt != NULL;
     if (ok) *polygon = *com.tilt;
     clear_sensor_tilt(); com.tilt = previous;
     return ok;
+}
+int siril_ipados_tilt_values(fits *fit, int count, psf_star **stars, float values[7], sensor_tilt *polygon) {
+    if (!fit || !stars || count < 1 || !values || !polygon ||
+        compute_tilt_values(fit, count, stars, &values[0], &values[1], &values[2],
+            &values[3], &values[4], &values[5], &values[6])) return 0;
+    return siril_ipados_tilt_polygon(fit->rx, fit->ry, values, polygon);
 }
 ''')
 

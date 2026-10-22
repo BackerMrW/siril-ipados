@@ -215,6 +215,10 @@ typedef struct {
  * Quadrants/points are displayed TL, TR, BL, BR. No image pixels are changed. */
 int siril_image_sensor_tilt(SirilImage *image, const SirilStarFinder *finder,
     SirilSensorTilt *result, char *error, size_t capacity);
+/* Equal-frame average of original per-frame FWHM zones, using float arithmetic
+ * and integer mean star count as upstream seqtilt, then original polygon.
+ * Inputs must all be complete and have matching dimensions/channel. */
+int siril_sensor_tilt_average(const SirilSensorTilt *frames, size_t count, SirilSensorTilt *result);
 const char *siril_psf_error_message(int code);
 int siril_image_fit_star(SirilImage *image, const SirilRegion *region,
     const SirilStarFinder *finder, const SirilPhotometry *photometry,

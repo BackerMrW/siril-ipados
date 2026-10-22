@@ -429,7 +429,7 @@ struct ContentView: View {
                 if ProcessInfo.processInfo.environment["SIRIL_BATCH_VIEW_CHECK"] == "1" { showProcessing = true }
                 if ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_VIEW_CHECK"] == "1" {
                     let section = ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"]
-                    let file = ["tilt", "inspector"].contains(section ?? "") ? "simulator-ccd-sequence-location.json" :
+                    let file = ["tilt", "tilt-average", "inspector"].contains(section ?? "") ? "simulator-ccd-sequence-location.json" :
                         section == "ser" ? "simulator-ser-sequence-location.json" :
                         section == "video" ? "simulator-video-sequence-location.json" :
                         section == "multipoint-shifts" ? "simulator-multipoint-warp-location.json" : "simulator-sequence-location.json"
@@ -575,7 +575,7 @@ struct ContentView: View {
             try await engine.aberrationInspectorSelfTest()
             checkpoint("PASS: native aberration inspector retained full-resolution corner/edge/central pixels and global linear/STF display, owned tile bytes, invalid-setting rejection and cancellation")
             try await engine.ccdSequenceSelfTest()
-            checkpoint("PASS: current-frame sensor tilt and aberration inspection read regular/FITSEQ/native SER directly, preserved independent Gaussian/linear pixels, excluded-frame access and source selection/reference/bytes")
+            checkpoint("PASS: current-frame CCD and included-frame tilt means read regular/FITSEQ/native SER directly; independent Gaussian averages, exclusion, cancellation/partial-failure ownership recovery, source selection/reference/bytes and file lists preserved")
             checkpoint("START: remaining workspace/storage/analysis checks")
             guard processed.width == 2 && processed.height == 2 else { throw EngineError.failed("Batch output dimensions changed") }
             await loadPreview(processed)

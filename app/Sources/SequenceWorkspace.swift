@@ -110,6 +110,9 @@ struct SequenceWorkspace: View {
                     Button("当前帧传感器倾斜") {
                         perform { ccdTilt = true; ccdSource = try await engine.ccdFrameSource(currentLocation, index: index) }
                     }
+                    Button("参与帧平均倾斜") {
+                        perform { ccdTilt = true; ccdSource = try await engine.ccdSequenceSource(currentLocation) }
+                    }
                     Button("当前帧像差九宫格") {
                         perform { ccdTilt = false; ccdSource = try await engine.ccdFrameSource(currentLocation, index: index) }
                     }
@@ -320,11 +323,14 @@ struct SequenceWorkspace: View {
                 for _ in 0..<60 where image == nil { try? await Task.sleep(for: .milliseconds(50)) }
                 guard image != nil else { return }
                 let section = ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] ?? "frames"
-                if ["tilt", "inspector"].contains(section) {
+                if ["tilt", "tilt-average", "inspector"].contains(section) {
                     do {
-                        ccdTilt = section == "tilt"
+                        ccdTilt = section != "inspector"
                         index = 1
-                        ccdSource = try await engine.ccdFrameSource(currentLocation, index: index)
+                        if section == "tilt-average" {
+                            try await engine.editSequence(currentLocation, selection: SequenceSelection(included: [true, true], reference: 1))
+                            ccdSource = try await engine.ccdSequenceSource(currentLocation)
+                        } else { ccdSource = try await engine.ccdFrameSource(currentLocation, index: index) }
                     } catch { message = error.localizedDescription }
                     return
                 }

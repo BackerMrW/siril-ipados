@@ -77,11 +77,50 @@ extension SirilEngine {
         }
         let reader = ImageAnalysisEngine()
         for location in locations {
-            try editSequence(location, selection: SequenceSelection(included: [false, true], reference: 1))
-            let process = try sequenceFolder(location), bytes = try Data(contentsOf: process.appendingPathComponent(location.name))
-            let root = process.deletingLastPathComponent(), paths = try sequenceFilePaths(location)
+            let process = try sequenceFolder(location), root = process.deletingLastPathComponent()
+            let paths = try sequenceFilePaths(location)
             let sources = try paths.map { try Data(contentsOf: sequenceKeywordSource($0, under: root)) }
+            try editSequence(location, selection: SequenceSelection(included: [true, true], reference: 1))
+            let meanFiles = Set(try fm.contentsOfDirectory(atPath: process.path))
+            let meanSource = try ccdSequenceSource(location)
+            try require(meanSource.details.includedFrames == [0, 1], "included-frame average source")
+            _ = try await reader.openCCDSource(meanSource)
+            let beforeMean = try await reader.preview(channel: -1, settings: display)
+            let mean = try await reader.sensorTiltAverage(source: meanSource, settings: settings)
+            for q in 0..<4 {
+                let expectedMean = (expected.quadrants[q] + expected.quadrants[q ^ 2]) / 2
+                try require(abs(mean.quadrants[q] - expectedMean) < 0.02, "independent per-quadrant equal-frame average")
+            }
+            try require(mean.stars == 16 && mean.percent == 22 && abs(mean.mean - expected.mean) < 0.02,
+                "sequence average star count, tilt percentage or global FWHM")
+            try require(try await reader.preview(channel: -1, settings: display).data == beforeMean.data,
+                "sequence average did not restore reference image ownership")
+            try require(try inspectSequence(location).selection == SequenceSelection(included: [true, true], reference: 1),
+                "sequence average changed inclusion/reference")
+            var badDetails = meanSource.details; badDetails.includedFrames = [0, 2]
+            let badSource = CCDImageSource.frame(directory: try sequenceFolder(location), name: location.name, index: 1, details: badDetails)
+            var rejected = false
+            do { _ = try await reader.sensorTiltAverage(source: badSource, settings: settings) } catch { rejected = true }
+            try require(rejected, "partially readable average accepted")
+            try require(try await reader.preview(channel: -1, settings: display).data == beforeMean.data,
+                "failed average did not restore reference image ownership")
+            let cancelled = Task {
+                withUnsafeCurrentTask { $0?.cancel() }
+                return try await reader.sensorTiltAverage(source: meanSource, settings: settings)
+            }
+            rejected = false
+            do { _ = try await cancelled.value } catch is CancellationError { rejected = true }
+            try require(rejected, "cancelled average published a result")
+            try require(try Set(fm.contentsOfDirectory(atPath: process.path)) == meanFiles, "average created processing files")
+            try editSequence(location, selection: SequenceSelection(included: [false, true], reference: 1))
+            let bytes = try Data(contentsOf: process.appendingPathComponent(location.name))
             let files = Set(try fm.contentsOfDirectory(atPath: process.path))
+            let includedSource = try ccdSequenceSource(location)
+            try require(includedSource.details.includedFrames == [1], "excluded frame leaked into average source")
+            let singleMean = try await reader.sensorTiltAverage(source: includedSource, settings: settings)
+            for q in 0..<4 {
+                try require(abs(singleMean.quadrants[q] - expected.quadrants[q ^ 2]) < 0.02, "average did not exclude frame zero")
+            }
             for frameIndex in [1, 0] { // Read both distinct frames, including the excluded frame.
                 let frame = try ccdFrameSource(location, index: frameIndex)
                 _ = try await reader.openCCDSource(frame)

@@ -28,6 +28,9 @@ struct SensorTiltResult: Codable, Equatable, Sendable {
 }
 extension ImageAnalysisEngine {
     func sensorTilt(settings: StarSettings) throws -> SensorTiltResult {
+        try SensorTiltResult(sensorTiltNative(settings: settings))
+    }
+    private func sensorTiltNative(settings: StarSettings) throws -> SirilSensorTilt {
         guard let image else { throw EngineError.failed("尚未打开图像") }
         var info = SirilImageInfo(); _ = siril_image_info(image, &info)
         try settings.validate(channels: Int(info.channels))
@@ -35,6 +38,31 @@ extension ImageAnalysisEngine {
         let capacity = error.count
         guard siril_image_sensor_tilt(image, &finder, &result, &error, capacity) != 0 else {
             throw EngineError.failed(String(cString: error))
+        }
+        return result
+    }
+    func sensorTiltAverage(source: CCDImageSource, settings: StarSettings) throws -> SensorTiltResult {
+        guard case .frame(let directory, let name, _, let details) = source,
+              let included = details.includedFrames, !included.isEmpty else {
+            throw EngineError.failed("序列没有可分析的参与帧。")
+        }
+        try Task.checkCancellation()
+        let previous = image; image = nil
+        defer { if let image { siril_image_free(image) }; image = previous }
+        var frames: [SirilSensorTilt] = []
+        for index in included {
+            try Task.checkCancellation()
+            do {
+                _ = try openCCDSource(.frame(directory: directory, name: name, index: index, details: details))
+                frames.append(try sensorTiltNative(settings: settings))
+            } catch is CancellationError { throw CancellationError() }
+            catch { throw EngineError.failed("帧 \(index + 1) 无法完成倾斜分析：" + error.localizedDescription) }
+        }
+        try Task.checkCancellation()
+        var result = SirilSensorTilt()
+        let count = frames.count
+        guard siril_sensor_tilt_average(&frames, count, &result) != 0 else {
+            throw EngineError.failed("参与帧的分区测量不完整或尺寸/通道不一致。")
         }
         return try SensorTiltResult(result)
     }

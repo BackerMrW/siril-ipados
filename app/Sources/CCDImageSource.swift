@@ -5,6 +5,7 @@ import SirilCore
 struct CCDSourceDetails: Sendable {
     let title: String
     let width: Int, height: Int, channels: Int
+    var includedFrames: [Int]? = nil
 }
 enum CCDImageSource: Sendable, Identifiable {
     case file(FITSRecord)
@@ -12,7 +13,8 @@ enum CCDImageSource: Sendable, Identifiable {
     var id: String {
         switch self {
         case .file(let file): return file.id.uuidString
-        case .frame(let directory, let name, let index, _): return directory.path + "/" + name + "#" + String(index)
+        case .frame(let directory, let name, let index, let details):
+            return directory.path + "/" + name + "#" + String(index) + (details.includedFrames == nil ? "" : "#average")
         }
     }
     var details: CCDSourceDetails {
@@ -23,6 +25,22 @@ enum CCDImageSource: Sendable, Identifiable {
     }
 }
 extension SirilEngine {
+    func ccdSequenceSource(_ location: SequenceLocation) throws -> CCDImageSource {
+        let snapshot = try inspectSequence(location)
+        let included = snapshot.frames.filter(\.included).map(\.id)
+        guard let first = included.first, [1, 3].contains(Int(snapshot.info.layers)) else {
+            throw EngineError.failed("序列没有可分析的参与帧。")
+        }
+        let reference = snapshot.frames.indices.contains(Int(snapshot.info.reference)) ? Int(snapshot.info.reference) : first
+        let frame = snapshot.frames[reference].native
+        guard frame.width > 0, frame.height > 0,
+              snapshot.frames.filter(\.included).allSatisfy({ $0.native.width == frame.width && $0.native.height == frame.height }) else {
+            throw EngineError.failed("倾斜平均需要参与帧尺寸一致。")
+        }
+        return .frame(directory: try sequenceFolder(location), name: location.name, index: reference,
+            details: CCDSourceDetails(title: location.name + " · \(included.count) 个参与帧平均", width: Int(frame.width),
+                height: Int(frame.height), channels: Int(snapshot.info.layers), includedFrames: included))
+    }
     func ccdFrameSource(_ location: SequenceLocation, index: Int) throws -> CCDImageSource {
         let snapshot = try inspectSequence(location)
         guard snapshot.frames.indices.contains(index), [1, 3].contains(Int(snapshot.info.layers)) else {

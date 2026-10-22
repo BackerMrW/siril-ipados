@@ -10,6 +10,7 @@ struct SensorTiltView: View {
     @State private var result: SensorTiltResult?
     @State private var display = NativeDisplaySettings.load()
     @State private var busy = false
+    @State private var analysisTask: Task<Void, Never>?
     @State private var message = ""
     init(file: FITSRecord) {
         self.init(source: .file(file))
@@ -34,7 +35,11 @@ struct SensorTiltView: View {
             }
             .navigationTitle("传感器倾斜分析").navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("关闭") { dismiss() }.disabled(busy) }
-            .task { await open() }
+            .task {
+                let work = Task { await open() }; analysisTask = work
+                await work.value
+            }
+            .onDisappear { analysisTask?.cancel() }
             .onChange(of: settings) { _, _ in
                 result = nil
                 if let data = try? JSONEncoder().encode(settings) { UserDefaults.standard.set(data, forKey: "sensorTiltSettings") }
@@ -58,17 +63,30 @@ struct SensorTiltView: View {
         Form {
             Section {
                 Text(source.details.title).font(.caption).textSelection(.enabled)
-                Button("检测星点并计算倾斜") { Task { await calculate() } }.disabled(busy || image == nil)
+                Button(source.details.includedFrames == nil ? "检测星点并计算倾斜" : "计算参与帧平均倾斜") {
+                    analysisTask = Task { await calculate() }
+                }.disabled(busy || image == nil)
                 Button("恢复原版检测默认值") {
                     var value = StarSettings(); value.channel = source.details.channels == 3 ? 1 : 0; value.maximum = 2000
                     settings = value
                 }.disabled(busy)
-                if busy { ProgressView("原版星点拟合与分区统计") }
+                if busy {
+                    ProgressView("原版星点拟合与分区统计")
+                    Button("取消分析") { analysisTask?.cancel() }
+                    if source.details.includedFrames != nil {
+                        Text("取消会在当前帧测量结束后停止，不发布部分平均值。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if let included = source.details.includedFrames {
+                    Text("\(included.count) 个参与帧逐帧测量后等权平均；排除帧不计入。任何参与帧缺少分区时不发布部分结果。图形叠加在序列参考帧上。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if !message.isEmpty { Text(message).foregroundStyle(.red).textSelection(.enabled) }
             }
             if let result {
                 Section("原版 CCD Inspector · 像素") {
-                    LabeledContent("有效星点", value: String(result.stars))
+                    LabeledContent(source.details.includedFrames == nil ? "有效星点" : "平均有效星点", value: String(result.stars))
                     metric("全图截尾均值 FWHM", result.mean)
                     metric("倾斜 FWHM 差", result.difference)
                     LabeledContent("倾斜比例", value: String(format: "%.0f%%", result.percent))
@@ -94,17 +112,22 @@ struct SensorTiltView: View {
         do {
             _ = try await engine.openCCDSource(source)
             image = try await engine.preview(channel: settings.channel, settings: display).uiImage
-            result = try await engine.sensorTilt(settings: settings)
+            result = try await measure()
             let environment = ProcessInfo.processInfo.environment
-            let sequenceCheck = environment["SIRIL_SEQUENCE_VIEW_CHECK"] == "1" && environment["SIRIL_SEQUENCE_SECTION"] == "tilt"
+            let averageCheck = environment["SIRIL_SEQUENCE_SECTION"] == "tilt-average"
+            let sequenceCheck = environment["SIRIL_SEQUENCE_VIEW_CHECK"] == "1" && ["tilt", "tilt-average"].contains(environment["SIRIL_SEQUENCE_SECTION"] ?? "")
+            if sequenceCheck && averageCheck && (source.details.includedFrames?.count != 2 || result?.percent != 22) {
+                throw EngineError.failed("Sequence average did not load both included-frame measurements")
+            }
             if (environment["SIRIL_ANALYSIS_VIEW_CHECK"] == "1" || sequenceCheck), image != nil, result != nil {
-                let name = sequenceCheck ? "simulator-sequence-tilt-ready.txt" : "simulator-analysis-ready.txt"
+                let name = averageCheck ? "simulator-sequence-tilt-average-ready.txt" : sequenceCheck ? "simulator-sequence-tilt-ready.txt" : "simulator-analysis-ready.txt"
                 let marker = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(name)
-                let prefix = sequenceCheck ? "PASS: native sequence tilt" : "PASS: native analysis workspace tab 4"
+                let prefix = averageCheck ? "PASS: native sequence tilt average" : sequenceCheck ? "PASS: native sequence tilt" : "PASS: native analysis workspace tab 4"
                 try (prefix + " loaded original star fit, original polygon and quadrant/central/outer FWHM values.\n")
                     .write(to: marker, atomically: true, encoding: .utf8)
             }
-        } catch { result = nil; message = error.localizedDescription }
+        } catch is CancellationError { result = nil; message = "已取消分析。" }
+        catch { result = nil; message = error.localizedDescription }
     }
     @MainActor private func refresh() async {
         do { image = try await engine.preview(channel: settings.channel, settings: display).uiImage }
@@ -113,7 +136,16 @@ struct SensorTiltView: View {
     @MainActor private func calculate() async {
         guard !busy else { return }
         busy = true; message = ""; result = nil; defer { busy = false }
-        do { result = try await engine.sensorTilt(settings: settings) }
+        do { result = try await measure() }
+        catch is CancellationError { message = "已取消分析。" }
         catch { message = error.localizedDescription }
+    }
+    private func measure() async throws -> SensorTiltResult {
+        try Task.checkCancellation()
+        let measured: SensorTiltResult
+        if source.details.includedFrames != nil { measured = try await engine.sensorTiltAverage(source: source, settings: settings) }
+        else { measured = try await engine.sensorTilt(settings: settings) }
+        try Task.checkCancellation()
+        return measured
     }
 }
