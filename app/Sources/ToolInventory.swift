@@ -15,9 +15,9 @@ struct UpstreamFeature: Decodable, Identifiable {
         case "win.evaluate-noise":
             return "原版背景噪声已接入统计、选区/CFA与复制报告；真机未验收。"
         case "win.ccd-inspector", "win.show-tilt":
-            return "单张和普通/FITSEQ/SER 当前帧已接入原版分析与来源保护；整段平均倾斜和真机未验收。"
+            return "单张和普通/FITSEQ/SER 当前帧分析、参与帧平均倾斜与来源保护已通过数值和页面检查；真机未验收。"
         case "win.show-disto":
-            return "已接入图像 WCS 前置畸变模型、原版采样网格与 5 倍向量；数值和页面验收待确认。"
+            return "图像 WCS 前置畸变模型、原版采样网格与 5 倍向量已通过数值和页面检查；完整畸变解算仍待补齐。"
         default: return status
         }
     }

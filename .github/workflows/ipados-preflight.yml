@@ -385,6 +385,7 @@ jobs:
           diagnostics/native-sequence-tilt-simulator.png
           diagnostics/native-sequence-tilt-average-simulator.png
           diagnostics/native-sequence-stretch-simulator.png
+          diagnostics/native-sequence-filters-simulator.png
           diagnostics/native-sequence-inspector-simulator.png
         if-no-files-found: warn
     - name: Upload diagnostic files

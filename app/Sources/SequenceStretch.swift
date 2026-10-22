@@ -2,34 +2,36 @@
 import SwiftUI
 import SirilCore
 
-enum SequenceStretch {
-    static let tools: [NativeTool] = [.mtf, .ghs, .inverseGHS, .modifiedAsinh, .inverseModifiedAsinh, .linearStretch]
+enum SequenceImageTools {
+    static let stretches: [NativeTool] = [.mtf, .ghs, .inverseGHS, .modifiedAsinh, .inverseModifiedAsinh, .linearStretch]
+    static let filters: [NativeTool] = [.banding, .wavelets]
+    static var tools: [NativeTool] { stretches + filters }
     static func command(_ recipe: NativeToolRecipe, file: FITSRecord, sequence: String) throws -> String {
         guard tools.contains(recipe.tool), recipe.mask.number("mode") == 0, recipe.previewRegion == nil else {
-            throw EngineError.failed("此序列入口仅支持整帧拉伸，请关闭单张蒙版和预览选区。")
+            throw EngineError.failed("此序列入口仅支持整帧处理，请关闭单张蒙版和预览选区。")
         }
         let script = try recipe.commands(file: file, topDown: false)
         guard let line = script.split(separator: "\n").last,
-              let split = line.firstIndex(of: " ") else { throw EngineError.failed("原版拉伸命令无效。") }
+              let split = line.firstIndex(of: " ") else { throw EngineError.failed("原版序列命令无效。") }
         let name = String(line[..<split])
-        guard ["mtf", "ght", "invght", "modasinh", "invmodasinh", "linstretch"].contains(name) else {
-            throw EngineError.failed("当前参数没有对应的原版序列拉伸命令。")
+        guard ["mtf", "ght", "invght", "modasinh", "invmodasinh", "linstretch", "fixbanding", "atrous"].contains(name) else {
+            throw EngineError.failed("当前参数没有对应的原版序列命令。")
         }
         return "set32bits\nseq" + name + " " + sequence + String(line[split...]) + " -prefix=$PREFIX"
     }
 }
 extension SirilEngine {
-    func sequenceStretchFile(_ location: SequenceLocation) throws -> FITSRecord {
+    func sequenceToolFile(_ location: SequenceLocation) throws -> FITSRecord {
         let snapshot = try inspectSequence(location)
         guard let first = snapshot.frames.first(where: \.included), [1, 3].contains(Int(snapshot.info.layers)),
               first.native.width > 0, first.native.height > 0 else { throw EngineError.failed("请至少选择一张有效参与帧。") }
         return FITSRecord(url: try sequenceFolder(location).appendingPathComponent(location.name), width: Int(first.native.width),
             height: Int(first.native.height), channels: Int(snapshot.info.layers), exposure: 0)
     }
-    func applySequenceStretch(_ location: SequenceLocation, recipe: NativeToolRecipe) throws -> SequenceLocation {
+    func applySequenceTool(_ location: SequenceLocation, recipe: NativeToolRecipe) throws -> SequenceLocation {
         let before = try inspectSequence(location), selected = before.frames.filter(\.included)
         guard location.base.utf8.count < 180 else { throw EngineError.failed("序列名称过长，请使用较短的来源序列名称。") }
-        let command = try SequenceStretch.command(recipe, file: sequenceStretchFile(location), sequence: sequenceCommandName(location))
+        let command = try SequenceImageTools.command(recipe, file: sequenceToolFile(location), sequence: sequenceCommandName(location))
         let process = try sequenceFolder(location), root = process.deletingLastPathComponent()
         let sourceURL = process.appendingPathComponent(location.name), sourceBytes = try Data(contentsOf: sourceURL)
         let runID = UUID(), prefix = "r_" + runID.uuidString.replacingOccurrences(of: "-", with: "") + "_"
@@ -37,14 +39,14 @@ extension SirilEngine {
         let output = SequenceLocation(job: location.job, name: prefix + location.name)
         do {
             _ = try runSequenceCommand(location, command: command, title: "序列 · " + recipe.tool.title, producesSequence: true, runID: runID)
-            try JSONEncoder().encode(recipe).write(to: folder.appendingPathComponent("stretch.json"), options: .atomic)
+            try JSONEncoder().encode(recipe).write(to: folder.appendingPathComponent(SequenceImageTools.filters.contains(recipe.tool) ? "filter.json" : "stretch.json"), options: .atomic)
             siril_release_workspace()
             if try Data(contentsOf: sourceURL) != sourceBytes { try sourceBytes.write(to: sourceURL, options: .atomic) }
             let generated = try inspectSequence(output)
             guard generated.frames.count == selected.count, generated.info.layers == before.info.layers,
                   zip(generated.frames, selected).allSatisfy({ $0.0.native.width == $0.1.native.width && $0.0.native.height == $0.1.native.height }),
                   before.info.type != 0 || generated.frames.map({ $0.native.file_number }) == selected.map({ $0.native.file_number }) else {
-                throw EngineError.failed("序列拉伸输出不完整，或帧编号、尺寸、通道不匹配。")
+                throw EngineError.failed("序列处理输出不完整，或帧编号、尺寸、通道不匹配。")
             }
             var error = [CChar](repeating: 0, count: 512); let capacity = error.count
             for frame in generated.frames {
@@ -55,13 +57,13 @@ extension SirilEngine {
             }
             let reference = selected.firstIndex(where: { $0.id == Int(before.info.reference) }) ?? -1
             try editSequence(output, selection: SequenceSelection(included: Array(repeating: true, count: selected.count), reference: reference))
-            try writeJobState(folder, state: "已完成", message: "全部参与帧已拉伸并验证。")
+            try writeJobState(folder, state: "已完成", message: "全部参与帧已处理并验证。")
             return output
         } catch {
             siril_release_workspace()
             if FileManager.default.fileExists(atPath: folder.path) {
-                try? JSONEncoder().encode(recipe).write(to: folder.appendingPathComponent("stretch.json"), options: .atomic)
-                try? writeJobState(folder, state: "拉伸失败或取消", message: error.localizedDescription)
+                try? JSONEncoder().encode(recipe).write(to: folder.appendingPathComponent(SequenceImageTools.filters.contains(recipe.tool) ? "filter.json" : "stretch.json"), options: .atomic)
+                try? writeJobState(folder, state: "处理失败或取消", message: error.localizedDescription)
                 let manifest = folder.appendingPathComponent("output-sequence.json")
                 if FileManager.default.fileExists(atPath: manifest.path) { try FileManager.default.removeItem(at: manifest) }
             }
@@ -74,7 +76,7 @@ extension SirilEngine {
                 for item in try FileManager.default.contentsOfDirectory(at: parent, includingPropertiesForKeys: [.isRegularFileKey]) where item.lastPathComponent.hasPrefix(prefix) {
                     let file = try owned(item.lastPathComponent, under: parent)
                     guard try file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
-                        throw EngineError.failed("拉伸输出清理遇到非普通文件。")
+                        throw EngineError.failed("处理输出清理遇到非普通文件。")
                     }
                     try FileManager.default.removeItem(at: file)
                 }
@@ -91,7 +93,11 @@ struct SequenceStretchView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var file: FITSRecord?
     @State private var recipe: NativeToolRecipe?
-    @State private var tool = NativeTool.mtf
+    @State private var tool: NativeTool
+    init(location: SequenceLocation, engine: SirilEngine, initialTool: NativeTool = .mtf, onOutput: @escaping @MainActor (SequenceLocation) async throws -> Void) {
+        self.location = location; self.engine = engine; self.onOutput = onOutput
+        _tool = State(initialValue: initialTool)
+    }
     @State private var busy = false
     @State private var message = ""
     @State private var output: SequenceLocation?
@@ -99,13 +105,13 @@ struct SequenceStretchView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("原版序列拉伸") {
+                Section("原版序列处理") {
                     Text(location.name)
                     LabeledContent("参与帧", value: String(includedCount))
                     Picker("工具", selection: $tool) {
-                        ForEach(SequenceStretch.tools, id: \.self) { Text($0.title).tag($0) }
+                        ForEach(SequenceImageTools.tools, id: \.self) { Text($0.title).tag($0) }
                     }.disabled(busy)
-                    Text("仅处理参与帧，结果独立保存；沿用原版逐帧工作器，不覆盖输入。每帧独立拉伸，不作帧间亮度归一化。")
+                    Text("仅处理参与帧，结果独立保存。各帧分别应用参数，不作帧间亮度归一化。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 if let recipe {
@@ -120,16 +126,18 @@ struct SequenceStretchView: View {
                     if !message.isEmpty { Text(message).foregroundStyle(.red).textSelection(.enabled) }
                 }
             }
-            .navigationTitle("序列拉伸")
+            .navigationTitle("序列处理")
             .toolbar { Button("关闭") { dismiss() }.disabled(busy) }
             .task {
                 do {
                     includedCount = Int(try await engine.inspectSequence(location).info.included)
-                    let metadata = try await engine.sequenceStretchFile(location); file = metadata; recipe = NativeToolRecipe(tool: tool, file: metadata)
-                    if ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_VIEW_CHECK"] == "1" && ProcessInfo.processInfo.environment["SIRIL_SEQUENCE_SECTION"] == "stretch" {
-                        recipe?.values["mid"] = 0.3
-                        let marker = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-sequence-stretch-ready.txt")
-                        try "PASS: native sequence stretch loaded original six workers, frame selection and shared parameter controls.\n".write(to: marker, atomically: true, encoding: .utf8)
+                    let metadata = try await engine.sequenceToolFile(location); file = metadata; recipe = NativeToolRecipe(tool: tool, file: metadata)
+                    let environment = ProcessInfo.processInfo.environment
+                    if environment["SIRIL_SEQUENCE_VIEW_CHECK"] == "1", let section = environment["SIRIL_SEQUENCE_SECTION"], ["stretch", "filters"].contains(section) {
+                        if section == "stretch" { recipe?.values["mid"] = 0.3 }
+                        else { recipe?.values["amount"] = 0.5; recipe?.values["protect"] = 1; recipe?.values["vertical"] = 1 }
+                        let marker = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-sequence-" + section + "-ready.txt")
+                        try ("PASS: native sequence " + section + " loaded original workers, frame selection and shared parameter controls.\n").write(to: marker, atomically: true, encoding: .utf8)
                     }
                 }
                 catch { message = error.localizedDescription }
@@ -143,7 +151,7 @@ struct SequenceStretchView: View {
         busy = true; output = nil; message = ""; UIApplication.shared.isIdleTimerDisabled = true
         defer { busy = false; UIApplication.shared.isIdleTimerDisabled = false }
         do {
-            let result = try await engine.applySequenceStretch(location, recipe: recipe)
+            let result = try await engine.applySequenceTool(location, recipe: recipe)
             output = result; try await onOutput(result)
         } catch { message = error.localizedDescription }
     }

@@ -73,13 +73,13 @@ extension SirilEngine {
             let sourceIndex = try Data(contentsOf: process.appendingPathComponent(location.name))
             let sourcePaths = try sequenceFilePaths(location)
             let sources = try sourcePaths.map { try Data(contentsOf: sequenceKeywordSource($0, under: root)) }
-            let metadata = try sequenceStretchFile(location)
-            for tool in SequenceStretch.tools {
+            let metadata = try sequenceToolFile(location)
+            for tool in SequenceImageTools.stretches {
                 var recipe = NativeToolRecipe(tool: tool, file: metadata)
                 if tool == .mtf { recipe.values["mid"] = 0.3; recipe.values["channels"] = 1 }
                 else if tool == .linearStretch { recipe.values["BP"] = 0.1 }
                 else { recipe.values["D"] = 0.5; recipe.values["SP"] = 0.2 }
-                let output = try applySequenceStretch(location, recipe: recipe)
+                let output = try applySequenceTool(location, recipe: recipe)
                 let generated = try inspectSequence(output)
                 try require(generated.frames.count == 2 && generated.selection.reference == 1 && generated.selection.included == [true, true], "output selection/reference")
                 for (index, sourceFrame) in [0, 2].enumerated() {
@@ -114,7 +114,7 @@ extension SirilEngine {
             }
             var invalid = NativeToolRecipe(tool: .mtf, file: metadata); invalid.values["low"] = 0.8; invalid.values["high"] = 0.2
             var rejected = false
-            do { _ = try applySequenceStretch(location, recipe: invalid) } catch { rejected = true }
+            do { _ = try applySequenceTool(location, recipe: invalid) } catch { rejected = true }
             try require(rejected, "invalid parameters accepted")
             if location == regularLocation {
                 try editSequence(location, selection: SequenceSelection(included: [true, false, true], reference: 0))
@@ -130,7 +130,7 @@ extension SirilEngine {
                     defer { try? fm.moveItem(at: withheld, to: missing) }
                     let valid = NativeToolRecipe(tool: .mtf, file: metadata)
                     rejected = false
-                    do { _ = try applySequenceStretch(location, recipe: valid) } catch { rejected = true }
+                    do { _ = try applySequenceTool(location, recipe: valid) } catch { rejected = true }
                     try require(rejected, "partially readable sequence was published")
                     let failedRuns = Set(try fm.contentsOfDirectory(atPath: runs.path)).subtracting(existingRuns)
                     try require(failedRuns.count == 1, "failed run record missing")

@@ -565,6 +565,8 @@ struct ContentView: View {
             try await engine.sequenceBackgroundSelfTest()
             try await engine.sequenceStretchSelfTest()
             checkpoint("PASS: six original sequence stretch workers matched original single-frame and independent MTF/linear pixels across regular/FITSEQ/SER; inclusion/reference, result undo/redo and source preservation verified")
+            try await engine.sequenceFilterSelfTest()
+            checkpoint("PASS: original sequence banding and wavelet workers matched same-bit-depth single workers across regular/FITSEQ/SER; independent horizontal/vertical stripes, identity wavelet, both kernels, VST/denoise, inclusion/reference, history, source bytes and partial failure cleanup verified")
             checkpoint("START: native image tool checks")
             try await engine.nativeToolSelfTest()
             checkpoint("START: PSF/photometry checks")
