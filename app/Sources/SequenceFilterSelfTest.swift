@@ -147,7 +147,8 @@ extension SirilEngine {
                     defer { try? fm.moveItem(at: withheld, to: missing) }
                     for tool in SequenceImageTools.filters {
                         let runs = root.appendingPathComponent("SequenceRuns"), existing = Set(try fm.contentsOfDirectory(atPath: runs.path))
-                        var recipe = NativeToolRecipe(tool: tool, file: metadata); recipe.values["layers"] = 2
+                        var recipe = NativeToolRecipe(tool: tool, file: metadata)
+                        if tool == .wavelets { recipe.values["layers"] = 2 }
                         var rejected = false
                         do { _ = try applySequenceTool(location, recipe: recipe) } catch { rejected = true }
                         try require(rejected, "partial filter output accepted")
