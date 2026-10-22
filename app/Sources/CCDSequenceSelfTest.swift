@@ -78,9 +78,13 @@ extension SirilEngine {
         let reader = ImageAnalysisEngine()
         for location in locations {
             let process = try sequenceFolder(location), root = process.deletingLastPathComponent()
-            let paths = try sequenceFilePaths(location)
+            // The ownership list also contains the .seq index, which this
+            // test intentionally edits between its two inclusion scenarios.
+            // Check that index separately within each read-only phase.
+            let paths = try sequenceFilePaths(location).filter { $0 != "process/" + location.name }
             let sources = try paths.map { try Data(contentsOf: sequenceKeywordSource($0, under: root)) }
             try editSequence(location, selection: SequenceSelection(included: [true, true], reference: 1))
+            let meanIndex = try Data(contentsOf: process.appendingPathComponent(location.name))
             let meanFiles = Set(try fm.contentsOfDirectory(atPath: process.path))
             let meanSource = try ccdSequenceSource(location)
             try require(meanSource.details.includedFrames == [0, 1], "included-frame average source")
@@ -111,6 +115,7 @@ extension SirilEngine {
             rejected = false
             do { _ = try await cancelled.value } catch is CancellationError { rejected = true }
             try require(rejected, "cancelled average published a result")
+            try require(try Data(contentsOf: process.appendingPathComponent(location.name)) == meanIndex, "average changed source index bytes")
             try require(try Set(fm.contentsOfDirectory(atPath: process.path)) == meanFiles, "average created processing files")
             try editSequence(location, selection: SequenceSelection(included: [false, true], reference: 1))
             let bytes = try Data(contentsOf: process.appendingPathComponent(location.name))
@@ -146,7 +151,7 @@ extension SirilEngine {
             try require(try inspectSequence(location).selection == SequenceSelection(included: [false, true], reference: 1) &&
                 Data(contentsOf: process.appendingPathComponent(location.name)) == bytes, "analysis changed source selection/reference or index bytes")
             for (i, path) in paths.enumerated() {
-                try require(try Data(contentsOf: sequenceKeywordSource(path, under: root)) == sources[i], "analysis changed a source frame/container")
+                try require(try Data(contentsOf: sequenceKeywordSource(path, under: root)) == sources[i], "analysis changed a source frame/container: " + location.name + " / " + path)
             }
             try require(try Set(fm.contentsOfDirectory(atPath: process.path)) == files, "read-only inspection expanded source frames or wrote processing files")
         }

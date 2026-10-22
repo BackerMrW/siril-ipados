@@ -121,7 +121,9 @@ extension SirilEngine {
                 let beforeFailure = try Data(contentsOf: process.appendingPathComponent(location.name))
                 let runs = root.appendingPathComponent("SequenceRuns")
                 let existingRuns = Set(try fm.contentsOfDirectory(atPath: runs.path))
-                let missing = try sequenceKeywordSource(sourcePaths[2], under: root)
+                let framePaths = sourcePaths.filter { $0.split(separator: "/").count == 2 && !$0.hasSuffix(".seq") }
+                try require(framePaths.count == 3, "regular fixture frame ownership list")
+                let missing = try sequenceKeywordSource(framePaths[2], under: root)
                 let withheld = scratch.appendingPathComponent("withheld.fits")
                 try fm.moveItem(at: missing, to: withheld)
                 do {
