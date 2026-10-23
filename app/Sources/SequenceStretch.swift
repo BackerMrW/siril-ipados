@@ -86,6 +86,12 @@ extension SirilEngine {
     }
 }
 
+struct SequenceToolRequest: Identifiable {
+    let id = UUID()
+    let location: SequenceLocation
+    let tool: NativeTool
+}
+
 struct SequenceStretchView: View {
     let location: SequenceLocation
     let engine: SirilEngine
@@ -134,8 +140,12 @@ struct SequenceStretchView: View {
                     let metadata = try await engine.sequenceToolFile(location); file = metadata; recipe = NativeToolRecipe(tool: tool, file: metadata)
                     let environment = ProcessInfo.processInfo.environment
                     if environment["SIRIL_SEQUENCE_VIEW_CHECK"] == "1", let section = environment["SIRIL_SEQUENCE_SECTION"], ["stretch", "filters"].contains(section) {
+                        guard tool == (section == "filters" ? NativeTool.banding : .mtf), recipe?.tool == tool else {
+                            throw EngineError.failed("Sequence tool entry did not select its requested tool")
+                        }
                         if section == "stretch" { recipe?.values["mid"] = 0.3 }
                         else { recipe?.values["amount"] = 0.5; recipe?.values["protect"] = 1; recipe?.values["vertical"] = 1 }
+                        try recipe?.validate(file: metadata)
                         let marker = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("simulator-sequence-" + section + "-ready.txt")
                         try ("PASS: native sequence " + section + " loaded original workers, frame selection and shared parameter controls.\n").write(to: marker, atomically: true, encoding: .utf8)
                     }
